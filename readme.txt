@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.0.0
+Stable tag:        1.0.1
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,6 +73,15 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.0.1 =
+* Fix: running the Free and Pro editions simultaneously on the same site is now
+  blocked — activating Free while Pro is already active shows a clear "Plugin
+  Conflict" error instead of silently double-registering the REST route, daily
+  GC cron, and search index tables.
+* Fix: garbage-collection cron no longer references the analytics log table
+  (`wcs_search_log`), which this edition never creates; the prune block was
+  unreachable dead code inherited during the initial port.
 
 = 1.0.0 =
 * Initial WordPress.org release — the free core edition of Turbo Search for WooCommerce. Live product search using native MySQL/MariaDB FULLTEXT indexing, background indexing via Action Scheduler, live index sync on product save/delete/stock change, multi-layer result caching (object cache / APCu / transients), search across title/SKU/content/categories, and full WooCommerce Multisite support.
