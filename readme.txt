@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.0.1
+Stable tag:        1.0.2
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -73,6 +73,11 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.0.2 =
+* Fix: removed the Plugin Name header from the companion MU cache-bypass file
+  to prevent WordPress from listing it as a separate plugin or generating
+  incorrect activation links during install.
 
 = 1.0.1 =
 * Fix: running the Free and Pro editions simultaneously on the same site is now

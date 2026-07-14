@@ -1,14 +1,15 @@
 <?php
 /*
-Plugin Name: Turbo Search for WooCommerce Cache Bypass
-Plugin URI:  https://github.com/wporg/turbo-search-for-woocommerce
-Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
-Version:     1.5.0
-Author:      Ozulabs
-Author URI:  https://ozulabs.com
-License:     GPLv2 or later
-Text Domain: turbo-search-for-woocommerce
-*/
+ * Turbo Search for WooCommerce Cache Bypass
+ *
+ * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
+ * Version:     1.5.0
+ * Author:      Ozulabs
+ * Author URI:  https://ozulabs.com
+ * License:     GPLv2 or later
+ * Text Domain: turbo-search-for-woocommerce
+ */
+
 
 declare(strict_types=1);
 
