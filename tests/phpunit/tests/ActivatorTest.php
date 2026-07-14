@@ -192,4 +192,22 @@ final class ActivatorTest extends TestCase {
 		$this->assertNotNull( $first );
 		$this->assertSame( $first, $GLOBALS['wcs_test_cron']['wcs_daily_transient_gc'] );
 	}
+
+	// ── Mutual exclusivity with the Pro edition ──────────────────────────────
+
+	public function test_pro_edition_not_detected_when_absent(): void {
+		$this->assertFalse( Activator::is_pro_edition_active() );
+	}
+
+	public function test_pro_edition_detected_when_active(): void {
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		$this->assertTrue( Activator::is_pro_edition_active() );
+	}
+
+	public function test_unrelated_active_plugins_do_not_trigger_detection(): void {
+		$GLOBALS['wcs_test_active_plugins'] = array( 'woocommerce/woocommerce.php' );
+
+		$this->assertFalse( Activator::is_pro_edition_active() );
+	}
 }

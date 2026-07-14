@@ -202,7 +202,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	public function test_zero_result_searches_are_never_logged(): void {
 		$this->request( array( 'q' => 'unfindable thing' ) );
 
-		$log = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_zero_hits' ) ) );
+		$log = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
 		$this->assertSame( array(), $log );
 	}
 
@@ -211,7 +211,7 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$this->request( array( 'q' => 'lamp' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_zero_hits' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
 	}
 
 	public function test_first_run_empty_results_are_not_logged(): void {
@@ -219,7 +219,7 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$this->request( array( 'q' => 'lamp' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_zero_hits' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
 	}
 
 	// ── Taxonomy suggestions (Pro feature — always inert in this edition) ───
@@ -253,7 +253,7 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$this->request( array( 'q' => 'unfindable' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_zero_hits' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
 	}
 
 	// ── Corrected-query header (typo correction is a Pro feature) ───────────

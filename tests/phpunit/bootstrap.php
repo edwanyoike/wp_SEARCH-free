@@ -90,6 +90,8 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_marked_failed'] = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
+	$GLOBALS['wcs_test_active_plugins']       = array();
+	$GLOBALS['wcs_test_deactivated_plugins']  = array();
 	$GLOBALS['wcs_test_primed']        = array();
 	$GLOBALS['wcs_test_on_sale_ids']   = array();
 	$GLOBALS['wcs_test_transient_read_hook'] = null;
@@ -285,6 +287,19 @@ function wp_verify_nonce( $nonce, $action = -1 ) {
 }
 function wp_using_ext_object_cache(): bool {
 	return ! empty( $GLOBALS['wcs_test_ext_cache'] );
+}
+function is_plugin_active( string $plugin ): bool {
+	return in_array( $plugin, $GLOBALS['wcs_test_active_plugins'] ?? array(), true );
+}
+function deactivate_plugins( $plugins ): void {
+	$GLOBALS['wcs_test_deactivated_plugins'] = array_merge(
+		$GLOBALS['wcs_test_deactivated_plugins'] ?? array(),
+		(array) $plugins
+	);
+	$GLOBALS['wcs_test_active_plugins'] = array_values( array_diff(
+		$GLOBALS['wcs_test_active_plugins'] ?? array(),
+		(array) $plugins
+	) );
 }
 function wp_cache_add( $key, $data, $group = '', $expire = 0 ): bool {
 	return (bool) $GLOBALS['wcs_test_cache_add'];

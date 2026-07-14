@@ -1314,28 +1314,14 @@ class Indexer {
 	}
 
 	/**
-	 * Garbage collect orphaned transients and prune the zero-result log.
+	 * Garbage collect orphaned transients.
 	 */
 	public static function run_transient_gc(): void {
 		global $wpdb;
 
-		// Prune the zero-result search log to its 500 most frequent entries.
-		// Runs regardless of the object-cache backend (it is a real table).
-		// $zero_table is $wpdb->prefix + a fixed literal suffix — never user input.
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter
-		$zero_table = $wpdb->prefix . 'wcs_zero_hits';
-		$suppress   = $wpdb->suppress_errors( true );
-		$zero_count = (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$zero_table}" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-		if ( $zero_count > 500 ) {
-			$wpdb->query( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				"DELETE zh FROM {$zero_table} zh
-				 LEFT JOIN ( SELECT query FROM {$zero_table} ORDER BY hits DESC, last_seen DESC LIMIT 500 ) keep
-				   ON keep.query = zh.query
-				 WHERE keep.query IS NULL"
-			);
-		}
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter
-		$wpdb->suppress_errors( $suppress );
+		// Search analytics logging (and its retention prune) is a Pro
+		// feature — this edition never creates wcs_search_log, so there is
+		// nothing to prune here.
 
 		if ( wp_using_ext_object_cache() ) {
 			return; // Redis/Memcached handle their own transient TTL eviction.

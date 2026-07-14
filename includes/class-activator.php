@@ -316,8 +316,8 @@ class Activator {
 			}
 		}
 
-		// Zero-result search analytics and the typo-correction vocabulary
-		// sidecar (wcs_zero_hits / wcs_search_terms) are Pro features — this
+		// Search analytics (wcs_search_log) and the typo-correction
+		// vocabulary sidecar (wcs_search_terms) are Pro features — this
 		// edition never creates those tables.
 
 		// Surface schema failures instead of failing silently. Without this, a
@@ -358,6 +358,14 @@ class Activator {
 	}
 
 	/**
+	 * The Pro edition's plugin basename, as shipped (folder name from its
+	 * own build.sh PLUGIN_SLUG). Renaming the installed folder defeats this
+	 * detection — the same limitation every "detect a sibling plugin" check
+	 * in WordPress has (there is no other stable cross-plugin identifier).
+	 */
+	private const PRO_EDITION_BASENAME = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
+
+	/**
 	 * Verify environment meets requirements.
 	 * @codeCoverageIgnore Calls wp_die; activation context.
 	 */
@@ -366,6 +374,26 @@ class Activator {
 			deactivate_plugins( plugin_basename( dirname( __DIR__ ) . '/turbo-search-for-woocommerce.php' ) );
 			wp_die( esc_html__( 'Turbo Search for WooCommerce requires WooCommerce to be active.', 'turbo-search-for-woocommerce' ), 'Plugin Dependency Error', array( 'back_link' => true ) );
 		}
+
+		if ( self::is_pro_edition_active() ) {
+			deactivate_plugins( plugin_basename( dirname( __DIR__ ) . '/turbo-search-for-woocommerce.php' ) );
+			wp_die(
+				esc_html__( 'Turbo Search for WooCommerce Pro is already active on this site. Deactivate Pro first if you want to switch to the free edition — running both at once is not supported.', 'turbo-search-for-woocommerce' ),
+				'Plugin Conflict',
+				array( 'back_link' => true )
+			);
+		}
+	}
+
+	/**
+	 * Not @codeCoverageIgnore'd — unlike check_requirements() itself, this
+	 * never calls wp_die() and is safe to unit test directly.
+	 */
+	public static function is_pro_edition_active(): bool {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		return is_plugin_active( self::PRO_EDITION_BASENAME );
 	}
 
 	/**
