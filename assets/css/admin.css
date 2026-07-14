@@ -1,0 +1,84 @@
+/* Turbo Search for WooCommerce — settings page styles */
+
+.wcs-tooltip {
+	position: relative;
+	display: inline-block;
+	cursor: pointer;
+	margin-left: 6px;
+	vertical-align: middle;
+}
+.wcs-tooltip .wcs-tooltip-text {
+	visibility: hidden;
+	width: 280px;
+	background-color: #2c3338;
+	color: #fff;
+	text-align: left;
+	border-radius: 4px;
+	padding: 10px 12px;
+	position: absolute;
+	z-index: 100;
+	bottom: 130%;
+	left: 50%;
+	transform: translateX(-50%);
+	opacity: 0;
+	transition: opacity 0.2s, visibility 0.2s;
+	font-size: 12px;
+	line-height: 1.4;
+	font-weight: normal;
+	box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+}
+.wcs-tooltip .wcs-tooltip-text::after {
+	content: "";
+	position: absolute;
+	top: 100%;
+	left: 50%;
+	margin-left: -5px;
+	border-width: 5px;
+	border-style: solid;
+	border-color: #2c3338 transparent transparent transparent;
+}
+.wcs-tooltip:hover .wcs-tooltip-text {
+	visibility: visible;
+	opacity: 1;
+}
+.wcs-tooltip-icon {
+	background: #2271b1;
+	color: #fff;
+	border-radius: 50%;
+	width: 16px;
+	height: 16px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 11px;
+	font-weight: bold;
+}
+.wcs-tooltip-icon:hover {
+	background: #135e96;
+}
+.wcs-doc-section {
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	box-shadow: 0 1px 1px rgba(0,0,0,.04);
+	padding: 20px;
+	margin-top: 20px;
+	max-width: 800px;
+	border-radius: 4px;
+}
+.wcs-doc-section h2 {
+	margin-top: 0;
+	border-bottom: 1px solid #f0f0f1;
+	padding-bottom: 10px;
+}
+.wcs-doc-section code {
+	background: #f0f0f1;
+	padding: 3px 6px;
+	border-radius: 3px;
+}
+.wcs-doc-section pre {
+	background: #f0f0f1;
+	padding: 12px;
+	overflow: auto;
+	font-size: 12px;
+	border-radius: 4px;
+}

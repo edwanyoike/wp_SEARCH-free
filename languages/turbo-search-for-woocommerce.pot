@@ -1,0 +1,355 @@
+# Copyright (C) 2026 Ozulabs
+# This file is distributed under the GPLv2 or later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Turbo Search for WooCommerce 1.3.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/wp_search\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-06-24T15:04:48+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: turbo-search-for-woocommerce\n"
+
+#. Plugin Name of the plugin
+#: turbo-search-for-woocommerce.php
+msgid "Turbo Search for WooCommerce"
+msgstr ""
+
+#. Plugin URI of the plugin
+#: turbo-search-for-woocommerce.php
+msgid "https://github.com/wporg/turbo-search-for-woocommerce"
+msgstr ""
+
+#. Description of the plugin
+#: turbo-search-for-woocommerce.php
+msgid "A high-performance, zero-dependency WooCommerce search engine using native FULLTEXT indexing."
+msgstr ""
+
+#. Author of the plugin
+#: turbo-search-for-woocommerce.php
+msgid "Ozulabs"
+msgstr ""
+
+#. Author URI of the plugin
+#: turbo-search-for-woocommerce.php
+msgid "https://ozulabs.com"
+msgstr ""
+
+#: includes/class-activator.php:226
+msgid "Turbo Search for WooCommerce requires WooCommerce to be active."
+msgstr ""
+
+#: includes/class-admin-settings.php:87
+msgid "Turbo Search for WooCommerce — Action Scheduler Not Found"
+msgstr ""
+
+#: includes/class-admin-settings.php:90
+msgid "Turbo Search for WooCommerce requires Action Scheduler to queue background indexing jobs. Action Scheduler is bundled with WooCommerce — please ensure WooCommerce is active. Without it, product indexing and live sync will not run."
+msgstr ""
+
+#: includes/class-admin-settings.php:103
+msgid "Turbo Search for WooCommerce — Cache Bypass Not Active"
+msgstr ""
+
+#: includes/class-admin-settings.php:107
+msgid "The cache-bypass file could not be installed into your wp-content/mu-plugins/ directory — your host may have it set to read-only. The plugin is fully functional and serving search results, but cached responses will use the standard WordPress REST route instead of the faster early-exit path."
+msgstr ""
+
+#: includes/class-admin-settings.php:113
+msgid "To unlock maximum speed: ask your host to allow writes to wp-content/mu-plugins/, then deactivate and reactivate Turbo Search for WooCommerce."
+msgstr ""
+
+#: includes/class-admin-settings.php:124
+msgid "Turbo Search for WooCommerce — Tip: Enable a Persistent Object Cache"
+msgstr ""
+
+#: includes/class-admin-settings.php:128
+msgid "Your site is currently caching search results in the database (wp_options). Everything works correctly, but adding a Redis or Memcached object cache will make cached search queries return in under 5 ms instead of a database round-trip."
+msgstr ""
+
+#: includes/class-admin-settings.php:134
+msgid "Recommended: install the free \"Redis Object Cache\" plugin and enable Redis on your hosting plan."
+msgstr ""
+
+#: includes/class-admin-settings.php:180
+#: includes/class-admin-settings.php:353
+msgid "Settings"
+msgstr ""
+
+#: includes/class-admin-settings.php:191
+msgid "Turbo Search Settings"
+msgstr ""
+
+#: includes/class-admin-settings.php:192
+msgid "Turbo Search"
+msgstr ""
+
+#: includes/class-admin-settings.php:272
+msgid "Turbo Search for WooCommerce Settings"
+msgstr ""
+
+#: includes/class-admin-settings.php:354
+msgid "Documentation"
+msgstr ""
+
+#: includes/class-admin-settings.php:359
+msgid "Index Status"
+msgstr ""
+
+#: includes/class-admin-settings.php:362
+#: includes/class-admin-settings.php:588
+#: includes/class-admin-settings.php:631
+msgid "Status: Indexing..."
+msgstr ""
+
+#: includes/class-admin-settings.php:364
+#: includes/class-admin-settings.php:593
+msgid "Status: Idle / Complete"
+msgstr ""
+
+#. translators: 1: number of processed products, 2: total products
+#: includes/class-admin-settings.php:370
+#: includes/class-admin-settings.php:572
+#, php-format
+msgid "Processed %1$d of %2$d published products."
+msgstr ""
+
+#. translators: %s: human-readable time ago string
+#: includes/class-admin-settings.php:377
+#, php-format
+msgid "Last indexed: %s ago"
+msgstr ""
+
+#: includes/class-admin-settings.php:380
+msgid "Last indexed: never"
+msgstr ""
+
+#: includes/class-admin-settings.php:384
+msgid "Rebuild Index"
+msgstr ""
+
+#: includes/class-admin-settings.php:394
+msgid "Results Count"
+msgstr ""
+
+#: includes/class-admin-settings.php:397
+msgid "The maximum number of matches shown to users in the live dropdown panel."
+msgstr ""
+
+#: includes/class-admin-settings.php:402
+msgid "Number of items to show in the search dropdown."
+msgstr ""
+
+#: includes/class-admin-settings.php:407
+msgid "Minimum Characters"
+msgstr ""
+
+#: includes/class-admin-settings.php:410
+msgid "The minimum number of characters typed in the search field before triggering auto-complete search."
+msgstr ""
+
+#: includes/class-admin-settings.php:415
+msgid "Triggers the search dropdown after this many characters."
+msgstr ""
+
+#: includes/class-admin-settings.php:420
+msgid "Out of Stock Products"
+msgstr ""
+
+#: includes/class-admin-settings.php:423
+msgid "Toggle to show or hide products that are currently out of stock from search results."
+msgstr ""
+
+#: includes/class-admin-settings.php:430
+msgid "Show out of stock products in search results."
+msgstr ""
+
+#: includes/class-admin-settings.php:437
+msgid "Search Fields Weighting"
+msgstr ""
+
+#: includes/class-admin-settings.php:440
+msgid "Select which fields are compiled into the search index. Unchecking unused fields optimizes match quality and speed. Note: You must rebuild the index after modifying these."
+msgstr ""
+
+#: includes/class-admin-settings.php:448
+msgid "Product Title"
+msgstr ""
+
+#: includes/class-admin-settings.php:454
+msgid "Product SKU"
+msgstr ""
+
+#: includes/class-admin-settings.php:460
+msgid "Short Description / Content"
+msgstr ""
+
+#: includes/class-admin-settings.php:466
+msgid "Product Categories & Tags"
+msgstr ""
+
+#: includes/class-admin-settings.php:474
+msgid "Delete Data on Uninstall"
+msgstr ""
+
+#: includes/class-admin-settings.php:477
+msgid "If enabled, all database tables, options, transients, and user meta created by the plugin will be deleted when you uninstall."
+msgstr ""
+
+#: includes/class-admin-settings.php:484
+msgid "Delete all plugin data and tables when deleting the plugin."
+msgstr ""
+
+#: includes/class-admin-settings.php:494
+msgid "Danger Zone"
+msgstr ""
+
+#: includes/class-admin-settings.php:495
+msgid "Immediately drop the search index tables, delete all plugin options and cached transients, and cancel pending background jobs. The plugin stays active and the index table is recreated on the next page load — you will need to trigger a Rebuild Index afterwards."
+msgstr ""
+
+#: includes/class-admin-settings.php:497
+msgid "Delete All Plugin Data Now"
+msgstr ""
+
+#: includes/class-admin-settings.php:504
+msgid "Getting Started"
+msgstr ""
+
+#: includes/class-admin-settings.php:506
+msgid "Go to the Settings tab and click Rebuild Index. This runs once in the background and indexes all your products."
+msgstr ""
+
+#: includes/class-admin-settings.php:507
+msgid "Once complete, the search box on your store shows instant live results as customers type."
+msgstr ""
+
+#: includes/class-admin-settings.php:508
+msgid "After that, the index updates automatically whenever you add, edit, or delete a product — no manual action needed."
+msgstr ""
+
+#: includes/class-admin-settings.php:513
+msgid "What Triggers a Re-index?"
+msgstr ""
+
+#: includes/class-admin-settings.php:517
+msgid "Action"
+msgstr ""
+
+#: includes/class-admin-settings.php:518
+msgid "What happens"
+msgstr ""
+
+#: includes/class-admin-settings.php:523
+msgid "Save or update a product"
+msgstr ""
+
+#: includes/class-admin-settings.php:524
+msgid "That product is re-indexed in the background within seconds."
+msgstr ""
+
+#: includes/class-admin-settings.php:527
+msgid "Change stock status"
+msgstr ""
+
+#: includes/class-admin-settings.php:528
+msgid "The product's stock status in the index is updated immediately."
+msgstr ""
+
+#: includes/class-admin-settings.php:531
+msgid "Trash or delete a product"
+msgstr ""
+
+#: includes/class-admin-settings.php:532
+msgid "The product is removed from the index automatically."
+msgstr ""
+
+#: includes/class-admin-settings.php:535
+msgid "Import products via CSV"
+msgstr ""
+
+#: includes/class-admin-settings.php:536
+msgid "Each imported product is queued for indexing as it is created."
+msgstr ""
+
+#: includes/class-admin-settings.php:539
+msgid "Rename a category or tag"
+msgstr ""
+
+#: includes/class-admin-settings.php:540
+msgid "If the term has many products, a full rebuild is queued automatically."
+msgstr ""
+
+#: includes/class-admin-settings.php:543
+msgid "Change search field settings"
+msgstr ""
+
+#: includes/class-admin-settings.php:544
+msgid "Toggling which fields are indexed (title, SKU, etc.) triggers a full rebuild."
+msgstr ""
+
+#: includes/class-admin-settings.php:547
+msgid "Click \"Rebuild Index\""
+msgstr ""
+
+#: includes/class-admin-settings.php:548
+msgid "Forces a full re-index of all published products. Runs in the background — shoppers are not affected."
+msgstr ""
+
+#: includes/class-admin-settings.php:555
+msgid "Uninstalling"
+msgstr ""
+
+#: includes/class-admin-settings.php:557
+msgid "Deactivating the plugin keeps all your data and settings intact."
+msgstr ""
+
+#: includes/class-admin-settings.php:558
+msgid "Deleting the plugin removes data only if \"Delete data on uninstall\" is enabled in Settings. By default, data is kept."
+msgstr ""
+
+#: includes/class-admin-settings.php:573
+msgid "Error triggering rebuild."
+msgstr ""
+
+#: includes/class-admin-settings.php:613
+msgid "Are you sure you want to rebuild the entire search index? This will run in the background."
+msgstr ""
+
+#: includes/class-admin-settings.php:650
+msgid "This will permanently delete all plugin data including the search index, all settings, and cached results. The plugin stays active but you will need to rebuild the index afterwards. Are you absolutely sure?"
+msgstr ""
+
+#: includes/class-admin-settings.php:668
+#: includes/class-admin-settings.php:673
+msgid "Error deleting plugin data."
+msgstr ""
+
+#: includes/class-admin-settings.php:758
+msgid "Action Scheduler is not available. Please ensure WooCommerce is active."
+msgstr ""
+
+#: includes/class-frontend.php:52
+msgid "No products found."
+msgstr ""
+
+#: includes/class-frontend.php:53
+msgid "Out of Stock"
+msgstr ""
+
+#: includes/class-search-handler.php:56
+msgid "Invalid nonce."
+msgstr ""
+
+#: includes/class-search-handler.php:73
+#: includes/class-search-handler.php:78
+msgid "Too many requests."
+msgstr ""
+
+#: turbo-search-for-woocommerce.php:101
+msgid "Turbo Search for WooCommerce requires WooCommerce to be installed and active."
+msgstr ""
