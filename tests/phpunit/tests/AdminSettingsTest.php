@@ -58,6 +58,18 @@ final class AdminSettingsTest extends TestCase {
 		unset( $_POST['notice_id'] );
 	}
 
+	public function test_promo_dismiss_ids_are_accepted_within_a_bounded_pattern_only(): void {
+		$_POST['notice_id'] = 'wcs_notice_promo_abc123';
+		$r = $this->ajax( array( Admin_Settings::class, 'ajax_dismiss_notice' ) );
+		$this->assertTrue( $r->success, 'server-derived promo dismiss ids must be accepted' );
+		$this->assertSame( '1', get_user_meta( 1, 'wcs_notice_promo_abc123_dismissed', true ) );
+
+		$_POST['notice_id'] = 'wcs_notice_promo_' . str_repeat( 'a', 40 );
+		$r = $this->ajax( array( Admin_Settings::class, 'ajax_dismiss_notice' ) );
+		$this->assertFalse( $r->success, 'an oversized dismiss id must be rejected' );
+		unset( $_POST['notice_id'] );
+	}
+
 	// ── Rebuild trigger ──────────────────────────────────────────────────────
 
 	public function test_rebuild_sets_state_and_enqueues_the_first_batch(): void {

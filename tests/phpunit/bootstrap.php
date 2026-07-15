@@ -103,6 +103,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_registered_settings'] = array();
 	$GLOBALS['wcs_test_objects_in_term']     = array();
 	$GLOBALS['wcs_test_usleeps']             = array();
+	$GLOBALS['wcs_test_http_response']       = null;
 	// Unset (not merely reset) so dynamic_batch_size() falls through to the
 	// real system functions by default; tests opt in explicitly.
 	unset( $GLOBALS['wcs_test_loadavg'], $GLOBALS['wcs_test_memory_usage'], $GLOBALS['wcs_test_memory_limit'] );
@@ -542,6 +543,32 @@ function get_term_link( $term, string $taxonomy = '' ) {
 }
 function is_wp_error( $thing ): bool {
 	return $thing instanceof WP_Error;
+}
+/**
+ * Scripted HTTP layer for tests: set $GLOBALS['wcs_test_http_response'] to
+ * either a WP_Error or an array like ['response' => ['code' => 200], 'body' => '...'],
+ * or a callable(string $url): mixed for per-URL responses. Defaults to a
+ * generic network-error WP_Error so untouched tests fail closed, not open.
+ */
+function wp_remote_get( string $url, array $args = array() ) {
+	$scripted = $GLOBALS['wcs_test_http_response'] ?? null;
+	if ( is_callable( $scripted ) ) {
+		return $scripted( $url );
+	}
+	return $scripted ?? new WP_Error( 'http_request_failed', 'no scripted response' );
+}
+function wp_remote_retrieve_body( $response ): string {
+	return (string) ( $response['body'] ?? '' );
+}
+function wp_remote_retrieve_response_code( $response ) {
+	return $response['response']['code'] ?? '';
+}
+function add_query_arg( array $args, string $url ): string {
+	$parts = parse_url( $url );
+	parse_str( $parts['query'] ?? '', $existing );
+	$query = array_merge( $existing, $args );
+	$base  = ( $parts['scheme'] ?? '' ) . '://' . ( $parts['host'] ?? '' ) . ( $parts['path'] ?? '' );
+	return $base . '?' . http_build_query( $query );
 }
 
 /** Configurable fake WC_Product. */

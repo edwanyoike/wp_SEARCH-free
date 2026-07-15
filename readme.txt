@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.0.2
+Stable tag:        1.0.3
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,9 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.0.3 =
+* Feature: the Settings page can now show an occasional dismissible promo/announcement banner, sourced from ozupay.com and configured centrally — no plugin update needed to change it. Dismissing it is permanent per admin; editing the banner's content automatically re-shows it once, even to admins who dismissed an earlier version.
 
 = 1.0.2 =
 * Fix: removed the Plugin Name header from the companion MU cache-bypass file
