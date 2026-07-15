@@ -44,6 +44,14 @@ class Indexer {
 	private const BATCH_TIME_BUDGET = 120;
 
 	/**
+	 * Free edition: maximum number of products kept in the live search
+	 * index. Existing indexed products keep updating normally; products
+	 * beyond the cap are simply never indexed (they don't appear in search
+	 * results) until upgrading to Pro, which has no limit.
+	 */
+	const FREE_PRODUCT_CAP = 100;
+
+	/**
 	 * Product IDs already queued for update within this request, keyed by ID.
 	 * Prevents multiple as_has_scheduled_action() DB queries for the same product
 	 * when several hooks fire on the same product save.
@@ -365,8 +373,17 @@ class Indexer {
 		// Fetch the next batch of published product IDs strictly after $last_id.
 		// Direct SQL is used because wc_get_products() does not expose a
 		// "WHERE ID > ?" cursor; only offset-based pagination is available there.
-		$batch_size = self::dynamic_batch_size();
-		$products   = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		//
+		// Free edition cap: never fetch more than the remaining capacity, so a
+		// rebuild on a catalog bigger than FREE_PRODUCT_CAP simply stops filling
+		// (LIMIT 0 below yields an empty $products, which the "no more rows"
+		// branch already treats as "rebuild complete" — no other change needed
+		// to finish and swap in whatever got indexed).
+		$batch_size    = self::dynamic_batch_size();
+		$already_total = (int) get_option( 'wcs_reindex_processed', 0 );
+		$remaining_cap = max( 0, self::FREE_PRODUCT_CAP - $already_total );
+		$fetch_limit   = min( $batch_size, $remaining_cap );
+		$products      = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			"SELECT ID FROM {$wpdb->posts}
 			 WHERE post_type = 'product'
 			   AND post_status = 'publish'
@@ -374,7 +391,7 @@ class Indexer {
 			 ORDER BY ID ASC
 			 LIMIT %d",
 			$last_id,
-			$batch_size
+			$fetch_limit
 		) );
 
 		$main_table  = $wpdb->prefix . 'wcs_search_index';
@@ -433,6 +450,7 @@ class Indexer {
 			update_option( 'wcs_is_indexing', 0, false );
 			delete_option( 'wcs_rebuild_phase' );
 			delete_option( 'wcs_last_rebuild_error' );
+			self::update_cap_reached_flag();
 			self::execute_cache_bust();
 			do_action( 'wcs_index_rebuild_complete' );
 			return;
@@ -489,6 +507,30 @@ class Indexer {
 
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
 			as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => $next_last_id, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+		}
+	}
+
+	/**
+	 * Number of rows currently in the live search index table.
+	 */
+	private static function live_index_count(): int {
+		global $wpdb;
+		$table = $wpdb->prefix . 'wcs_search_index';
+		return (int) $wpdb->get_var( $wpdb->prepare( 'SELECT COUNT(*) FROM %i', $table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+	}
+
+	/**
+	 * Refresh the flag the admin UI reads to show the "upgrade to Pro for
+	 * unlimited products" notice — true whenever the catalog has more
+	 * published products than this edition indexes.
+	 */
+	private static function update_cap_reached_flag(): void {
+		$counts = wp_count_posts( 'product' );
+		$total  = isset( $counts->publish ) ? (int) $counts->publish : 0;
+		if ( $total > self::FREE_PRODUCT_CAP ) {
+			update_option( 'wcs_free_cap_reached', 1, false );
+		} else {
+			delete_option( 'wcs_free_cap_reached' );
 		}
 	}
 
@@ -609,6 +651,20 @@ class Indexer {
 
 		if ( empty( $table_name ) ) {
 			$table_name = $wpdb->prefix . 'wcs_search_index';
+
+			// Free edition cap: a live create/update hook (product saved, imported,
+			// etc.) firing outside a full rebuild must not let the live index grow
+			// past the cap one product at a time. Updating an already-indexed
+			// product is always allowed; only a brand-new row is blocked.
+			$already_indexed = (bool) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				"SELECT 1 FROM {$table_name} WHERE product_id = %d",
+				$product_id
+			) );
+			if ( ! $already_indexed && self::live_index_count() >= self::FREE_PRODUCT_CAP ) {
+				update_option( 'wcs_free_cap_reached', 1, false );
+				return;
+			}
+
 			// If a full rebuild is active, also duplicate live edits to staging to maintain parity
 			if ( get_option( 'wcs_is_indexing', false ) ) {
 				$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
@@ -1025,6 +1081,7 @@ class Indexer {
 		}
 
 		$wpdb->delete( $table_name, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		self::update_cap_reached_flag();
 		self::trigger_cache_bust();
 	}
 

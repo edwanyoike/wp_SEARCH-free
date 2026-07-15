@@ -11,9 +11,10 @@ License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
 Instant live product search for WooCommerce using native MySQL FULLTEXT indexing.
 
-A Pro edition adds typo tolerance, synonyms, category/brand suggestions, ranking-weight tuning,
-sales-weighted ranking, zero-result search analytics, and multi-currency price support for
-serious/high-volume stores — see https://ozulabs.com.
+This free edition indexes up to 100 products. A Pro edition removes that limit and adds typo
+tolerance, synonyms, category/brand suggestions, ranking-weight tuning, sales-weighted ranking,
+zero-result search analytics, and multi-currency price support for serious/high-volume stores —
+see https://ozulabs.com.
 
 == Description ==
 
@@ -54,9 +55,13 @@ Changing which fields are indexed (title, SKU, description, categories) or renam
 
 Multi-currency price conversion (CURCY / WOOCS / WooCommerce Multilingual) is a Pro feature — see https://ozulabs.com. The free edition always shows prices in your store's default currency.
 
+= Is there a limit on how many products get indexed? =
+
+Yes — this free edition indexes up to 100 published products (chosen by lowest product ID first). Existing indexed products keep updating normally; products beyond the 100th are simply not searchable until you upgrade. Upgrading to Pro removes the limit entirely. A notice appears on the Settings tab whenever your catalog exceeds the limit.
+
 = What does the Pro edition add? =
 
-Typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, zero-result search analytics, and multi-currency price support. See https://ozulabs.com.
+No 100-product indexing limit, plus typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, zero-result search analytics, and multi-currency price support. See https://ozulabs.com.
 
 = Does it work on WordPress Multisite? =
 

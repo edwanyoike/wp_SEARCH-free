@@ -9,6 +9,7 @@
  * @var string $last_rebuild_error Non-empty error code when idle after a failed rebuild.
  * @var int    $total              Published product count.
  * @var int    $processed          Products processed in the current/last rebuild.
+ * @var int    $product_cap        Maximum products this edition indexes (Indexer::FREE_PRODUCT_CAP).
  *
  * @package WP_Fast_Search
  */
@@ -17,6 +18,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 ?>
+<?php if ( $total > $product_cap ) : ?>
+<div style="margin-top: 20px; padding: 12px 16px; background: #fef8ee; border-left: 4px solid #d97706; border-radius: 0 4px 4px 0; font-size: 13px; line-height: 1.6;">
+	<strong><?php esc_html_e( 'Only part of your catalog is searchable.', 'turbo-search-for-woocommerce' ); ?></strong>
+	<?php
+	printf(
+		/* translators: 1: number of products indexed, 2: total published products */
+		esc_html__( 'The free edition indexes up to %1$d products — your store has %2$d published products, so the rest do not appear in search results.', 'turbo-search-for-woocommerce' ),
+		(int) $product_cap,
+		(int) $total
+	);
+	?>
+	<?php esc_html_e( 'Upgrade to Turbo Search Pro for unlimited indexed products — see', 'turbo-search-for-woocommerce' ); ?>
+	<a href="https://ozulabs.com" target="_blank" rel="noopener">ozulabs.com</a>.
+</div>
+<?php endif; ?>
+
 <div class="card" style="max-width: 600px; margin-top: 20px;">
 	<h2><?php esc_html_e( 'Index Status', 'turbo-search-for-woocommerce' ); ?></h2>
 	<p id="wcs-status-wrapper">

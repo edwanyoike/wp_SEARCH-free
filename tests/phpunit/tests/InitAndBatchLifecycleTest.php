@@ -169,6 +169,91 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		$this->assertSame( 42, $next[0]['args']['epoch'] );
 	}
 
+	// ── Free edition product cap ─────────────────────────────────────────────
+
+	public function test_batch_fetch_is_clamped_to_remaining_free_cap(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_reindex_processed', 95 ); // 5 remaining under the 100 cap
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'col' === $type ) {
+				return array();
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SHOW TABLES' ) ) {
+				preg_match( "/LIKE '([^']+)'/", $sql, $m );
+				return $m[1] ?? null;
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::process_batch( 0, 42 );
+
+		$sql = implode( "\n", $this->wpdb->queries );
+		$this->assertMatchesRegularExpression( '/ORDER BY ID ASC\s+LIMIT 5\b/', $sql, 'fetch must be clamped to the 5 slots remaining before the 100-product cap' );
+	}
+
+	public function test_rebuild_completion_flags_cap_reached_when_catalog_exceeds_cap(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_cache_version', 1 );
+		$GLOBALS['wcs_test_publish_count'] = 150; // catalog bigger than the 100 cap
+		$this->endOfCatalogHandler( true );
+
+		Indexer::process_batch( 9999, 42 );
+
+		$this->assertSame( 1, get_option( 'wcs_free_cap_reached' ) );
+	}
+
+	public function test_rebuild_completion_clears_cap_reached_flag_when_catalog_within_cap(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_cache_version', 1 );
+		update_option( 'wcs_free_cap_reached', 1 );
+		$GLOBALS['wcs_test_publish_count'] = 50; // catalog within the 100 cap
+		$this->endOfCatalogHandler( true );
+
+		Indexer::process_batch( 9999, 42 );
+
+		$this->assertFalse( get_option( 'wcs_free_cap_reached', false ) );
+	}
+
+	public function test_new_product_indexed_live_once_cap_reached_is_blocked(): void {
+		$GLOBALS['wcs_test_products'][20] = new Fake_Product( array( 'id' => 20, 'title' => 'New', 'price' => '9.99' ) );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'var' === $type && str_contains( $sql, 'WHERE product_id' ) ) {
+				return null; // product 20 is not already indexed
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SELECT COUNT(*)' ) ) {
+				return 100; // live index already at the cap
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::index_single_product( 20 );
+
+		$sql = implode( "\n", $this->wpdb->queries );
+		$this->assertStringNotContainsString( 'REPLACE INTO', $sql, 'a brand-new product must not be written once the live index is at the free cap' );
+		$this->assertSame( 1, get_option( 'wcs_free_cap_reached' ) );
+	}
+
+	public function test_existing_product_still_updates_live_once_cap_reached(): void {
+		$GLOBALS['wcs_test_products'][21] = new Fake_Product( array( 'id' => 21, 'title' => 'Existing', 'price' => '9.99' ) );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'var' === $type && str_contains( $sql, 'WHERE product_id' ) ) {
+				return 1; // product 21 is already indexed
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SELECT COUNT(*)' ) ) {
+				return 100; // live index already at the cap
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::index_single_product( 21 );
+
+		$sql = implode( "\n", $this->wpdb->queries );
+		$this->assertStringContainsString( 'REPLACE INTO', $sql, 'updating an already-indexed product must still be allowed at the cap' );
+	}
+
 	// ── Failure handler: retry once per cursor per epoch ─────────────────────
 
 	public function test_failed_batch_is_retried_once_then_halts(): void {
