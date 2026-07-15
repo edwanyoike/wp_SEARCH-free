@@ -1,0 +1,82 @@
+#!/bin/bash
+# Builds the distributable zip and archives the previous version after every
+# commit, then syncs the zip into the shared top-level dist/ folder at
+# /home/edu/kiro/search/dist/ so both Pro and Free builds live in one place.
+# No commit step here — this only packages whatever HEAD already is, so it
+# can never recurse into itself (unlike build.sh, which bumps the version
+# and commits).
+#
+# Install: cp hooks/post-commit .git/hooks/post-commit && chmod +x .git/hooks/post-commit
+
+set -euo pipefail
+
+PLUGIN_SLUG="turbo-search-for-woocommerce"
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+SHARED_DIST="$(cd "$REPO_DIR/.." && pwd)/dist"
+TMP_DIR="/tmp/${PLUGIN_SLUG}"
+
+cd "$REPO_DIR"
+
+VERSION=$(grep -m1 "define( 'WCS_VERSION'" "$REPO_DIR/turbo-search-for-woocommerce.php" \
+          | sed "s/.*'\([^']*\)'.*/\1/") || true
+
+if [ -z "$VERSION" ]; then
+  echo "[post-commit] Warning: could not parse WCS_VERSION — skipping zip build."
+  exit 0
+fi
+
+ZIP_NAME="${PLUGIN_SLUG}-${VERSION}.zip"
+
+mkdir -p "$REPO_DIR/dist/archive"
+
+# Archive any existing zip that isn't the current version.
+for old_zip in "$REPO_DIR"/dist/*.zip; do
+  [ -f "$old_zip" ] || continue
+  [ "$old_zip" = "$REPO_DIR/dist/${ZIP_NAME}" ] && continue
+  mv "$old_zip" "$REPO_DIR/dist/archive/"
+  echo "[post-commit] Archived $(basename "$old_zip")"
+done
+
+rm -f "$REPO_DIR/dist/${ZIP_NAME}"
+rm -rf "$TMP_DIR"
+mkdir -p "$TMP_DIR"
+
+rsync -a \
+  --exclude='.git'             \
+  --exclude='build.sh'         \
+  --exclude='*.md'             \
+  --exclude='dist'             \
+  --exclude='tests'            \
+  --exclude='.gitignore'       \
+  --exclude='.claude'          \
+  --exclude='vendor'           \
+  --exclude='composer.json'    \
+  --exclude='composer.lock'    \
+  --exclude='phpunit.xml.dist' \
+  --exclude='.phpunit.cache'   \
+  --exclude='.playwright-mcp'  \
+  --exclude='/icon-*'          \
+  --exclude='/banner-*'        \
+  --exclude='/*.png'           \
+  "$REPO_DIR/" "$TMP_DIR/"
+
+(cd /tmp && zip -r "$ZIP_NAME" "$PLUGIN_SLUG" > /dev/null)
+mv "/tmp/${ZIP_NAME}" "$REPO_DIR/dist/"
+rm -rf "$TMP_DIR"
+
+echo "[post-commit] Built dist/${ZIP_NAME}"
+
+# ── Sync into the shared top-level dist/ (sibling of this repo) ─────────────
+if [ -d "$SHARED_DIST" ] || mkdir -p "$SHARED_DIST/archive" 2>/dev/null; then
+  mkdir -p "$SHARED_DIST/archive"
+  # [0-9]* (not a bare *) so this can't also match
+  # turbo-search-for-woocommerce-pro-*.zip — this plugin's slug is a prefix
+  # of the Pro plugin's slug.
+  for old_zip in "$SHARED_DIST"/${PLUGIN_SLUG}-[0-9]*.zip; do
+    [ -f "$old_zip" ] || continue
+    [ "$old_zip" = "$SHARED_DIST/${ZIP_NAME}" ] && continue
+    mv "$old_zip" "$SHARED_DIST/archive/"
+  done
+  cp "$REPO_DIR/dist/${ZIP_NAME}" "$SHARED_DIST/${ZIP_NAME}"
+  echo "[post-commit] Synced to $SHARED_DIST/${ZIP_NAME}"
+fi
