@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.0.3
+Stable tag:        1.0.4
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -38,7 +38,7 @@ Turbo Search for WooCommerce replaces WooCommerce's default slow search with a d
 
 1. Upload the plugin folder to `/wp-content/plugins/`.
 2. Activate the plugin through the **Plugins** screen.
-3. Go to **Settings → Turbo Search** and click **Rebuild Index**.
+3. Go to **Turbo Search** (its own top-level menu item) and click **Rebuild Index**.
 4. Done. The live search dropdown will appear on your store's search fields automatically.
 
 == Frequently Asked Questions ==
@@ -78,6 +78,9 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.0.4 =
+* Change: Turbo Search now has its own top-level admin menu item instead of living under Settings, so it's visible directly in the main sidebar.
 
 = 1.0.3 =
 * Feature: the Settings page can now show an occasional dismissible promo/announcement banner, sourced from ozupay.com and configured centrally — no plugin update needed to change it. Dismissing it is permanent per admin; editing the banner's content automatically re-shows it once, even to admins who dismissed an earlier version.

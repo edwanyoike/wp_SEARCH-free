@@ -83,7 +83,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_user_meta']     = array();
 	$GLOBALS['wcs_test_can']           = true;
 	$GLOBALS['wcs_test_referer_ok']    = true;
-	$GLOBALS['wcs_test_screen_id']     = 'settings_page_wcs-fast-search';
+	$GLOBALS['wcs_test_screen_id']     = 'toplevel_page_wcs-fast-search';
 	$GLOBALS['wcs_test_publish_count'] = 10;
 	$GLOBALS['wcs_test_ext_cache']     = false;
 	$GLOBALS['wcs_test_cache_add']     = true;
@@ -486,6 +486,7 @@ function register_setting( string $group, string $name, array $args = array() ):
 	$GLOBALS['wcs_test_registered_settings'][ $name ] = $args;
 }
 function add_options_page( ...$args ): void {}
+function add_menu_page( ...$args ): void {}
 
 // ── Posts / products / terms ───────────────────────────────────────────────
 function get_post( int $id ): ?object {

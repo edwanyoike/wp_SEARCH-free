@@ -66,7 +66,7 @@ class Admin_Settings {
 	public static function render_admin_notices(): void {
 		// Only show on our own settings page.
 		$screen = get_current_screen();
-		if ( ! $screen || 'settings_page_wcs-fast-search' !== $screen->id ) {
+		if ( ! $screen || 'toplevel_page_wcs-fast-search' !== $screen->id ) {
 			return;
 		}
 
@@ -175,23 +175,25 @@ class Admin_Settings {
 	 * @return array
 	 */
 	public static function add_plugin_action_links( array $links ): array {
-		$settings_url  = admin_url( 'options-general.php?page=wcs-fast-search' );
+		$settings_url  = admin_url( 'admin.php?page=wcs-fast-search' );
 		$settings_link = '<a href="' . esc_url( $settings_url ) . '">' . esc_html__( 'Settings', 'turbo-search-for-woocommerce' ) . '</a>';
 		array_unshift( $links, $settings_link );
 		return $links;
 	}
 
 	/**
-	 * Add menu page.
-	 *
+	 * Add menu page. Standalone top-level admin menu item (not nested under
+	 * Settings) so it's visible without opening that submenu first.
 	 */
 	public static function add_settings_page(): void {
-		add_options_page(
+		add_menu_page(
 			esc_html__( 'Turbo Search Settings', 'turbo-search-for-woocommerce' ),
 			esc_html__( 'Turbo Search', 'turbo-search-for-woocommerce' ),
 			'manage_options',
 			'wcs-fast-search',
-			array( __CLASS__, 'render_settings_page' )
+			array( __CLASS__, 'render_settings_page' ),
+			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.png',
+			58
 		);
 	}
 
@@ -255,7 +257,7 @@ class Admin_Settings {
 	 * @param string $hook_suffix Current admin page hook.
 	 */
 	public static function enqueue_admin_assets( string $hook_suffix ): void {
-		if ( 'settings_page_wcs-fast-search' !== $hook_suffix ) {
+		if ( 'toplevel_page_wcs-fast-search' !== $hook_suffix ) {
 			return;
 		}
 

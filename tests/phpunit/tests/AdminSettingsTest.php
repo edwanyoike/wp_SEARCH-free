@@ -394,7 +394,7 @@ final class AdminSettingsTest extends TestCase {
 		Admin_Settings::enqueue_admin_assets( 'edit.php' );
 		$this->assertArrayNotHasKey( 'script', $GLOBALS['wcs_test_enqueued'] );
 
-		Admin_Settings::enqueue_admin_assets( 'settings_page_wcs-fast-search' );
+		Admin_Settings::enqueue_admin_assets( 'toplevel_page_wcs-fast-search' );
 		$this->assertContains( 'wcs-admin-js', $GLOBALS['wcs_test_enqueued']['script'] );
 
 		$config = json_decode( substr( $GLOBALS['wcs_test_inline_js']['wcs-admin-js'][0], strlen( 'const wcsAdmin = ' ), -1 ), true );
