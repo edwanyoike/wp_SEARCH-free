@@ -192,9 +192,25 @@ class Admin_Settings {
 			'manage_options',
 			'wcs-fast-search',
 			array( __CLASS__, 'render_settings_page' ),
-			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.png',
+			self::get_menu_icon(),
 			58
 		);
+	}
+
+	/**
+	 * Menu icon as an inline SVG data URI. WordPress renders admin menu
+	 * icons at a fixed 20x20px box; a raster PNG at that size looks soft
+	 * and undersized on high-DPI screens, whereas an SVG stays crisp at
+	 * any pixel density.
+	 */
+	private static function get_menu_icon(): string {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">'
+			. '<circle cx="10" cy="10" r="10" fill="#38833C"/>'
+			. '<circle cx="8.5" cy="8.5" r="3.5" fill="none" stroke="#ffffff" stroke-width="1.6"/>'
+			. '<line x1="11" y1="11" x2="14.5" y2="14.5" stroke="#ffffff" stroke-width="1.8" stroke-linecap="round"/>'
+			. '</svg>';
+
+		return 'data:image/svg+xml;base64,' . base64_encode( $svg );
 	}
 
 	/**
