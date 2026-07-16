@@ -194,8 +194,10 @@ class Admin_Settings {
 			array( __CLASS__, 'render_settings_page' ),
 			// A plain file URL, not a base64 data URI: WordPress recolors
 			// base64-embedded SVG menu icons to a flat mask matching the
-			// admin color scheme, which would wash out the green icon.
-			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.svg',
+			// admin color scheme, which would wash out the green icon. The
+			// ?ver= query string busts CDN/browser caches of the icon file
+			// whenever it changes alongside a plugin version bump.
+			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.svg?ver=' . WCS_VERSION,
 			58
 		);
 	}
