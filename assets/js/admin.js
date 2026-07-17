@@ -20,15 +20,54 @@
 		fetch(ajaxurl, { method: 'POST', body: body });
 	});
 
+	// App Data tab — independent of the Settings tab's statusWrapper guard
+	// below, since the two live on different tabs and are never both present.
+	function initAppDataTab() {
+		const deleteBtn     = document.getElementById('wcs-delete-data-btn');
+		const deleteSpinner = document.getElementById('wcs-delete-spinner');
+		if (!deleteBtn) return;
+
+		const i18n = wcsAdmin.i18n;
+
+		deleteBtn.addEventListener('click', function (e) {
+			e.preventDefault();
+			if (!confirm(i18n.confirmDelete)) return;
+
+			deleteBtn.disabled = true;
+			if (deleteSpinner) deleteSpinner.classList.add('is-active');
+
+			fetch(ajaxurl, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+				body: new URLSearchParams({
+					action: 'wcs_delete_all_data',
+					_ajax_nonce: wcsAdmin.nonces.delete
+				})
+			}).then(res => res.json()).then(data => {
+				if (data.success) {
+					window.location.reload();
+				} else {
+					alert(i18n.errDelete);
+					deleteBtn.disabled = false;
+					if (deleteSpinner) deleteSpinner.classList.remove('is-active');
+				}
+			}).catch(() => {
+				alert(i18n.errDelete);
+				deleteBtn.disabled = false;
+				if (deleteSpinner) deleteSpinner.classList.remove('is-active');
+			});
+		});
+	}
+
 	function init() {
+		initAppDataTab();
+
 		const btn             = document.getElementById('wcs-rebuild-btn');
 		const spinner         = document.getElementById('wcs-rebuild-spinner');
 		const statusWrapper   = document.getElementById('wcs-status-wrapper');
 		const progressWrapper = document.getElementById('wcs-progress-wrapper');
 		const errorWrapper    = document.getElementById('wcs-rebuild-error');
-		const deleteBtn       = document.getElementById('wcs-delete-data-btn');
-		const deleteSpinner   = document.getElementById('wcs-delete-spinner');
-		if (!statusWrapper) return; // Docs tab — nothing else to control.
+		if (!statusWrapper) return; // App Data/Docs tab — nothing else to control.
 
 		const i18n = wcsAdmin.i18n;
 		const errorLabels = wcsAdmin.errorLabels || {};
@@ -142,37 +181,6 @@
 					alert(i18n.errRebuild);
 					btn.disabled = false;
 					spinner.classList.remove('is-active');
-				});
-			});
-		}
-
-		if (deleteBtn) {
-			deleteBtn.addEventListener('click', function (e) {
-				e.preventDefault();
-				if (!confirm(i18n.confirmDelete)) return;
-
-				deleteBtn.disabled = true;
-				if (deleteSpinner) deleteSpinner.classList.add('is-active');
-
-				fetch(ajaxurl, {
-					method: 'POST',
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-					body: new URLSearchParams({
-						action: 'wcs_delete_all_data',
-						_ajax_nonce: wcsAdmin.nonces.delete
-					})
-				}).then(res => res.json()).then(data => {
-					if (data.success) {
-						window.location.reload();
-					} else {
-						alert(i18n.errDelete);
-						deleteBtn.disabled = false;
-						if (deleteSpinner) deleteSpinner.classList.remove('is-active');
-					}
-				}).catch(() => {
-					alert(i18n.errDelete);
-					deleteBtn.disabled = false;
-					if (deleteSpinner) deleteSpinner.classList.remove('is-active');
 				});
 			});
 		}

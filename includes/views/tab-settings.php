@@ -34,6 +34,20 @@ if ( ! defined( 'ABSPATH' ) ) {
 </div>
 <?php endif; ?>
 
+<div class="card" style="max-width: 600px; margin-top: 20px; border-left: 4px solid #2E7D32;">
+	<h2 style="margin-top:0;"><?php esc_html_e( 'Unlock More With Turbo Search Pro', 'turbo-search-for-woocommerce' ); ?></h2>
+	<ul style="margin:0 0 12px 20px; list-style:disc;">
+		<li><?php esc_html_e( 'Typo tolerance — misspelled searches are auto-corrected against your catalog', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Search synonyms — teach the search box your customers\' own words', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Category & brand suggestions in the dropdown', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Ranking-weight tuning and sales-weighted ranking', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Zero-result search analytics dashboard', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Multi-currency price support (CURCY, WOOCS, WooCommerce Multilingual)', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Unlimited indexed products (this edition indexes up to 100)', 'turbo-search-for-woocommerce' ); ?></li>
+	</ul>
+	<a href="https://ozulabs.com" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e( 'Upgrade to Pro', 'turbo-search-for-woocommerce' ); ?></a>
+</div>
+
 <div class="card" style="max-width: 600px; margin-top: 20px;">
 	<h2><?php esc_html_e( 'Index Status', 'turbo-search-for-woocommerce' ); ?></h2>
 	<p id="wcs-status-wrapper">
@@ -200,30 +214,29 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</tr>
 		<tr>
 			<th scope="row">
-				<?php esc_html_e( 'Delete Data on Uninstall', 'turbo-search-for-woocommerce' ); ?>
+				<label for="wcs_synonyms"><?php esc_html_e( 'Search Synonyms', 'turbo-search-for-woocommerce' ); ?></label>
 				<div class="wcs-tooltip">
 					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'If enabled, all database tables, options, transients, and user meta created by the plugin will be deleted when you uninstall.', 'turbo-search-for-woocommerce' ); ?></span>
+					<span class="wcs-tooltip-text"><?php esc_html_e( 'One group per line, words separated by commas. Every word in a group matches products containing any other word in that group. Example: "sofa, couch, settee" makes a search for sofa also find couches.', 'turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
-				<fieldset>
-					<label for="wcs_delete_data_on_uninstall">
-						<input name="wcs_delete_data_on_uninstall" type="checkbox" id="wcs_delete_data_on_uninstall" value="1" <?php checked( 1, (int) get_option( 'wcs_delete_data_on_uninstall', 0 ), true ); ?> />
-						<?php esc_html_e( 'Delete all plugin data and tables when deleting the plugin.', 'turbo-search-for-woocommerce' ); ?>
-					</label>
-				</fieldset>
+				<textarea class="large-text code" rows="5" disabled placeholder="sofa, couch, settee&#10;tee, t shirt, tshirt"></textarea>
+				<p class="description"><?php echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Search synonyms is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ); ?></p>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row">
+				<?php esc_html_e( 'Ranking Weights', 'turbo-search-for-woocommerce' ); ?>
+				<div class="wcs-tooltip">
+					<span class="wcs-tooltip-icon">?</span>
+					<span class="wcs-tooltip-text"><?php esc_html_e( 'Tune how strongly each signal influences result order — title match, exact SKU, stock status, sales, and more.', 'turbo-search-for-woocommerce' ); ?></span>
+				</div>
+			</th>
+			<td>
+				<p class="description"><?php echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Ranking weight tuning is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ); ?></p>
 			</td>
 		</tr>
 	</table>
 	<?php submit_button(); ?>
 </form>
-
-<div class="card" style="max-width: 600px; margin-top: 20px; border-left: 4px solid #d63638;">
-	<h2 style="color: #d63638;"><?php esc_html_e( 'Danger Zone', 'turbo-search-for-woocommerce' ); ?></h2>
-	<p><?php esc_html_e( 'Immediately drop the search index tables, delete all plugin options and cached transients, and cancel pending background jobs. The plugin stays active and the index table is recreated on the next page load — you will need to trigger a Rebuild Index afterwards.', 'turbo-search-for-woocommerce' ); ?></p>
-	<button id="wcs-delete-data-btn" class="button" style="background:#d63638;color:#fff;border-color:#b32d2e;">
-		<?php esc_html_e( 'Delete All Plugin Data Now', 'turbo-search-for-woocommerce' ); ?>
-	</button>
-	<span id="wcs-delete-spinner" class="spinner"></span>
-</div>

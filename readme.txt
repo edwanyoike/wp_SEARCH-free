@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.0.4
+Stable tag:        1.0.5
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,10 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.0.5 =
+* Change: "Delete Data on Uninstall" and the "Delete All Plugin Data Now" danger-zone action moved off the Settings tab into their own new "App Data" tab (parity fix — this shipped for the Pro edition in 1.3.40/1.3.41 but was missed here).
+* Feature: the Settings tab now shows what Pro adds — an "Unlock More With Turbo Search Pro" summary, plus a disabled Search Synonyms field and a Ranking Weights explainer, each linking to ozulabs.com.
 
 = 1.0.4 =
 * Change: Turbo Search now has its own top-level admin menu item instead of living under Settings, so it's visible directly in the main sidebar.

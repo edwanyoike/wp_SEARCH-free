@@ -294,7 +294,7 @@ final class AdminSettingsTest extends TestCase {
 
 	// ── Page rendering (views) ───────────────────────────────────────────────
 
-	public function test_settings_tab_renders_status_form_and_danger_zone(): void {
+	public function test_settings_tab_renders_status_and_form(): void {
 		update_option( 'wcs_last_indexed', time() - 300 );
 		$_GET['tab'] = 'settings';
 
@@ -308,8 +308,34 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertStringContainsString( 'Status: Idle / Complete', $html );
 		$this->assertStringContainsString( '5 mins ago', $html );
 		$this->assertStringNotContainsString( 'name="wcs_synonyms"', $html );
-		$this->assertStringContainsString( 'id="wcs-delete-data-btn"', $html );
 		$this->assertStringContainsString( 'settings_fields:wcs_settings_group', $html );
+	}
+
+	public function test_settings_tab_shows_pro_upsell_and_disabled_feature_stubs(): void {
+		ob_start();
+		Admin_Settings::render_settings_page();
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'Unlock More With Turbo Search Pro', $html );
+		$this->assertStringContainsString( 'https://ozulabs.com', $html );
+		$this->assertStringContainsString( 'Search synonyms is a Pro feature', $html );
+		$this->assertStringContainsString( 'Ranking weight tuning is a Pro feature', $html );
+		// The synonyms textarea must be disabled and unnamed so it can never submit —
+		// Free has no wcs_synonyms option to receive it.
+		$this->assertMatchesRegularExpression( '/<textarea[^>]*\bdisabled\b[^>]*>/', $html );
+	}
+
+	public function test_data_tab_renders_uninstall_form_and_danger_zone(): void {
+		$_GET['tab'] = 'data';
+
+		ob_start();
+		Admin_Settings::render_settings_page();
+		$html = ob_get_clean();
+		unset( $_GET['tab'] );
+
+		$this->assertStringContainsString( 'name="wcs_delete_data_on_uninstall"', $html );
+		$this->assertStringContainsString( 'settings_fields:wcs_data_settings_group', $html );
+		$this->assertStringContainsString( 'id="wcs-delete-data-btn"', $html );
 	}
 
 	public function test_indexing_state_disables_the_rebuild_button(): void {

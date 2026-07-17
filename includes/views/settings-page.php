@@ -4,7 +4,7 @@
  *
  * Included from Admin_Settings::render_settings_page(). Variables in scope:
  *
- * @var string $active_tab        'settings' or 'docs'.
+ * @var string $active_tab        'settings', 'data', or 'docs'.
  * @var bool   $is_indexing       Whether a rebuild is currently running.
  * @var int    $last_indexed      Timestamp of the last successful index (0 = never).
  * @var string $last_rebuild_error Non-empty error code when idle after a failed
@@ -30,12 +30,15 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 	<h2 class="nav-tab-wrapper" style="margin-top: 20px;">
 		<a href="?page=wcs-fast-search&tab=settings" class="nav-tab <?php echo 'settings' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'turbo-search-for-woocommerce' ); ?></a>
+		<a href="?page=wcs-fast-search&tab=data" class="nav-tab <?php echo 'data' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'App Data', 'turbo-search-for-woocommerce' ); ?></a>
 		<a href="?page=wcs-fast-search&tab=docs" class="nav-tab <?php echo 'docs' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Documentation', 'turbo-search-for-woocommerce' ); ?></a>
 	</h2>
 
 	<?php
 	if ( 'settings' === $active_tab ) {
 		include __DIR__ . '/tab-settings.php';
+	} elseif ( 'data' === $active_tab ) {
+		include __DIR__ . '/tab-app-data.php';
 	} else {
 		include __DIR__ . '/tab-docs.php';
 	}

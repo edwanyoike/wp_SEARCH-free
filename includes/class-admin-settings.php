@@ -245,7 +245,11 @@ class Admin_Settings {
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_delete_data_on_uninstall', array(
+		// Own settings group (not wcs_settings_group) — it lives on the App Data
+		// tab's own <form>, and options.php resets every registered option in a
+		// group to null if its field isn't present in the submitted form, so it
+		// must not share a group with fields that only render on the Settings tab.
+		register_setting( 'wcs_data_settings_group', 'wcs_delete_data_on_uninstall', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => false,
@@ -321,7 +325,7 @@ class Admin_Settings {
 		}
 
 		$active_tab = isset( $_GET['tab'] ) ? sanitize_key( $_GET['tab'] ) : 'settings'; // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only tab navigation, no state change
-		if ( ! in_array( $active_tab, array( 'settings', 'docs' ), true ) ) {
+		if ( ! in_array( $active_tab, array( 'settings', 'data', 'docs' ), true ) ) {
 			$active_tab = 'settings';
 		}
 
