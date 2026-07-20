@@ -234,7 +234,14 @@ class Admin_Settings {
 	public static function register_settings(): void {
 		register_setting( 'wcs_settings_group', 'wcs_result_count', array(
 			'type'              => 'integer',
-			'sanitize_callback' => 'absint',
+			'sanitize_callback' => static function ( $value ): int {
+				// Clamp to the same 1-20 range as the settings field. Plain
+				// absint() let a blank/missing submission silently save as 0,
+				// which puts a literal LIMIT 0 on every search query and
+				// disables search entirely with no visible error — confirmed
+				// happening in production on the Pro edition, same code path.
+				return min( 20, max( 1, absint( $value ) ) );
+			},
 			'default'           => 6,
 		) );
 		register_setting( 'wcs_settings_group', 'wcs_show_out_of_stock', array(

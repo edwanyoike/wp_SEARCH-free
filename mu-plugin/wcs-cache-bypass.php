@@ -40,12 +40,24 @@ function wcs_cache_bypass_intercept(): void {
 
 	// ── 3. Normalize via the shared Query_Normalizer — the exact same code
 	// path Search_Handler uses, so both sides always compute identical cache
-	// keys. If the main plugin is missing (deleted while this MU file
-	// survived), skip the fast path entirely and let the REST route 404.
+	// keys. This one MU file is shared byte-for-byte between both editions
+	// (each Activator::install_mu_plugin() copies the same source), so it
+	// cannot hardcode a single edition's folder name — whichever edition
+	// most recently installed this file may not be the one actually active.
+	// Check both known folder names and use whichever is present; if the
+	// main plugin is missing entirely (deleted while this MU file
+	// survived), skip the fast path and let the REST route 404.
 	// $raw_query is already unslashed above — do not unslash twice; queries
 	// containing quotes/backslashes would diverge from the REST key.
-	$normalizer = WP_PLUGIN_DIR . '/turbo-search-for-woocommerce/includes/class-query-normalizer.php';
-	if ( ! file_exists( $normalizer ) ) {
+	$normalizer = null;
+	foreach ( array( 'turbo-search-for-woocommerce-pro', 'turbo-search-for-woocommerce' ) as $wcs_edition_slug ) {
+		$candidate = WP_PLUGIN_DIR . '/' . $wcs_edition_slug . '/includes/class-query-normalizer.php';
+		if ( file_exists( $candidate ) ) {
+			$normalizer = $candidate;
+			break;
+		}
+	}
+	if ( null === $normalizer ) {
 		return;
 	}
 	require_once $normalizer;

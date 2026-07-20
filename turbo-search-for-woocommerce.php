@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Plugin Name:          Turbo Search for WooCommerce
  * Plugin URI:           https://ozulabs.com
  * Description:          A high-performance, zero-dependency WooCommerce search engine using native FULLTEXT indexing.
- * Version:              1.1.0
+ * Version:              1.1.1
  * Author:               Ozulabs
  * Author URI:           https://ozulabs.com
  * License:              GPLv2 or later
@@ -71,7 +71,7 @@ if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
 }
 
 // Define core constants.
-define( 'WCS_VERSION', '1.1.0' );
+define( 'WCS_VERSION', '1.1.1' );
 define( 'WCS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WCS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WCS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );

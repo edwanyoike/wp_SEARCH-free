@@ -286,6 +286,24 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( 3, $sanitize( 3 ) );
 	}
 
+	/**
+	 * Regression: a blank/missing form submission (e.g. options.php processing
+	 * every registered setting in a group, including ones absent from $_POST)
+	 * used to save this as plain absint('') === 0, putting a literal LIMIT 0
+	 * on every search query and disabling search entirely with no visible
+	 * error. Confirmed in production on the Pro edition's same code path.
+	 */
+	public function test_result_count_sanitizer_never_allows_zero(): void {
+		Admin_Settings::register_settings();
+		$sanitize = $GLOBALS['wcs_test_registered_settings']['wcs_result_count']['sanitize_callback'];
+
+		$this->assertSame( 1, $sanitize( 0 ) );
+		$this->assertSame( 1, $sanitize( '' ) );
+		$this->assertSame( 1, $sanitize( null ) );
+		$this->assertSame( 20, $sanitize( 999 ) );
+		$this->assertSame( 6, $sanitize( 6 ) );
+	}
+
 	public function test_every_registered_setting_is_in_the_cleanup_list(): void {
 		Admin_Settings::register_settings();
 		$missing = array_diff( array_keys( $GLOBALS['wcs_test_registered_settings'] ), Activator::PLUGIN_OPTIONS );
