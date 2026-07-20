@@ -23,6 +23,34 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit; // Exit if accessed directly.
 }
 
+// ── Free/Pro mutual-exclusion guard ────────────────────────────────────────
+// Both editions declare identical global functions, constants, and the
+// WCS\Search class namespace (Pro is a superset of this edition's core).
+// Loading both plugin files in the same request causes a hard "Cannot
+// redeclare" fatal that blocks all of wp-admin — and it happens at PHP
+// compile time, before any hook can run. Pro is the superset, so Free
+// always yields: if Pro is active, deactivate this edition immediately
+// (using only WP core functions and a literal basename — never the WCS_*
+// constants defined below, since those are exactly the ones Pro may have
+// already declared this request) and bail before declaring anything else.
+if ( ! function_exists( 'is_plugin_active' ) ) {
+	require_once ABSPATH . 'wp-admin/includes/plugin.php';
+}
+$wcs_pro_edition_basename = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
+if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
+	deactivate_plugins( plugin_basename( __FILE__ ) );
+	add_action( 'admin_notices', static function (): void {
+		?>
+		<div class="notice notice-warning is-dismissible">
+			<p>
+				<?php esc_html_e( 'Turbo Search for WooCommerce: the free edition cannot run alongside Pro and has been deactivated automatically.', 'turbo-search-for-woocommerce' ); ?>
+			</p>
+		</div>
+		<?php
+	} );
+	return;
+}
+
 // Define core constants.
 define( 'WCS_VERSION', '1.0.5' );
 define( 'WCS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
