@@ -25,28 +25,35 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 // ── Free/Pro mutual-exclusion guard ────────────────────────────────────────
 // Both editions declare identical global functions, constants, and the
-// WCS\Search class namespace (Pro is a superset of this edition's core).
-// Loading both plugin files in the same request causes a hard "Cannot
-// redeclare" fatal that blocks all of wp-admin — and it happens at PHP
-// compile time, before any hook can run. Pro is the superset, so Free
-// always yields: if Pro is active, deactivate this edition immediately
-// (using only WP core functions and a literal basename — never the WCS_*
+// WCS\Search class namespace (Pro is a superset of this edition's core). If
+// both plugin files load in the same request, PHP fatals with "Cannot
+// redeclare wcs_search_init()" — and NOT because of some runtime race: an
+// ordinary top-level `function wcs_search_init(){}` (not nested inside an
+// `if`) is bound by PHP at *compile* time, before any of this file's own
+// runtime code executes. An early `if (...) { return; }` guard placed above
+// such a declaration — what this file used to do — can never prevent that
+// later declaration from still being bound and fataling; only wrapping the
+// declaration itself in `function_exists()` makes it a *conditional*
+// declaration, which PHP does not compile-time-bind. See both function
+// declarations below.
+//
+// Deactivating this edition (Pro is the superset, so Free always yields) is
+// handled separately, deferred to 'shutdown': if this file is loaded via WP
+// core's activate_plugin(), that function already read 'active_plugins'
+// into a local variable *before* this include ran, and overwrites the
+// option with that stale copy right after the include finishes — silently
+// undoing a deactivate_plugins() call made synchronously here. 'shutdown'
+// fires after every option write for the request, including core's, so the
+// deferred callback re-reads a fully current value before acting. This uses
+// only WP core functions and a literal basename — never the WCS_*
 // constants defined below, since those are exactly the ones Pro may have
-// already declared this request) and bail before declaring anything else.
+// already declared this request (redefining an existing constant is a
+// silent no-op, not a fatal).
 if ( ! function_exists( 'is_plugin_active' ) ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
 $wcs_pro_edition_basename = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
 if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
-	// Defer the actual deactivate_plugins() call to 'shutdown' rather than
-	// calling it synchronously here. If this file is loaded via WP core's
-	// activate_plugin() (e.g. Pro active, something reactivates Free), that
-	// function already read 'active_plugins' into a local variable *before*
-	// this include ran, and overwrites the option with that stale copy
-	// (plus Free appended) right after this include finishes — silently
-	// undoing a deactivate_plugins() call made here. 'shutdown' fires after
-	// every other option write for the request, including core's, so the
-	// deferred callback re-reads a fully current value before acting.
 	add_action( 'shutdown', static function () use ( $wcs_pro_edition_basename ): void {
 		if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
 			deactivate_plugins( plugin_basename( __FILE__ ) );
@@ -61,7 +68,6 @@ if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
 		</div>
 		<?php
 	} );
-	return;
 }
 
 // Define core constants.
@@ -94,7 +100,13 @@ spl_autoload_register( function ( string $class ): void {
 
 /**
  * Main plugin bootstrap function.
+ *
+ * Wrapped in function_exists() — not just this file's own early-return
+ * guard above — because an unconditional top-level function declaration is
+ * bound by PHP at compile time, before any runtime code (including that
+ * guard) executes. See the mutual-exclusion comment above.
  */
+if ( ! function_exists( 'wcs_search_init' ) ) {
 function wcs_search_init(): void {
 	// Check WooCommerce dependency.
 	if ( ! class_exists( 'WooCommerce' ) ) {
@@ -119,6 +131,7 @@ function wcs_search_init(): void {
 		\WCS\Search\Admin_Settings::init();
 	}
 }
+}
 add_action( 'plugins_loaded', 'wcs_search_init' );
 
 // This edition is distributed from wordpress.org, which auto-loads
@@ -134,13 +147,18 @@ add_action( 'before_woocommerce_init', function() {
 
 /**
  * Admin notice if WooCommerce is not active.
+ *
+ * function_exists()-wrapped for the same compile-time-binding reason as
+ * wcs_search_init() above.
  */
+if ( ! function_exists( 'wcs_woocommerce_missing_notice' ) ) {
 function wcs_woocommerce_missing_notice(): void {
 	?>
 	<div class="notice notice-error is-dismissible">
 		<p><?php esc_html_e( 'Turbo Search for WooCommerce requires WooCommerce to be installed and active.', 'turbo-search-for-woocommerce' ); ?></p>
 	</div>
 	<?php
+}
 }
 
 // Register activation hooks. We map these to static methods in the Activator class.
