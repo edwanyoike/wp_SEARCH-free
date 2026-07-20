@@ -200,6 +200,32 @@ class Admin_Settings {
 			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.svg?ver=' . WCS_VERSION,
 			58
 		);
+
+		// Submenu entries for each tab, purely so hovering "Turbo Search" in
+		// the admin menu shows a flyout listing them — add_menu_page() alone
+		// registers no submenu array, so WP shows no flyout at all. Appending
+		// '&tab=...' to the parent slug as each $menu_slug is the standard WP
+		// pattern for tab-based settings pages: add_submenu_page() only uses
+		// $menu_slug to build the href (admin.php?page=$menu_slug) and never
+		// validates it against '&'. All entries render through the same
+		// render_settings_page(); the tab whitelist there (and in
+		// settings-page.php's @var doc comment) stays the single source of
+		// truth for which tabs exist — keep both in sync with this list.
+		$wcs_tab_slugs = array(
+			'wcs-fast-search'             => __( 'Settings', 'turbo-search-for-woocommerce' ),
+			'wcs-fast-search&tab=data'    => __( 'App Data', 'turbo-search-for-woocommerce' ),
+			'wcs-fast-search&tab=docs'    => __( 'Documentation', 'turbo-search-for-woocommerce' ),
+		);
+		foreach ( $wcs_tab_slugs as $wcs_menu_slug => $wcs_tab_label ) {
+			add_submenu_page(
+				'wcs-fast-search',
+				$wcs_tab_label,
+				$wcs_tab_label,
+				'manage_options',
+				$wcs_menu_slug,
+				array( __CLASS__, 'render_settings_page' )
+			);
+		}
 	}
 
 	/**
