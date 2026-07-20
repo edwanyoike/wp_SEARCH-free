@@ -38,7 +38,20 @@ if ( ! function_exists( 'is_plugin_active' ) ) {
 }
 $wcs_pro_edition_basename = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
 if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
-	deactivate_plugins( plugin_basename( __FILE__ ) );
+	// Defer the actual deactivate_plugins() call to 'shutdown' rather than
+	// calling it synchronously here. If this file is loaded via WP core's
+	// activate_plugin() (e.g. Pro active, something reactivates Free), that
+	// function already read 'active_plugins' into a local variable *before*
+	// this include ran, and overwrites the option with that stale copy
+	// (plus Free appended) right after this include finishes — silently
+	// undoing a deactivate_plugins() call made here. 'shutdown' fires after
+	// every other option write for the request, including core's, so the
+	// deferred callback re-reads a fully current value before acting.
+	add_action( 'shutdown', static function () use ( $wcs_pro_edition_basename ): void {
+		if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
+			deactivate_plugins( plugin_basename( __FILE__ ) );
+		}
+	}, 0 );
 	add_action( 'admin_notices', static function (): void {
 		?>
 		<div class="notice notice-warning is-dismissible">
