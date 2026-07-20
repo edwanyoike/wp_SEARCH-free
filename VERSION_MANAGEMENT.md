@@ -1,65 +1,126 @@
-# WP Fast Search - Version Management Guide
+# Turbo Search for WooCommerce (Free) — Version Management Guide
 
-This document outlines the standard operating procedure (SOP) for releasing new versions of the WP Fast Search plugin. Following these steps ensures that WordPress correctly recognizes updates, browser caches are busted for static assets, and Git history remains clean.
+This document is the standard operating procedure (SOP) for releasing new
+versions of this plugin. Following it ensures WordPress correctly recognizes
+updates, browser caches are busted for static assets, and Git history stays
+clean and traceable to a specific shipped zip.
+
+## 0. The standing rule: `./build.sh` is the only way to cut a release
+
+**Never `git commit`/`git push` by hand for a change that will be deployed to
+a live site or otherwise handed to a user as "ready" — always run
+`./build.sh` instead.** `build.sh` is what bumps the version; a plain
+`git commit` does not, and the `post-commit` git hook that mirrors zips into
+the shared top-level `dist/` (see the combined `../VERSION_MANAGEMENT.md`)
+explicitly does **not** bump anything either — it only packages whatever
+version is *currently* in the plugin header.
+
+This matters even for changes you consider "just a fix" or "still testing":
+if a zip from this repo is going to be installed anywhere outside your own
+local checkout, it needs a version bump, or:
+- WordPress can't tell two different zips apart in the Plugins list.
+- The `?ver=` query string on `search.css`/`search.js` (see
+  `includes/class-frontend.php`) doesn't change, so a browser or CDN that
+  already cached the old file under that same `?ver=` keeps serving stale
+  JS/CSS after you deploy new code that fixes a bug in it — silently
+  reintroducing the very bug the deploy was meant to fix.
+
+If you're mid-investigation and only testing against a disposable copy of a
+file (not the live plugin directory), a bump isn't needed for that — but the
+moment a change is deployed to a real, running install, treat it as a
+release and run `./build.sh`.
 
 ## 1. When to Bump the Version (SemVer)
 
-This project strictly adheres to Semantic Versioning. A version bump must occur **only when cutting a new `.zip` for deployment**. Intermediate Git commits do not require a version bump.
-*   **Patch Release (1.0.x):** Bumped for backwards-compatible bug fixes.
-*   **Minor Release (1.x.0):** Bumped for new, backwards-compatible functionality.
-*   **Major Release (x.0.0):** Bumped for breaking architectural changes (e.g., database schema migrations).
+This project strictly adheres to Semantic Versioning.
+*   **Patch (`1.0.x`):** backwards-compatible bug fixes, CSS/behavior
+    corrections, no new capability. `./build.sh "message"` (patch is the
+    default when no bump type is given).
+*   **Minor (`1.x.0`):** new, backwards-compatible functionality.
+    `./build.sh "message" minor`.
+*   **Major (`x.0.0`):** breaking changes — a database schema migration that
+    isn't auto-handled, a removed shortcode/option, anything that could
+    break an existing site on upgrade. `./build.sh "message" major`.
+
+When a single release bundles several fixes plus one new feature, the
+feature decides the bump — pick minor, don't undercount it as a patch.
+
+Note `../PORTING.md` for how feature parity with the Pro edition
+(`wp_search/`) is tracked — Free and Pro version numbers are independent of
+each other; only bump this repo's version when this repo's code changed.
 
 ## 2. The Two Version Strings
 
-Whenever you release a new version (e.g., moving from `1.0.0` to `1.0.1`), you **must** update the version number in exactly two places within the main plugin file: `wp-fast-search.php`.
+`./build.sh` updates both of these for you — you should never need to hand-edit
+either, but it's useful to know what it's touching:
 
 ### A. The Plugin Header
-WordPress core reads the plugin header to display the version in the **Plugins > Installed Plugins** dashboard.
+WordPress core reads this to show the version in **Plugins > Installed Plugins**,
+and it's also what a wordpress.org listing (if this edition is published
+there) uses to detect available updates.
 
 ```php
 /*
- * Plugin Name: WP Fast Search
- * Description: Zero-dependency, sub-10ms WooCommerce product search engine.
- * Version: 1.0.1  <-- Update this
- * Author: Your Name
+ * Plugin Name:          Turbo Search for WooCommerce
+ * Version:              1.0.6  <-- kept in sync by build.sh
  */
 ```
 
 ### B. The `WCS_VERSION` Constant
-This constant is used in `includes/class-frontend.php` to append a version query string to `search.css` and `search.js` (`?ver=1.0.1`). Updating this guarantees that returning customers don't get stuck with stale CSS or JavaScript stuck in their browser cache.
+Defined in `turbo-search-for-woocommerce.php`, consumed by
+`includes/class-frontend.php` to append `?ver=1.0.6` to every enqueued
+plugin asset — this is the cache-busting mechanism referenced in section 0.
 
 ```php
-// Define core constants.
-define( 'WCS_VERSION', '1.0.1' ); // <-- Update this
+define( 'WCS_VERSION', '1.0.6' ); // <-- kept in sync by build.sh
 ```
 
-## 2. Database Migrations (When Applicable)
+`readme.txt`'s `Stable tag:` is also kept in sync by the script.
 
-If your new version includes structural changes to the custom MySQL table (`wcs_search_index`), you must manage the database upgrade natively.
+## 3. Database Migrations (When Applicable)
 
-WordPress does not automatically run activation hooks on plugin *updates*. If you change the schema in `class-activator.php`:
-1. Use the `upgrader_process_complete` hook, or check against a `wcs_db_version` stored in `wp_options` during `plugins_loaded`.
-2. If the stored DB version is older than the current version, trigger `\WCS\Search\Activator::activate()` programmatically to run `dbDelta()` and apply the new schema without dropping data.
+If a change alters the schema of the custom MySQL tables (`wcs_search_index`,
+`wcs_search_terms`, etc.), you must manage the upgrade natively — WordPress
+does **not** automatically re-run activation hooks on plugin *updates*:
+1. Bump the DB version tracked in `includes/class-activator.php` and add the
+   corresponding upgrade path.
+2. This is exactly the kind of change that calls for at least a minor bump,
+   often major if it isn't backwards-compatible with older stored data.
 
-## 3. The Build & Release Process
-
-Once you have bumped the version strings and finished your code changes, follow this three-step terminal workflow:
-
-### Step 1: Run the Build Script
-Use the automated build script to commit the changes and generate the distribution zip. Use a standard conventional commit message.
+## 4. The Build & Release Process
 
 ```bash
-./build.sh "Bump version to 1.0.1"
+./build.sh "Describe the change"            # patch bump (default)
+./build.sh "Describe the change" minor      # new feature
+./build.sh "Describe the change" major      # breaking change
 ```
-*This will create a fresh `dist/wp-fast-search.zip` containing the new version.*
 
-### Step 2: Create a Git Tag
-Tagging your releases in Git is crucial for tracking history and rolling back if necessary.
+This single command:
+1. Bumps the version (per the bump type) in the plugin header, the
+   `WCS_VERSION` constant, and `readme.txt`.
+2. Runs the full PHPUnit suite (with the coverage ratchet if a coverage
+   driver is installed) — aborts before committing anything if it fails.
+3. Commits everything with your message.
+4. Zips the plugin into `dist/turbo-search-for-woocommerce-X.Y.Z.zip`,
+   archiving the previous zip under `dist/archive/`.
+
+Per the project's standing "always push" rule, push the commit right after:
 
 ```bash
-git tag v1.0.1
-git push origin v1.0.1
+git push origin main
 ```
 
-### Step 3: Distribution
-Upload the new `dist/wp-fast-search.zip` directly to the client's WordPress dashboard, or attach the zip to a GitHub Release corresponding to the tag you just created.
+Then tag the release (optional but recommended for anything actually
+shipped):
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+### Distribution
+Upload `dist/turbo-search-for-woocommerce-X.Y.Z.zip` directly to the target
+site's WordPress dashboard (or use the `wp plugin install --force` workflow
+in `../DEPLOYMENT.md`), attach it to a GitHub Release matching the tag, or
+submit it through the wordpress.org SVN process if this edition is listed
+there.
