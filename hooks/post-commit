@@ -1,7 +1,8 @@
 #!/bin/bash
 # Builds the distributable zip and archives the previous version after every
-# commit, then syncs the zip into the shared top-level dist/ folder at
-# /home/edu/kiro/search/dist/ so both Pro and Free builds live in one place.
+# commit, then syncs the zip into the shared top-level dist/<slug>/ folder at
+# /home/edu/kiro/ozulabs/dist/turbo-search-free/ so every product's builds
+# live in one place without mixing zips together.
 # No commit step here — this only packages whatever HEAD already is, so it
 # can never recurse into itself (unlike build.sh, which bumps the version
 # and commits).
@@ -12,7 +13,7 @@ set -euo pipefail
 
 PLUGIN_SLUG="turbo-search-for-woocommerce"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-SHARED_DIST="$(cd "$REPO_DIR/.." && pwd)/dist"
+SHARED_DIST="$(cd "$REPO_DIR/.." && pwd)/dist/turbo-search-free"
 TMP_DIR="/tmp/${PLUGIN_SLUG}"
 
 cd "$REPO_DIR"
