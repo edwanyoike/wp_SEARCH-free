@@ -44,6 +44,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<li><?php esc_html_e( 'Zero-result search analytics dashboard', 'turbo-search-for-woocommerce' ); ?></li>
 		<li><?php esc_html_e( 'Multi-currency price support (CURCY, WOOCS, WooCommerce Multilingual)', 'turbo-search-for-woocommerce' ); ?></li>
 		<li><?php esc_html_e( 'Unlimited indexed products (this edition indexes up to 100)', 'turbo-search-for-woocommerce' ); ?></li>
+		<li><?php esc_html_e( 'Export/Import Settings — move configuration between sites as a JSON file', 'turbo-search-for-woocommerce' ); ?></li>
 	</ul>
 	<a href="https://ozulabs.com" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e( 'Upgrade to Pro', 'turbo-search-for-woocommerce' ); ?></a>
 </div>

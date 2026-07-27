@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.0
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.1.1
+Stable tag:        1.1.2
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,9 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 3. Documentation tab showing triggers and uninstall info.
 
 == Changelog ==
+
+= 1.1.2 =
+* Feature: the App Data tab and the Settings tab's Pro summary now mention Export/Import Settings, a Pro-only feature for moving configuration between sites as a JSON file — matches the disabled-stub-plus-upsell-copy pattern already used for other Pro-only fields.
 
 = 1.0.5 =
 * Change: "Delete Data on Uninstall" and the "Delete All Plugin Data Now" danger-zone action moved off the Settings tab into their own new "App Data" tab (parity fix — this shipped for the Pro edition in 1.3.40/1.3.41 but was missed here).
