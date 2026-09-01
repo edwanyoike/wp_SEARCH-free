@@ -53,16 +53,18 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<h2><?php esc_html_e( 'Index Status', 'turbo-search-for-woocommerce' ); ?></h2>
 	<p id="wcs-status-wrapper">
 		<?php if ( $is_indexing ) : ?>
-			<span style="color: #d63638; font-weight: bold;"><?php
+			<span style="color: #d63638; font-weight: bold;">
+			<?php
 				$_phase = get_option( 'wcs_rebuild_phase', 'batching' );
-				if ( 'swapping' === $_phase ) {
-					esc_html_e( 'Status: Finalizing — swapping live index…', 'turbo-search-for-woocommerce' );
-				} elseif ( 'optimizing' === $_phase ) {
-					esc_html_e( 'Status: Finalizing — optimizing index…', 'turbo-search-for-woocommerce' );
-				} else {
-					esc_html_e( 'Status: Indexing…', 'turbo-search-for-woocommerce' );
-				}
-			?></span>
+			if ( 'swapping' === $_phase ) {
+				esc_html_e( 'Status: Finalizing — swapping live index…', 'turbo-search-for-woocommerce' );
+			} elseif ( 'optimizing' === $_phase ) {
+				esc_html_e( 'Status: Finalizing — optimizing index…', 'turbo-search-for-woocommerce' );
+			} else {
+				esc_html_e( 'Status: Indexing…', 'turbo-search-for-woocommerce' );
+			}
+			?>
+			</span>
 		<?php else : ?>
 			<span style="color: #00a32a; font-weight: bold;"><?php esc_html_e( 'Status: Idle / Complete', 'turbo-search-for-woocommerce' ); ?></span>
 		<?php endif; ?>
@@ -106,29 +108,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<span style="color:#555; margin-left: 8px;"><?php esc_html_e( 'Optional:', 'turbo-search-for-woocommerce' ); ?> <code>placeholder="…"</code> &nbsp;<code>button="Go"</code></span>
 	&mdash; <a href="?page=wcs-fast-search&tab=docs#search-form-setup"><?php esc_html_e( 'full instructions', 'turbo-search-for-woocommerce' ); ?></a>
 </div>
-
-<?php if ( ! empty( $zero_hits ) ) : ?>
-<div class="card" style="max-width: 600px; margin-top: 20px;">
-	<h2><?php esc_html_e( 'Searches With No Results', 'turbo-search-for-woocommerce' ); ?></h2>
-	<p><?php esc_html_e( 'Customers searched for these terms and found nothing. Add them as synonyms below, or add the words to the matching products.', 'turbo-search-for-woocommerce' ); ?></p>
-	<table class="widefat striped">
-		<thead>
-			<tr>
-				<th><?php esc_html_e( 'Search term', 'turbo-search-for-woocommerce' ); ?></th>
-				<th style="width: 90px;"><?php esc_html_e( 'Searches', 'turbo-search-for-woocommerce' ); ?></th>
-			</tr>
-		</thead>
-		<tbody>
-			<?php foreach ( $zero_hits as $zero_row ) : ?>
-			<tr>
-				<td><code><?php echo esc_html( $zero_row['query'] ); ?></code></td>
-				<td><?php echo esc_html( (string) (int) $zero_row['hits'] ); ?></td>
-			</tr>
-			<?php endforeach; ?>
-		</tbody>
-	</table>
-</div>
-<?php endif; ?>
 
 <form method="post" action="options.php" style="margin-top: 20px;">
 	<?php settings_fields( 'wcs_settings_group' ); ?>
@@ -223,7 +202,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</th>
 			<td>
 				<textarea class="large-text code" rows="5" disabled placeholder="sofa, couch, settee&#10;tee, t shirt, tshirt"></textarea>
-				<p class="description"><?php echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Search synonyms is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ); ?></p>
+				<p class="description">
+				<?php
+				echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Search synonyms is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
+					'a' => array(
+						'href'   => array(),
+						'target' => array(),
+						'rel'    => array(),
+					),
+				) );
+				?>
+				</p>
 			</td>
 		</tr>
 		<tr>
@@ -235,7 +224,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 				</div>
 			</th>
 			<td>
-				<p class="description"><?php echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Ranking weight tuning is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array( 'a' => array( 'href' => array(), 'target' => array(), 'rel' => array() ) ) ); ?></p>
+				<p class="description">
+				<?php
+				echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Ranking weight tuning is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
+					'a' => array(
+						'href'   => array(),
+						'target' => array(),
+						'rel'    => array(),
+					),
+				) );
+				?>
+				</p>
 			</td>
 		</tr>
 	</table>
