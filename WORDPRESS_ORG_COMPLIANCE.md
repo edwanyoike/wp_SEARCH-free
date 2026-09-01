@@ -661,20 +661,41 @@ Check tool run) was available in this session — every place above where that m
 explicitly rather than assumed clean.
 
 **Open items before a submission or resubmission, in priority order:**
-1. **`write_file` (§16)** — decide on and either fix or explicitly document the raw
-   `copy()`/`unlink()` MU-plugin-install pattern in `class-activator.php`. This is the one finding
-   in this document with real submission-blocking potential.
-2. **Prefixing/PHPCS gap (§19)** — no `phpcs.xml` exists in this repo at all; the clean prefixing
-   result rests entirely on a manual sweep with no automated backstop. Add a PHPCS config, or at
-   minimum keep re-running the manual sweep every release.
+1. ~~`write_file` (§16)~~ — **Fixed 2026-09-01.** `class-activator.php`/`uninstall.php` now use
+   `WP_Filesystem`'s "direct" adapter instead of raw `copy()`/`unlink()`, only ever initialized when
+   it can operate without prompting for FTP/SSH credentials.
+2. ~~Prefixing/PHPCS gap (§19)~~ — **Fixed 2026-09-01.** `phpcs.xml` added (WordPress-Core +
+   PHPCompatibilityWP, with a documented exception for the established `wcs`/`WCS` prefix being
+   under WPCS's 4-char minimum). `composer lint` runs clean. `composer.json` gained `lint`/
+   `lint-fix` scripts.
 3. **Run the real Plugin Check tool and the WordPress.org MCP server's Validate Readme tool
-   (§16, §17, §22)** before submission — several items above are marked "likely clean, not
-   independently verified" specifically because only a real tool run (not a manual source read)
-   can close them out completely (asset/tag-directory checks, exhaustive file-type/compat scans).
-4. Minor/non-blocking: the orphaned promo-dismissal usermeta on uninstall (§8), the
-   options-not-grouped-into-one-array divergence from best practice (§9), and splitting the
-   changelog into a separate `changelog.txt` proactively (§17) before it becomes a repeat-fix like
-   OzuPay's has.
+   (§16, §17, §22)** before submission — still not done; neither is available without a live
+   WordPress install or live WordPress.org account access, neither of which this environment has.
+   Several items in this document are marked "likely clean, not independently verified"
+   specifically because only a real tool run (not a manual source read) can close them out
+   completely (asset/tag-directory checks, exhaustive file-type/compat scans).
+4. **Screenshots aren't in submission-ready form (§18).** `readme.txt`'s `== Screenshots ==` section
+   describes 3 numbered shots, and 7 candidate PNGs exist at the repo's top level
+   (`home.png`, `search_kes.png`, `search_usd.png`, `search_usd_fixed.png`, `shop.png`,
+   `shop_full.png`, `naruki-dual-dropdown.png`), but none are named/selected into the
+   `screenshot-1.png`/`screenshot-2.png`/`screenshot-3.png` convention the live SVN `assets/`
+   directory needs. Pick 3 that match the readme's 3 descriptions, rename them, and place them in
+   the `assets/` directory at actual SVN-submission time (this git repo doesn't control that
+   directory).
+5. Minor/non-blocking: ~~the orphaned promo-dismissal usermeta on uninstall (§8)~~ **fixed
+   2026-09-01**; the options-not-grouped-into-one-array divergence from best practice (§9) and
+   splitting the changelog into a separate `changelog.txt` proactively (§17) before it becomes a
+   repeat-fix like OzuPay's has are both still open, deliberately deferred (architecture/cosmetic
+   calls, not bugs — readme.txt is currently a healthy 6,025 bytes, well under the 10KB threshold).
+
+**Also fixed since this snapshot (2026-09-01), beyond what this document originally flagged:**
+real bugs found by a full code-quality/security review — a leftover Pro-only vocabulary-sidecar
+code path that threw real SQL errors on every full rebuild (`class-indexer.php`), the public search
+endpoint indexing/returning products a merchant had explicitly hidden or password-protected
+(no policy citation in the original handbook sweep, but a real data-exposure bug), the MU
+cache-bypass fast path never being rate-limited, and that same fast path computing a different
+cache key than this edition's own `Search_Handler` for multi-currency-switcher shoppers. See this
+repo's git history (commits `386c6c3`..`ba3fc67`) for the full list.
 
 **This snapshot goes stale the moment new code ships.** Per the same standing rule OzuPay's own
 compliance doc states: code changes, but this audit does not automatically follow them. Re-run this
