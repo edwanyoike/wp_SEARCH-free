@@ -28,16 +28,15 @@ $delete_data = (bool) get_option( 'wcs_delete_data_on_uninstall', false );
 function wcs_uninstall_single_site(): void {
 	global $wpdb;
 
-	// 1. Drop the custom search index tables (main + staging) and the zero-result log.
+	// 1. Drop the custom search index tables (main + staging). Typo-correction
+	// vocabulary (wcs_search_terms*), search-analytics (wcs_search_log), and
+	// its defunct predecessor (wcs_zero_hits) are Pro-only/Pro-history
+	// tables this edition's Activator never creates — see PORTING.md — so
+	// there is nothing to drop for them here.
 	$main_table  = $wpdb->prefix . 'wcs_search_index';
 	$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
-	$zero_table  = $wpdb->prefix . 'wcs_zero_hits';
 	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $main_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $zero_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-	foreach ( array( 'wcs_search_terms', 'wcs_search_terms_stage' ) as $terms_suffix ) {
-		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . $terms_suffix ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-	}
 
 	// 2. Delete the plugin's own options. Explicit list — a broad LIKE 'wcs_%'
 	// would also delete WooCommerce Subscriptions' options (shared prefix).
@@ -83,7 +82,7 @@ if ( true === $delete_data ) {
 		wcs_uninstall_single_site();
 	}
 
-	// 6. Delete all wcs_notice_*_dismissed user meta
+	// 6. Delete all wcs_notice_*_dismissed user meta.
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 	$wpdb->query(
 		$wpdb->prepare(
@@ -92,14 +91,33 @@ if ( true === $delete_data ) {
 			'wcs_notice_no_cache_dismissed'
 		)
 	);
+	// Promo banners use a server-driven, per-promo dismiss_id
+	// (Admin_Settings::render_admin_notices()), so the exact key can't be
+	// enumerated above — 'wcs_notice_promo_%_dismissed' is specific enough
+	// not to risk the broad-prefix collision this file's own tests guard
+	// against (see CleanupCoverageTest::test_no_broad_prefix_deletes...).
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+	$wpdb->query(
+		$wpdb->prepare(
+			"DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
+			$wpdb->esc_like( 'wcs_notice_promo_' ) . '%' . $wpdb->esc_like( '_dismissed' )
+		)
+	);
 }
 
 // 5. Remove the MU plugin file
 if ( defined( 'WPMU_PLUGIN_DIR' ) ) {
 	$mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 	if ( file_exists( $mu_file ) || is_link( $mu_file ) ) {
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
-		if ( ! unlink( $mu_file ) ) {
+		if ( ! function_exists( 'get_filesystem_method' ) || ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		$mu_deleted = false;
+		if ( 'direct' === get_filesystem_method( array(), dirname( $mu_file ) ) && WP_Filesystem() ) {
+			global $wp_filesystem;
+			$mu_deleted = $wp_filesystem && $wp_filesystem->delete( $mu_file );
+		}
+		if ( ! $mu_deleted ) {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			error_log( 'Turbo Search for WooCommerce uninstall: could not remove MU plugin at ' . $mu_file );
 		}

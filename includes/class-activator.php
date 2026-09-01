@@ -351,7 +351,7 @@ class Activator {
 		// MySQL 5.7.6+ supports ngram
 		// MariaDB does NOT support ngram natively in the same way, fallback to standard.
 		if ( ! empty( $raw_version ) && stripos( $raw_version, 'MariaDB' ) !== false ) {
-			return false; 
+			return false;
 		}
 
 		$version = preg_replace( '/[^0-9.-]/', '', (string) $raw_version );
@@ -438,21 +438,48 @@ class Activator {
 			if ( md5_file( $source ) === md5_file( $destination ) ) {
 				return;
 			}
-			// If the file exists but is not writable, attempt deletion. On Unix,
-			// directory write permission controls deletion, not the file's own bits.
-			if ( ! is_writable( $destination ) && is_writable( $mu_dir ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
-				unlink( $destination );
-			}
 		}
 
-		// Only copy if destination is writable or directory is writable.
-		if ( is_writable( $mu_dir ) && ( ! file_exists( $destination ) || is_writable( $destination ) ) ) { // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.copy_copy
-			if ( ! copy( $source, $destination ) ) {
+		$wp_filesystem = self::get_direct_filesystem( $mu_dir );
+		if ( null === $wp_filesystem ) {
+			// No direct (credential-free) filesystem access — matches the
+			// existing "silently skip, the settings-page admin notice already
+			// explains it" behavior for a locked-down/FTP-only host.
+			return;
+		}
+
+		if ( $wp_filesystem->exists( $destination ) && ! $wp_filesystem->is_writable( $destination ) ) {
+			$wp_filesystem->delete( $destination );
+		}
+
+		if ( ! $wp_filesystem->exists( $destination ) || $wp_filesystem->is_writable( $destination ) ) {
+			if ( ! $wp_filesystem->copy( $source, $destination, true ) ) {
 				Logger::log( 'Could not copy MU cache-bypass plugin to ' . $destination, 'warning' );
 			}
 		}
+	}
+
+	/**
+	 * Load WP_Filesystem in "direct" mode only — i.e. only when it can operate
+	 * without ever prompting for FTP/SSH credentials, which activation/
+	 * deactivation hooks have no way to satisfy. Returns null on anything
+	 * else (locked-down host, credential-based access required), matching
+	 * the pre-existing "silently skip" behavior for those hosts.
+	 *
+	 * @return \WP_Filesystem_Base|null
+	 */
+	private static function get_direct_filesystem( string $target_dir ) {
+		if ( ! function_exists( 'get_filesystem_method' ) || ! function_exists( 'WP_Filesystem' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/file.php';
+		}
+		if ( 'direct' !== get_filesystem_method( array(), $target_dir ) ) {
+			return null;
+		}
+		global $wp_filesystem;
+		if ( ! WP_Filesystem() || ! $wp_filesystem ) {
+			return null;
+		}
+		return $wp_filesystem;
 	}
 
 	/**
@@ -466,8 +493,8 @@ class Activator {
 		$destination = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 
 		if ( file_exists( $destination ) || is_link( $destination ) ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink
-			if ( ! unlink( $destination ) ) {
+			$wp_filesystem = self::get_direct_filesystem( dirname( $destination ) );
+			if ( null === $wp_filesystem || ! $wp_filesystem->delete( $destination ) ) {
 				Logger::log( 'Could not remove MU cache-bypass plugin from ' . $destination, 'warning' );
 			}
 		}
