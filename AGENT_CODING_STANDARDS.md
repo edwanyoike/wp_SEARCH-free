@@ -132,6 +132,16 @@ If the plugin handles checkout pages, payment data, or interacts with WooCommerc
 ---
 
 ## 7. Plugin Check (PCP) Requirements
+
+**Before any WordPress.org submission or resubmission of this plugin, also read
+`../WORDPRESS_ORG_HANDBOOK.md`** — the shared, full WordPress Plugin Handbook extraction used
+across every OzuLabs product listed on WordPress.org. The summary below is the short list worth
+remembering day to day; the shared handbook is the authoritative, section-by-section reference
+(readme.txt parsing mechanics, SVN release workflow, the full 33-check Plugin Check breakdown,
+the prefixing rule in full, etc.). If this repo accumulates its own audit findings/incident
+history against that handbook the way `ozupay/WORDPRESS_ORG_COMPLIANCE.md` does, record them in a
+`WORDPRESS_ORG_COMPLIANCE.md` here rather than folding them into this file.
+
 The WordPress.org **Plugin Check (PCP)** tool enforces automated directory standards. All code must pass PCP without any `error` level flags.
 *   **No Unauthorized External Requests:** Do not ping third-party servers unless explicitly user-initiated or documented.
 *   **No Deprecated Functions:** Ensure all WP functions are current (e.g., use `wp_add_inline_script` instead of directly printing to `<script>`).
