@@ -54,7 +54,9 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		$route = $GLOBALS['wcs_test_rest_routes']['wcs/v1/search'];
 		$this->assertTrue( $route['args']['q']['required'] );
 		$this->assertTrue( $route['args']['_wpnonce']['required'] );
-		$this->assertFalse( $route['args']['currency']['required'] );
+		// No `currency` arg in this edition — multi-currency is Pro-only and
+		// this edition never reads it (see Search_Handler::register_routes()).
+		$this->assertArrayNotHasKey( 'currency', $route['args'] );
 		$this->assertNotEmpty( $route['permission_callback'], 'route must not be permission-less' );
 	}
 
@@ -169,6 +171,24 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		$this->assertSame( 42, $next[0]['args']['epoch'] );
 	}
 
+	public function test_batch_fetch_query_excludes_hidden_and_password_protected_products(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'col' === $type ) {
+				return array();
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::process_batch( 0, 42 );
+
+		$sql = implode( "\n", $this->wpdb->queries );
+		$this->assertStringContainsString( "p.post_password = ''", $sql );
+		$this->assertStringContainsString( "tt.taxonomy = 'product_visibility'", $sql );
+		$this->assertStringContainsString( "t.slug = 'exclude-from-search'", $sql );
+	}
+
 	// ── Free edition product cap ─────────────────────────────────────────────
 
 	public function test_batch_fetch_is_clamped_to_remaining_free_cap(): void {
@@ -189,7 +209,7 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		Indexer::process_batch( 0, 42 );
 
 		$sql = implode( "\n", $this->wpdb->queries );
-		$this->assertMatchesRegularExpression( '/ORDER BY ID ASC\s+LIMIT 5\b/', $sql, 'fetch must be clamped to the 5 slots remaining before the 100-product cap' );
+		$this->assertMatchesRegularExpression( '/ORDER BY p\.ID ASC\s+LIMIT 5\b/', $sql, 'fetch must be clamped to the 5 slots remaining before the 100-product cap' );
 	}
 
 	public function test_rebuild_completion_flags_cap_reached_when_catalog_exceeds_cap(): void {

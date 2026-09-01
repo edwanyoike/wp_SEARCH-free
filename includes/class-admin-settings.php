@@ -124,7 +124,7 @@ class Admin_Settings {
 		}
 
 		// ── Notice 1: MU plugin not installed ────────────────────────────────
-		$mu_dest          = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
+		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'wcs_notice_mu_bypass_dismissed', true ) ) {
 			?>
 			<div class="notice notice-warning is-dismissible" data-wcs-notice="wcs_notice_mu_bypass">
@@ -212,9 +212,9 @@ class Admin_Settings {
 		// settings-page.php's @var doc comment) stays the single source of
 		// truth for which tabs exist — keep both in sync with this list.
 		$wcs_tab_slugs = array(
-			'wcs-fast-search'             => __( 'Settings', 'turbo-search-for-woocommerce' ),
-			'wcs-fast-search&tab=data'    => __( 'App Data', 'turbo-search-for-woocommerce' ),
-			'wcs-fast-search&tab=docs'    => __( 'Documentation', 'turbo-search-for-woocommerce' ),
+			'wcs-fast-search'          => __( 'Settings', 'turbo-search-for-woocommerce' ),
+			'wcs-fast-search&tab=data' => __( 'App Data', 'turbo-search-for-woocommerce' ),
+			'wcs-fast-search&tab=docs' => __( 'Documentation', 'turbo-search-for-woocommerce' ),
 		);
 		foreach ( $wcs_tab_slugs as $wcs_menu_slug => $wcs_tab_label ) {
 			add_submenu_page(
@@ -251,7 +251,7 @@ class Admin_Settings {
 		) );
 		register_setting( 'wcs_settings_group', 'wcs_min_chars', array(
 			'type'              => 'integer',
-			'sanitize_callback' => static function( $value ): int {
+			'sanitize_callback' => static function ( $value ): int {
 				// Clamp to the same 1-10 range as the settings field. An
 				// unclamped high value would silently disable search entirely.
 				return min( 10, max( 1, absint( $value ) ) );
@@ -307,14 +307,14 @@ class Admin_Settings {
 		wp_enqueue_script( 'wcs-admin-js', WCS_PLUGIN_URL . 'assets/js/admin.js', array(), WCS_VERSION, true );
 
 		$config = array(
-			'isIndexing' => (bool) get_option( 'wcs_is_indexing', false ),
-			'nonces'     => array(
+			'isIndexing'  => (bool) get_option( 'wcs_is_indexing', false ),
+			'nonces'      => array(
 				'status'  => wp_create_nonce( 'wcs_status' ),
 				'rebuild' => wp_create_nonce( 'wcs_rebuild' ),
 				'delete'  => wp_create_nonce( 'wcs_delete_all_data' ),
 				'dismiss' => wp_create_nonce( 'wcs_dismiss_notice' ),
 			),
-			'i18n'       => array(
+			'i18n'        => array(
 				/* translators: 1: number of processed products, 2: total number of published products */
 				'progress'       => __( 'Processed %1$d of %2$d published products.', 'turbo-search-for-woocommerce' ),
 				'idle'           => __( 'Status: Idle / Complete', 'turbo-search-for-woocommerce' ),
@@ -367,16 +367,12 @@ class Admin_Settings {
 		// Only shown while idle — a fresh rebuild trigger clears this option,
 		// so a lingering value always reflects the current idle state.
 		$last_rebuild_error = $is_indexing ? '' : (string) get_option( 'wcs_last_rebuild_error', '' );
-		$total        = 0;
-		$counts       = wp_count_posts( 'product' );
+		$total              = 0;
+		$counts             = wp_count_posts( 'product' );
 		if ( isset( $counts->publish ) ) {
 			$total = (int) $counts->publish;
 		}
 		$processed = min( (int) get_option( 'wcs_reindex_processed', 0 ), max( 1, $total ) );
-
-		// Zero-result search analytics is a Pro feature — this edition never
-		// logs or displays them.
-		$zero_hits = array();
 
 		// Product cap — this edition indexes at most Indexer::FREE_PRODUCT_CAP
 		// products; the rest are simply invisible to search until upgrading.
@@ -384,7 +380,7 @@ class Admin_Settings {
 
 		// Markup lives in view templates; behaviour in assets/js/admin.js
 		// (enqueued by enqueue_admin_assets). $active_tab, $is_indexing,
-		// $last_indexed, $last_rebuild_error, $total, $processed, $zero_hits,
+		// $last_indexed, $last_rebuild_error, $total, $processed,
 		// $product_cap are consumed by the views.
 		include WCS_PLUGIN_DIR . 'includes/views/settings-page.php';
 	}
@@ -446,7 +442,8 @@ class Admin_Settings {
 		// Invalidate OPcache entries for this plugin's files only — not the whole
 		// server — so stale bytecode doesn't outlive the data reset.
 		if ( function_exists( 'opcache_invalidate' ) ) {
-			foreach ( glob( WCS_PLUGIN_DIR . 'includes/*.php' ) ?: array() as $file ) {
+			$plugin_files = glob( WCS_PLUGIN_DIR . 'includes/*.php' );
+			foreach ( false !== $plugin_files ? $plugin_files : array() as $file ) {
 				opcache_invalidate( $file, true );
 			}
 			opcache_invalidate( WCS_PLUGIN_DIR . 'turbo-search-for-woocommerce.php', true );
@@ -491,7 +488,12 @@ class Admin_Settings {
 		update_option( 'wcs_is_indexing', 1, false );
 		delete_option( 'wcs_last_rebuild_error' );
 
-		as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => 0, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+		// $unique=false, $priority=10 — the trailing args were previously
+		// (0, true), which cast true to priority 1 instead of the intended 10.
+		as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+			'last_id' => 0,
+			'epoch'   => $epoch,
+		), 'turbo-search-for-woocommerce', false, 10 );
 
 		wp_send_json_success();
 	}
@@ -507,10 +509,10 @@ class Admin_Settings {
 
 		$is_indexing = (bool) get_option( 'wcs_is_indexing', false );
 
-		$recovering   = false;
-		$stall_secs   = 0;
-		$phase        = '';
-		$cursor       = 0;
+		$recovering = false;
+		$stall_secs = 0;
+		$phase      = '';
+		$cursor     = 0;
 
 		if ( $is_indexing ) {
 			global $wpdb;
@@ -549,14 +551,20 @@ class Admin_Settings {
 						// below: the stuck action may still be live, and a second
 						// batch chain would race it.
 					}
-					if ( $marked && $epoch && $epoch === (int) get_option( 'wcs_rebuild_epoch', 0 ) ) {
+					if ( $marked && $epoch && (int) get_option( 'wcs_rebuild_epoch', 0 ) === $epoch ) {
 						$last_id = (int) ( $args['last_id'] ?? 0 );
+						// $unique=false, $priority=10 — the trailing args
+						// were previously (0, true), which cast true to
+						// priority 1 instead of the intended 10.
 						as_enqueue_async_action(
 							'wcs_rebuild_index_batch',
-							array( 'last_id' => $last_id, 'epoch' => $epoch ),
+							array(
+								'last_id' => $last_id,
+								'epoch'   => $epoch,
+							),
 							'turbo-search-for-woocommerce',
-							0,
-							true
+							false,
+							10
 						);
 						$recovering = true;
 						$cursor     = $last_id;
@@ -597,12 +605,18 @@ class Admin_Settings {
 				if ( $stuck_epoch && $attempts < 3 && function_exists( 'as_enqueue_async_action' ) ) {
 					$resume_from = (int) get_option( 'wcs_rebuild_cursor', 0 );
 					set_transient( $retry_key, $attempts + 1, HOUR_IN_SECONDS );
+					// $unique=false, $priority=10 — the trailing args were
+					// previously (0, true), which cast true to priority 1
+					// instead of the intended 10.
 					as_enqueue_async_action(
 						'wcs_rebuild_index_batch',
-						array( 'last_id' => $resume_from, 'epoch' => $stuck_epoch ),
+						array(
+							'last_id' => $resume_from,
+							'epoch'   => $stuck_epoch,
+						),
 						'turbo-search-for-woocommerce',
-						0,
-						true
+						false,
+						10
 					);
 					Logger::log( sprintf( 'No batch ever dispatched for epoch=%d — resuming from cursor=%d (attempt %d/3)', $stuck_epoch, $resume_from, $attempts + 1 ) );
 					$recovering = true;
@@ -621,7 +635,7 @@ class Admin_Settings {
 
 			if ( $is_indexing ) {
 				$phase  = get_option( 'wcs_rebuild_phase', 'batching' );
-				$cursor = $cursor ?: (int) get_option( 'wcs_rebuild_cursor', 0 );
+				$cursor = $cursor ? $cursor : (int) get_option( 'wcs_rebuild_cursor', 0 );
 			}
 		}
 
@@ -640,14 +654,14 @@ class Admin_Settings {
 		$last_error = $is_indexing ? '' : (string) get_option( 'wcs_last_rebuild_error', '' );
 
 		wp_send_json_success( array(
-			'is_indexing'  => $is_indexing,
-			'processed'    => $processed,
-			'total'        => $total,
-			'phase'        => $phase,
-			'cursor'       => $cursor,
-			'recovering'   => $recovering,
-			'stall_secs'   => $stall_secs,
-			'last_error'   => $last_error,
+			'is_indexing' => $is_indexing,
+			'processed'   => $processed,
+			'total'       => $total,
+			'phase'       => $phase,
+			'cursor'      => $cursor,
+			'recovering'  => $recovering,
+			'stall_secs'  => $stall_secs,
+			'last_error'  => $last_error,
 		) );
 	}
 }

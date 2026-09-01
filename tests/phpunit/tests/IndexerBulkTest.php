@@ -64,6 +64,25 @@ final class IndexerBulkTest extends TestCase {
 		);
 	}
 
+	public function test_bulk_never_queries_wc_order_product_lookup(): void {
+		// Regression: sales_30d used to be a real aggregate query against
+		// wc_order_product_lookup on every save and rebuild chunk, but its
+		// weight is always pinned to 0.0 in Search_Handler in this edition
+		// (recent-sales ranking is Pro-only) — the value can never affect a
+		// ranking, so it must always be written as a literal 0, not computed.
+		$this->post( 1, 'Red Lamp' );
+		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
+
+		$this->bulk( array( 1 ) );
+
+		$sql = implode( ' ', $this->wpdb->queries );
+		$this->assertStringNotContainsString( 'wc_order_product_lookup', $sql );
+		$replace = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_starts_with( $q, 'REPLACE INTO' ) ) );
+		// Columns are ...,total_sales,sales_30d,... — lookupRow()'s default
+		// total_sales is 7, so ',7,0,' unambiguously pins sales_30d to 0.
+		$this->assertStringContainsString( ',7,0,', $replace[0], 'sales_30d column must be the literal 0' );
+	}
+
 	public function test_bulk_writes_one_multirow_replace_from_lookup_data(): void {
 		$this->post( 1, 'Red Lamp', 'publish', 'warm light' );
 		$this->post( 2, 'Blue Lamp' );
@@ -87,17 +106,19 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertStringContainsString( '10,20', $sql ); // lookup min/max prices
 	}
 
-	public function test_bulk_rebuild_writes_vocabulary_to_the_terms_staging_table(): void {
+	public function test_bulk_rebuild_never_writes_a_vocabulary_sidecar(): void {
+		// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only feature —
+		// PORTING.md lists it as a region Free's indexer must never touch, and
+		// Activator never creates those tables here. Regression: this used to
+		// assert the opposite (Free wrote to wcs_search_terms_stage during a
+		// rebuild), which meant every real full rebuild threw a "table doesn't
+		// exist" SQL error that only this test's mocked $wpdb didn't catch.
 		$this->post( 1, 'Red Lamp' );
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1, 'RL-1' ) ) );
 
 		$this->bulk( array( 1 ) ); // target: staging table
 
-		$vocab = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms_stage' ) ) );
-		$this->assertCount( 1, $vocab );
-		$this->assertStringContainsString( "'red'", $vocab[0] );
-		$this->assertStringContainsString( "'lamp'", $vocab[0] );
-		$this->assertStringContainsString( 'ON DUPLICATE KEY UPDATE freq = freq + VALUES(freq)', $vocab[0] );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) ) );
 	}
 
 	public function test_live_single_updates_do_not_touch_the_vocabulary(): void {
@@ -152,6 +173,30 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
 	}
 
+	public function test_bulk_skips_products_excluded_from_search(): void {
+		$this->post( 1, 'Hidden Lamp' );
+		$GLOBALS['wcs_test_search_excluded_ids'][] = 1;
+		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
+
+		$this->bulk( array( 1 ) );
+
+		$sql = implode( ' ', $this->wpdb->queries );
+		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index_stage', $sql );
+		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
+	}
+
+	public function test_bulk_skips_password_protected_products(): void {
+		$this->post( 1, 'Secret Lamp' );
+		$GLOBALS['wcs_test_posts'][1]->post_password = 'shh';
+		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
+
+		$this->bulk( array( 1 ) );
+
+		$sql = implode( ' ', $this->wpdb->queries );
+		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index_stage', $sql );
+		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
+	}
+
 	public function test_bulk_throws_when_the_write_fails_so_the_chunk_can_fall_back(): void {
 		$this->post( 1, 'Lamp' );
 		$this->wpdb->handler = static function ( string $sql, string $type ) {
@@ -176,6 +221,30 @@ final class IndexerBulkTest extends TestCase {
 
 		$sql = implode( ' ', $this->wpdb->queries );
 		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+	}
+
+	public function test_single_product_excluded_from_search_is_not_indexed(): void {
+		// A merchant's "Catalog visibility: Hidden"/"Shop only" choice must be
+		// honored — the public REST search endpoint has no capability check.
+		$GLOBALS['wcs_test_products'][8]           = new Fake_Product( array( 'id' => 8, 'title' => 'Hidden Lamp' ) );
+		$GLOBALS['wcs_test_search_excluded_ids'][] = 8;
+
+		Indexer::index_single_product( 8 );
+
+		$sql = implode( ' ', $this->wpdb->queries );
+		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+		$this->assertStringNotContainsString( 'REPLACE', $sql );
+	}
+
+	public function test_single_password_protected_product_is_not_indexed(): void {
+		$GLOBALS['wcs_test_products'][9] = new Fake_Product( array( 'id' => 9, 'title' => 'Secret Lamp' ) );
+		$GLOBALS['wcs_test_posts'][9]    = (object) array( 'ID' => 9, 'post_password' => 'shh' );
+
+		Indexer::index_single_product( 9 );
+
+		$sql = implode( ' ', $this->wpdb->queries );
+		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+		$this->assertStringNotContainsString( 'REPLACE', $sql );
 	}
 
 	public function test_variation_queues_its_parent_instead_of_indexing_itself(): void {
@@ -265,5 +334,22 @@ final class IndexerBulkTest extends TestCase {
 		Indexer::start_rebuild();
 
 		$this->assertFalse( get_option( 'wcs_last_rebuild_error' ) );
+	}
+
+	public function test_start_rebuild_never_uses_the_args_blind_unique_flag(): void {
+		// Regression: every wcs_rebuild_index_batch enqueue in this file used
+		// to pass (0, true) for the trailing (unique, priority) args — under
+		// the real Action Scheduler API that's unique=false/priority=1, not
+		// the intended priority=10, and the test bootstrap's own stub had
+		// the same two params swapped, so nothing here was actually verified
+		// before. A unique enqueue would silently collide with a still
+		// in-progress batch from a previous rebuild and never get queued at
+		// all (see Indexer::enqueue_next_batch()'s docblock in the Pro
+		// sibling for the full mechanics).
+		Indexer::start_rebuild();
+
+		$batch = array_values( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] ) );
+		$this->assertCount( 1, $batch );
+		$this->assertFalse( $batch[0]['unique'] );
 	}
 }

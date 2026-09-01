@@ -58,7 +58,7 @@ class Indexer {
 	 *
 	 * @var array<int, true>
 	 */
-	private static array $queued_ids = [];
+	private static array $queued_ids = array();
 
 	/**
 	 * Whether a cache-bust action has already been scheduled this request.
@@ -97,7 +97,7 @@ class Indexer {
 		// manual rebuild. Each product is queued individually for an incremental
 		// index update — no full rebuild triggered.
 		add_action( 'woocommerce_product_import_inserted_product_object', array( __CLASS__, 'queue_product_update_from_import' ), 10, 1 );
-		add_action( 'woocommerce_product_import_updated_product_object',  array( __CLASS__, 'queue_product_update_from_import' ), 10, 1 );
+		add_action( 'woocommerce_product_import_updated_product_object', array( __CLASS__, 'queue_product_update_from_import' ), 10, 1 );
 
 		// ── Event-driven delete hooks (Recommendation 3) ──────────────────────
 		// Remove the product from the index immediately — no batch cycle needed.
@@ -108,7 +108,7 @@ class Indexer {
 
 		// ── Action Scheduler hooks ────────────────────────────────────────────
 		add_action( 'wcs_rebuild_index_batch', array( __CLASS__, 'process_batch' ), 10, 2 );
-		add_action( 'wcs_optimize_index',      array( __CLASS__, 'run_optimize' ) );
+		add_action( 'wcs_optimize_index', array( __CLASS__, 'run_optimize' ) );
 		add_action( 'wcs_update_single_product', array( __CLASS__, 'index_single_product' ), 10, 1 );
 		add_action( 'wcs_debounce_cache_bust', array( __CLASS__, 'execute_cache_bust' ) );
 		// Reset the indexing flag when AS marks a rebuild batch as permanently failed
@@ -277,7 +277,13 @@ class Indexer {
 
 			if ( ! $already_retried && function_exists( 'as_enqueue_async_action' ) ) {
 				set_transient( $retry_key, 1, HOUR_IN_SECONDS );
-				as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => $last_id, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+				// $unique=false, $priority=10 — the trailing args were
+				// previously (0, true), which cast true to priority 1
+				// instead of the intended 10.
+				as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+					'last_id' => $last_id,
+					'epoch'   => $epoch,
+				), 'turbo-search-for-woocommerce', false, 10 );
 			} else {
 				self::log( sprintf( 'FAIL retry exhausted last_id=%d — halting', $last_id ) );
 				update_option( 'wcs_is_indexing', 0, false );
@@ -383,12 +389,27 @@ class Indexer {
 		$already_total = (int) get_option( 'wcs_reindex_processed', 0 );
 		$remaining_cap = max( 0, self::FREE_PRODUCT_CAP - $already_total );
 		$fetch_limit   = min( $batch_size, $remaining_cap );
-		$products      = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-			"SELECT ID FROM {$wpdb->posts}
-			 WHERE post_type = 'product'
-			   AND post_status = 'publish'
-			   AND ID > %d
-			 ORDER BY ID ASC
+		// Excludes anything the merchant explicitly hid from search (WooCommerce's
+		// "Catalog visibility: Hidden"/"Shop only" settings — the exclude-from-search
+		// product_visibility term) and password-protected products. The public REST
+		// search endpoint has no capability check, so an unfiltered index would let
+		// any anonymous visitor search their way to content the merchant deliberately
+		// hid or password-gated.
+		$products = $wpdb->get_col( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			"SELECT p.ID FROM {$wpdb->posts} p
+			 WHERE p.post_type = 'product'
+			   AND p.post_status = 'publish'
+			   AND p.post_password = ''
+			   AND p.ID > %d
+			   AND NOT EXISTS (
+			       SELECT 1 FROM {$wpdb->term_relationships} tr
+			       INNER JOIN {$wpdb->term_taxonomy} tt ON tt.term_taxonomy_id = tr.term_taxonomy_id
+			       INNER JOIN {$wpdb->terms} t ON t.term_id = tt.term_id
+			       WHERE tr.object_id = p.ID
+			         AND tt.taxonomy = 'product_visibility'
+			         AND t.slug = 'exclude-from-search'
+			   )
+			 ORDER BY p.ID ASC
 			 LIMIT %d",
 			$last_id,
 			$fetch_limit
@@ -406,7 +427,7 @@ class Indexer {
 		}
 
 		if ( empty( $products ) ) {
-			$old_table   = $wpdb->prefix . 'wcs_search_index_old';
+			$old_table = $wpdb->prefix . 'wcs_search_index_old';
 			// SELECT 1 LIMIT 1 is O(1) — sufficient to guard against an empty staging
 			// table without paying the cost of a full COUNT(*) scan on large catalogs.
 			$stage_has_rows = (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM %i LIMIT 1', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -419,22 +440,19 @@ class Indexer {
 				$wpdb->query( $wpdb->prepare( 'RENAME TABLE %i TO %i, %i TO %i', $main_table, $old_table, $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 				$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
-				// Swap the typo-correction vocabulary alongside the index. Guarded:
-				// the staging table may not exist mid-upgrade from a pre-1.7 chain.
-				$terms_table       = $wpdb->prefix . 'wcs_search_terms';
-				$terms_stage_table = $wpdb->prefix . 'wcs_search_terms_stage';
-				$terms_old_table   = $wpdb->prefix . 'wcs_search_terms_old';
-				if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $terms_stage_table ) ) === $terms_stage_table ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-					$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $terms_old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-					$wpdb->query( $wpdb->prepare( 'RENAME TABLE %i TO %i, %i TO %i', $terms_table, $terms_old_table, $terms_stage_table, $terms_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-					$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $terms_old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-				}
+				// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only
+				// feature — this edition never creates those tables, so there is
+				// nothing to swap here (see PORTING.md).
 
 				// OPTIMIZE TABLE can take minutes on large catalogs — dispatch it as a
 				// separate async action so it never runs inside this FPM request.
 				update_option( 'wcs_rebuild_phase', 'optimizing', false );
 				if ( function_exists( 'as_enqueue_async_action' ) ) {
-					as_enqueue_async_action( 'wcs_optimize_index', array(), 'turbo-search-for-woocommerce', 0, true );
+					// $unique=true, $priority=10 — the trailing args were
+					// previously (0, true), which cast true to priority 1
+					// instead of the intended 10, and left unique false when
+					// only one queued optimize job is ever needed.
+					as_enqueue_async_action( 'wcs_optimize_index', array(), 'turbo-search-for-woocommerce', true, 10 );
 				}
 			} else {
 				// Staging table existed but was empty — this means the rebuild produced
@@ -487,7 +505,13 @@ class Indexer {
 				update_option( 'wcs_reindex_processed', $processed + $processed_in_batch, false );
 				self::log( sprintf( 'BUDGET last_id=%d done=%d elapsed=%.1fs', $chunk_last_id, $processed + $processed_in_batch, microtime( true ) - $batch_start ) );
 				if ( function_exists( 'as_enqueue_async_action' ) ) {
-					as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => $chunk_last_id, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+					// $unique=false, $priority=10 — see the retry-enqueue
+					// above for why (the previous (0, true) cast true to
+					// priority 1 instead of the intended 10).
+					as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+						'last_id' => $chunk_last_id,
+						'epoch'   => $epoch,
+					), 'turbo-search-for-woocommerce', false, 10 );
 				}
 				return;
 			}
@@ -506,7 +530,13 @@ class Indexer {
 		self::log( sprintf( 'DONE last_id=%d next=%d total=%d elapsed=%.1fs', $last_id, $next_last_id, $new_total, microtime( true ) - $batch_start ) );
 
 		if ( function_exists( 'as_enqueue_async_action' ) ) {
-			as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => $next_last_id, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+			// $unique=false, $priority=10 — see the retry-enqueue above for
+			// why (the previous (0, true) cast true to priority 1 instead
+			// of the intended 10).
+			as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+				'last_id' => $next_last_id,
+				'epoch'   => $epoch,
+			), 'turbo-search-for-woocommerce', false, 10 );
 		}
 	}
 
@@ -559,6 +589,16 @@ class Indexer {
 			return;
 		}
 
+		// Honor a merchant's "Catalog visibility: Hidden"/"Shop only" choice and
+		// password-protected products — the public REST search endpoint has no
+		// capability check, so an indexed-but-hidden product would still be
+		// findable by anyone.
+		$post = get_post( $product_id );
+		if ( ( $post && '' !== ( $post->post_password ?? '' ) ) || has_term( 'exclude-from-search', 'product_visibility', $product_id ) ) {
+			self::delete_single_product( $product_id, $table_name );
+			return;
+		}
+
 		// Skip variations directly; they are handled by parent
 		if ( $product->is_type( 'variation' ) ) {
 			$parent_id = $product->get_parent_id();
@@ -577,7 +617,7 @@ class Indexer {
 			// get_variation_price() loads every variation object — O(N) on large catalogs.
 			// A direct aggregate query is orders of magnitude faster for products with
 			// many variations and returns the same min/max _price values.
-			$prices = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$prices    = $wpdb->get_row( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 				"SELECT MIN(pm.meta_value+0) AS price_min, MAX(pm.meta_value+0) AS price_max
 				 FROM {$wpdb->postmeta} pm
 				 INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
@@ -640,7 +680,12 @@ class Indexer {
 			'price_max'      => $price_max,
 			'stock_status'   => $product->get_stock_status(),
 			'total_sales'    => (int) $product->get_total_sales(),
-			'sales_30d'      => self::get_sales_30d( array( $product_id ) )[ $product_id ] ?? 0,
+			// Recent-sales-weighted ranking is a Pro feature; the weight is
+			// always pinned to 0.0 in Search_Handler regardless of this
+			// value, so it's never computed here — a real aggregate query
+			// against wc_order_product_lookup on every single product save
+			// for a number that can never affect a ranking isn't worth the cost.
+			'sales_30d'      => 0,
 			'image_url'      => $image_url,
 			'permalink'      => $product->get_permalink(),
 			'updated_at'     => current_time( 'mysql' ),
@@ -657,7 +702,8 @@ class Indexer {
 			// past the cap one product at a time. Updating an already-indexed
 			// product is always allowed; only a brand-new row is blocked.
 			$already_indexed = (bool) $wpdb->get_var( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				"SELECT 1 FROM {$table_name} WHERE product_id = %d",
+				'SELECT 1 FROM %i WHERE product_id = %d',
+				$table_name,
 				$product_id
 			) );
 			if ( ! $already_indexed && self::live_index_count() >= self::FREE_PRODUCT_CAP ) {
@@ -821,76 +867,6 @@ class Indexer {
 	}
 
 	/**
-	 * Units sold in the last 30 days per product, from WooCommerce's order
-	 * lookup table. One aggregate query for the whole set. Values refresh on
-	 * every product save and full rebuild — a few days of staleness between
-	 * rebuilds is fine for a ranking signal.
-	 *
-	 * @param int[] $product_ids Product IDs.
-	 * @return array<int, int> Map of product ID → units sold (missing = 0).
-	 */
-	private static function get_sales_30d( array $product_ids ): array {
-		global $wpdb;
-
-		$product_ids = array_map( 'intval', $product_ids );
-		if ( empty( $product_ids ) ) {
-			return array();
-		}
-
-		$placeholders = implode( ',', array_fill( 0, count( $product_ids ), '%d' ) );
-		$suppress     = $wpdb->suppress_errors( true ); // lookup table may not exist on exotic installs
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $placeholders is built from %d placeholders only
-		$rows = $wpdb->get_results( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-			"SELECT product_id, SUM(product_qty) AS qty
-			 FROM {$wpdb->prefix}wc_order_product_lookup
-			 WHERE product_id IN ({$placeholders})
-			   AND date_created >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-			 GROUP BY product_id",
-			...$product_ids
-		) );
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-		$wpdb->suppress_errors( $suppress );
-
-		$map = array();
-		foreach ( (array) $rows as $row ) {
-			$map[ (int) $row->product_id ] = (int) $row->qty;
-		}
-		return $map;
-	}
-
-	/**
-	 * Upsert vocabulary term counts into the typo-correction sidecar's
-	 * staging table (swapped live together with the index).
-	 *
-	 * @param array<string, int> $term_counts Map of term → occurrences.
-	 */
-	private static function write_vocabulary( array $term_counts ): void {
-		global $wpdb;
-
-		if ( empty( $term_counts ) ) {
-			return;
-		}
-
-		$values = array();
-		$params = array();
-		foreach ( $term_counts as $term => $count ) {
-			$values[] = '(%s, %d)';
-			$params[] = (string) $term;
-			$params[] = (int) $count;
-		}
-
-		$suppress = $wpdb->suppress_errors( true ); // stage table absent on pre-1.7 installs mid-upgrade
-		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare -- $values is built from literal placeholders only
-		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-			"INSERT INTO {$wpdb->prefix}wcs_search_terms_stage (term, freq) VALUES " . implode( ',', $values ) .
-			' ON DUPLICATE KEY UPDATE freq = freq + VALUES(freq)',
-			...$params
-		) );
-		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber,WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
-		$wpdb->suppress_errors( $suppress );
-	}
-
-	/**
 	 * Index a chunk of products into $table_name using set-based reads.
 	 *
 	 * Replaces the per-product wc_get_product() path during full rebuilds:
@@ -951,14 +927,19 @@ class Indexer {
 		$now             = current_time( 'mysql' );
 		$taxonomies      = $search_taxonomy ? self::indexed_taxonomies() : array();
 		$variation_skus  = $search_sku ? self::get_variation_skus( $product_ids ) : array();
-		$sales_30d       = self::get_sales_30d( $product_ids );
-		$is_stage        = ( $table_name === $wpdb->prefix . 'wcs_search_index_stage' );
-		$vocab           = array();
 
 		$rows = array();
 		foreach ( $product_ids as $pid ) {
 			$post = get_post( $pid );
 			if ( ! $post || 'publish' !== $post->post_status ) {
+				self::delete_single_product( $pid, $table_name );
+				continue;
+			}
+
+			// Defense in depth: the batch cursor query already excludes these,
+			// but this method has no other caller-side guarantee against a
+			// future call site that skips that query.
+			if ( '' !== ( $post->post_password ?? '' ) || has_term( 'exclude-from-search', 'product_visibility', $pid ) ) {
 				self::delete_single_product( $pid, $table_name );
 				continue;
 			}
@@ -1007,7 +988,7 @@ class Indexer {
 				'price_max'      => (float) $lookup->max_price,
 				'stock_status'   => (string) $lookup->stock_status,
 				'total_sales'    => (int) $lookup->total_sales,
-				'sales_30d'      => $sales_30d[ $pid ] ?? 0,
+				'sales_30d'      => 0,
 				'image_url'      => $image_url,
 				'permalink'      => (string) get_permalink( $post ),
 				'updated_at'     => $now,
@@ -1015,14 +996,6 @@ class Indexer {
 
 			$row    = self::apply_row_filter_and_sanitize( $data, $pid );
 			$rows[] = $row;
-
-			// Accumulate typo-correction vocabulary during rebuilds only —
-			// per-save updates would drift frequencies with no way to decrement.
-			if ( $is_stage ) {
-				foreach ( Query_Normalizer::vocabulary_terms( $row['title'] . ' ' . $row['sku'] ) as $term ) {
-					$vocab[ $term ] = ( $vocab[ $term ] ?? 0 ) + 1;
-				}
-			}
 		}
 
 		if ( empty( $rows ) ) {
@@ -1051,10 +1024,6 @@ class Indexer {
 		$result = $wpdb->query( $sql ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter
 		if ( false === $result ) {
 			throw new \RuntimeException( 'Bulk index write failed: ' . esc_html( $wpdb->last_error ) );
-		}
-
-		if ( $is_stage ) {
-			self::write_vocabulary( $vocab );
 		}
 
 		self::trigger_cache_bust();
@@ -1199,11 +1168,11 @@ class Indexer {
 		$wpdb->query( $wpdb->prepare( 'CREATE TABLE IF NOT EXISTS %i LIKE %i', $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
 
-		// Reset the vocabulary staging table too — rebuilt alongside the index.
-		$terms_table       = $wpdb->prefix . 'wcs_search_terms';
-		$terms_stage_table = $wpdb->prefix . 'wcs_search_terms_stage';
-		$wpdb->query( $wpdb->prepare( 'CREATE TABLE IF NOT EXISTS %i LIKE %i', $terms_stage_table, $terms_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $terms_stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
+		// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only feature —
+		// this edition never creates those tables, so there is nothing to reset
+		// here (see PORTING.md). Regression: this used to unconditionally run
+		// CREATE TABLE ... LIKE wp_wcs_search_terms / TRUNCATE against tables
+		// that never exist in Free, throwing a real SQL error on every rebuild.
 
 		// Millisecond precision so two rebuilds triggered within the same
 		// second (e.g. a settings save plus a term edit) get distinct epochs.
@@ -1213,7 +1182,13 @@ class Indexer {
 		update_option( 'wcs_reindex_processed', 0, false );
 		delete_option( 'wcs_last_rebuild_error' );
 		self::log( sprintf( 'NEW REBUILD epoch=%d', $epoch ) );
-		as_enqueue_async_action( 'wcs_rebuild_index_batch', array( 'last_id' => 0, 'epoch' => $epoch ), 'turbo-search-for-woocommerce', 0, true );
+		// $unique=false, $priority=10 — see the retry-enqueue in
+		// do_process_batch() for why (the previous (0, true) cast true to
+		// priority 1 instead of the intended 10).
+		as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+			'last_id' => 0,
+			'epoch'   => $epoch,
+		), 'turbo-search-for-woocommerce', false, 10 );
 	}
 
 	/**
