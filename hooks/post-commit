@@ -53,13 +53,43 @@ rsync -a \
   --exclude='vendor'           \
   --exclude='composer.json'    \
   --exclude='composer.lock'    \
+  --exclude='phpcs.xml'        \
   --exclude='phpunit.xml.dist' \
   --exclude='.phpunit.cache'   \
   --exclude='.playwright-mcp'  \
+  --exclude='.kiro'            \
+  --exclude='hooks'            \
+  --exclude='releasenotes'     \
   --exclude='/icon-*'          \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
   "$REPO_DIR/" "$TMP_DIR/"
+
+# Regression guard: kept in sync with build.sh's own copy of this check —
+# this hook has its own separate rsync exclude list (duplicated, not shared
+# code, since it runs from .git/hooks/ outside the normal file tree) that
+# drifted out of sync with build.sh's once already, which is exactly how
+# phpcs.xml/.kiro//hooks//releasenotes ended up shipping in the public zip
+# for a real stretch of commits despite build.sh itself excluding them.
+for forbidden_path in \
+	phpcs.xml \
+	phpunit.xml.dist \
+	composer.json \
+	composer.lock \
+	build.sh \
+	hooks \
+	tests \
+	dist \
+	releasenotes \
+	.kiro \
+	.phpunit.cache \
+	.playwright-mcp; do
+	if [ -e "$TMP_DIR/$forbidden_path" ]; then
+		echo "[post-commit] Error: development-only path was staged: $forbidden_path" >&2
+		rm -rf "$TMP_DIR"
+		exit 1
+	fi
+done
 
 (cd /tmp && zip -r "$ZIP_NAME" "$PLUGIN_SLUG" > /dev/null)
 mv "/tmp/${ZIP_NAME}" "$REPO_DIR/dist/"
