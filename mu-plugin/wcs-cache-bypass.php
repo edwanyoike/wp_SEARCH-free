@@ -61,6 +61,11 @@ function wcs_cache_bypass_intercept(): void {
 		return;
 	}
 	require_once $normalizer;
+	// Determined from the actual file composition, not the folder-name slug
+	// the normalizer happened to be found under — a custom install slug would
+	// still resolve correctly, and class-license.php is Pro-exclusive (see
+	// PORTING.md's "Pro-only — never create in Free" table).
+	$is_pro_edition = file_exists( dirname( $normalizer ) . '/class-license.php' );
 
 	$query = \WCS\Search\Query_Normalizer::normalize( sanitize_text_field( $raw_query ) );
 
@@ -76,67 +81,105 @@ function wcs_cache_bypass_intercept(): void {
 		return; // Invalid nonce — fall through to the REST route's 403 handler.
 	}
 
-	// ── 5. Build cache key (identical logic to Search_Handler) ───────────────
+	// ── 5. Rate limiting ──────────────────────────────────────────────────────
+	// Search_Handler::check_permissions() applies the same 60-req/min-per-IP
+	// limit to the real REST route, but this fast path runs before that route
+	// is ever dispatched — without a matching check here, a cache-warm query
+	// could be flooded with no rate limit applied at all, since the nonce
+	// above is the shared, non-secret guest 'wp_rest' nonce and proves nothing
+	// about the requester. Same key format (so a request denied here and one
+	// denied by the REST route share one counter, not two), same limit.
+	require_once dirname( $normalizer ) . '/class-rate-limiter.php';
+	$client_ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on this line
+	/** This filter is documented in includes/class-search-handler.php */
+	$client_ip = (string) apply_filters( 'wcs_get_client_ip', $client_ip );
+	if ( ! \WCS\Search\Rate_Limiter::allow( 'wcs_rl_' . md5( $client_ip ), 60, MINUTE_IN_SECONDS ) ) {
+		header( 'Content-Type: application/json; charset=utf-8' );
+		header( 'Cache-Control: no-store' );
+		http_response_code( 429 );
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo wp_json_encode( array(
+			'code'    => 'rest_too_many_requests',
+			'message' => 'Too many requests.',
+			'data'    => array( 'status' => 429 ),
+		) );
+		exit;
+	}
+
+	// ── 6. Build cache key (identical logic to Search_Handler) ───────────────
 	$default_currency = get_option( 'woocommerce_currency', 'USD' );
 
 	// Start from the store default so the variable is always defined, even
 	// when neither a GET param nor any switcher cookie is present.
-	$currency           = $default_currency;
-	$requested_currency = isset( $_GET['currency'] ) ? wp_unslash( $_GET['currency'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via sanitize_text_field() below
+	$currency = $default_currency;
 
-	if ( '' !== $requested_currency ) {
-		$currency = sanitize_text_field( wp_unslash( $requested_currency ) );
-	} else {
-		// Common currency switcher cookies — checked in priority order.
-		$currency_cookies = array(
-			'wmc_current_currency',         // Villatheme / CURCY Multi Currency
-			'woocs_current_currency',       // WOOCS (WooCommerce Currency Switcher)
-			'woocommerce_current_currency', // Official WooCommerce Multi-Currency
-			'_wpml_active_currency',        // WPML / WooCommerce Multilingual
-		);
+	// Multi-currency price conversion is a Pro-only feature — Free's own
+	// Search_Handler::handle_request() ignores the `currency` REST param
+	// entirely and always serves prices in the store's default currency (see
+	// its own comment to that effect). This fast path must compute the exact
+	// same currency Free's REST route would, or the two paths silently drift
+	// onto different cache keys for any shopper using a currency switcher —
+	// the fast path storing under `wcs_v1_<CODE>_<hash>` while the REST route
+	// only ever writes `wcs_v1_<default>_<hash>`, so the fast path's cache
+	// entry is never read and the "skip WP's boot entirely" optimization this
+	// whole file exists for silently stops engaging for those shoppers.
+	if ( $is_pro_edition ) {
+		$requested_currency = isset( $_GET['currency'] ) ? wp_unslash( $_GET['currency'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via sanitize_text_field() below
 
-		foreach ( $currency_cookies as $cookie_name ) {
-			if ( isset( $_COOKIE[ $cookie_name ] ) ) {
-				$currency = sanitize_text_field( wp_unslash( $_COOKIE[ $cookie_name ] ) );
-				break;
+		if ( '' !== $requested_currency ) {
+			$currency = sanitize_text_field( wp_unslash( $requested_currency ) );
+		} else {
+			// Common currency switcher cookies — checked in priority order.
+			$currency_cookies = array(
+				'wmc_current_currency',         // Villatheme / CURCY Multi Currency
+				'woocs_current_currency',       // WOOCS (WooCommerce Currency Switcher)
+				'woocommerce_current_currency', // Official WooCommerce Multi-Currency
+				'_wpml_active_currency',        // WPML / WooCommerce Multilingual
+			);
+
+			foreach ( $currency_cookies as $cookie_name ) {
+				if ( isset( $_COOKIE[ $cookie_name ] ) ) {
+					$currency = sanitize_text_field( wp_unslash( $_COOKIE[ $cookie_name ] ) );
+					break;
+				}
 			}
 		}
-	}
 
-	$currency = strtoupper( substr( preg_replace( '/[^A-Za-z]/', '', $currency ), 0, 3 ) );
-	if ( empty( $currency ) ) {
-		$currency = $default_currency;
-	}
-
-	// Validate any non-default currency — whether it came from the GET param or
-	// a switcher cookie — against the store's configured currency list. This
-	// mirrors Search_Handler::get_known_currencies() (including its filter) so
-	// both paths always compute the same cache key. Unknown codes fall back to
-	// the store default rather than fabricating per-code cache entries.
-	if ( $currency !== $default_currency ) {
-		$known_currencies = array();
-
-		$wmc = get_option( 'woo_multi_currency_params', array() );
-		if ( is_array( $wmc ) && ! empty( $wmc['currency'] ) && is_array( $wmc['currency'] ) ) {
-			$known_currencies = array_merge( $known_currencies, $wmc['currency'] );
-		}
-
-		$woocs = get_option( 'woocs_currencies', array() );
-		if ( is_array( $woocs ) ) {
-			$known_currencies = array_merge( $known_currencies, array_keys( $woocs ) );
-		}
-
-		$wcml = get_option( 'wcml_exchange_rates', array() );
-		if ( is_array( $wcml ) ) {
-			$known_currencies = array_merge( $known_currencies, array_keys( $wcml ) );
-		}
-
-		/** This filter is documented in includes/class-search-handler.php */
-		$known_currencies = (array) apply_filters( 'wcs_known_currencies', $known_currencies );
-		$known_currencies = array_map( 'strtoupper', array_filter( $known_currencies, 'is_string' ) );
-
-		if ( ! in_array( $currency, $known_currencies, true ) ) {
+		$currency = strtoupper( substr( preg_replace( '/[^A-Za-z]/', '', $currency ), 0, 3 ) );
+		if ( empty( $currency ) ) {
 			$currency = $default_currency;
+		}
+
+		// Validate any non-default currency — whether it came from the GET param or
+		// a switcher cookie — against the store's configured currency list. This
+		// mirrors Search_Handler::get_known_currencies() (including its filter) so
+		// both paths always compute the same cache key. Unknown codes fall back to
+		// the store default rather than fabricating per-code cache entries.
+		if ( $currency !== $default_currency ) {
+			$known_currencies = array();
+
+			$wmc = get_option( 'woo_multi_currency_params', array() );
+			if ( is_array( $wmc ) && ! empty( $wmc['currency'] ) && is_array( $wmc['currency'] ) ) {
+				$known_currencies = array_merge( $known_currencies, $wmc['currency'] );
+			}
+
+			$woocs = get_option( 'woocs_currencies', array() );
+			if ( is_array( $woocs ) ) {
+				$known_currencies = array_merge( $known_currencies, array_keys( $woocs ) );
+			}
+
+			$wcml = get_option( 'wcml_exchange_rates', array() );
+			if ( is_array( $wcml ) ) {
+				$known_currencies = array_merge( $known_currencies, array_keys( $wcml ) );
+			}
+
+			/** This filter is documented in includes/class-search-handler.php */
+			$known_currencies = (array) apply_filters( 'wcs_known_currencies', $known_currencies );
+			$known_currencies = array_map( 'strtoupper', array_filter( $known_currencies, 'is_string' ) );
+
+			if ( ! in_array( $currency, $known_currencies, true ) ) {
+				$currency = $default_currency;
+			}
 		}
 	}
 
@@ -155,7 +198,7 @@ function wcs_cache_bypass_intercept(): void {
 		return array( is_array( $cached ) ? $cached : array(), null );
 	};
 
-	// ── 6. APCu L1 cache (shared server RAM, ~0.01 ms, no I/O) ──────────────
+	// ── 7. APCu L1 cache (shared server RAM, ~0.01 ms, no I/O) ──────────────
 	// APCu is a PHP extension available at any boot stage — no WordPress
 	// bootstrap required.  Checking it here before the transient read means
 	// the fast path never touches the database at all.
@@ -175,7 +218,7 @@ function wcs_cache_bypass_intercept(): void {
 		}
 	}
 
-	// ── 7. Transient L2 cache ─────────────────────────────────────────────────
+	// ── 8. Transient L2 cache ─────────────────────────────────────────────────
 	$cached = get_transient( $cache_key );
 	if ( false === $cached ) {
 		// Cache miss — fall through so the REST handler runs the DB query.
@@ -189,7 +232,7 @@ function wcs_cache_bypass_intercept(): void {
 
 	list( $rows, $corrected ) = $unwrap( $cached );
 
-	// ── 8. Short-circuit: send cached JSON and exit ───────────────────────────
+	// ── 9. Short-circuit: send cached JSON and exit ───────────────────────────
 	// Emit only the bare-minimum headers needed by the JavaScript client.
 	header( 'Content-Type: application/json; charset=utf-8' );
 	header( 'Cache-Control: no-store' );   // Prevent intermediate proxy caching.

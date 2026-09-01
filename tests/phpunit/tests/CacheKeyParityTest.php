@@ -30,7 +30,7 @@ final class CacheKeyParityTest extends TestCase {
 	protected function tearDown(): void {
 		$_GET    = array();
 		$_COOKIE = array();
-		unset( $_SERVER['REQUEST_URI'] );
+		unset( $_SERVER['REQUEST_URI'], $_SERVER['REMOTE_ADDR'] );
 	}
 
 	/** Run the MU intercept and return the transient key it looked up (or null). */
@@ -67,25 +67,23 @@ final class CacheKeyParityTest extends TestCase {
 		$this->assertStringContainsString( md5( 'abc 123' ), (string) $key );
 	}
 
-	public function test_unknown_currency_falls_back_to_default_on_both_paths(): void {
-		$_GET['q']        = 'lamp';
-		$_GET['currency'] = 'ZZZ'; // Not configured by any switcher.
-		$key              = $this->interceptedKey();
-		$this->assertStringContainsString( '_USD_', (string) $key );
-	}
-
-	public function test_configured_currency_is_used_in_the_key(): void {
+	public function test_currency_get_param_is_ignored_free_always_uses_the_store_default(): void {
+		// Multi-currency price conversion is Pro-only. Free's own
+		// Search_Handler::handle_request() ignores the `currency` REST param
+		// entirely and always serves the store default — this fast path must
+		// match exactly, or the two paths compute different cache keys and
+		// the fast path silently never gets a hit for these requests.
 		update_option( 'woocs_currencies', array( 'EUR' => array( 'rate' => 1.1 ) ) );
 		$_GET['q']        = 'lamp';
-		$_GET['currency'] = 'EUR';
+		$_GET['currency'] = 'EUR'; // a genuinely configured, known currency
 		$key              = $this->interceptedKey();
-		$this->assertStringContainsString( '_EUR_', (string) $key );
-		$this->assertSame( Query_Normalizer::cache_key( 'lamp', 'EUR', 3 ), $key );
+		$this->assertStringContainsString( '_USD_', (string) $key );
+		$this->assertSame( Query_Normalizer::cache_key( 'lamp', 'USD', 3 ), $key );
 	}
 
-	public function test_cookie_sourced_currency_is_validated_against_known_list(): void {
-		$_GET['q']                          = 'lamp';
-		$_COOKIE['woocs_current_currency']  = 'XXX'; // fabricated, not configured
+	public function test_currency_switcher_cookie_is_ignored_free_always_uses_the_store_default(): void {
+		$_GET['q']                         = 'lamp';
+		$_COOKIE['woocs_current_currency'] = 'EUR'; // a genuinely configured, known currency
 		$key                                = $this->interceptedKey();
 		$this->assertStringContainsString( '_USD_', (string) $key );
 	}
@@ -100,5 +98,37 @@ final class CacheKeyParityTest extends TestCase {
 		$_SERVER['REQUEST_URI'] = '/wp-json/wp/v2/posts';
 		$_GET['q']              = 'lamp';
 		$this->assertNull( $this->interceptedKey() );
+	}
+
+	// ── Rate limiting ─────────────────────────────────────────────────────────
+
+	public function test_rate_limiter_is_consulted_before_serving_from_cache(): void {
+		// Regression: this fast path used to serve cache hits without ever
+		// calling Rate_Limiter::allow(), so the REST route's documented
+		// 60-req/min-per-IP protection didn't cover it at all. A single call
+		// here must record one hit against the same counter key
+		// Search_Handler::check_permissions() uses for the real REST route.
+		$_GET['q'] = 'lamp';
+		$this->interceptedKey();
+
+		$expected_key = 'wcs_rl_' . md5( '' ); // no REMOTE_ADDR set in this test environment
+		$this->assertSame( 1, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
+
+		// A second call within the window must increment the same counter,
+		// not reset it or use a different key.
+		$this->interceptedKey();
+		$this->assertSame( 2, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
+	}
+
+	public function test_rate_limiter_uses_the_same_key_format_as_the_rest_route(): void {
+		// Same counter key Search_Handler::check_permissions() uses for the
+		// real REST route — a mismatch here would mean a request denied on
+		// one path doesn't count against the other, defeating the limit.
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.7';
+		$_GET['q']              = 'lamp';
+		$this->interceptedKey();
+
+		$expected_key = 'wcs_rl_' . md5( '203.0.113.7' );
+		$this->assertSame( 1, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
 	}
 }

@@ -85,6 +85,28 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertCount( 2, $results );
 	}
 
+	public function test_substring_fill_also_matches_content(): void {
+		// Regression: content is the only column any tier other than FULLTEXT
+		// (Tier 1) can search, and Tier 1 is skipped entirely for an
+		// all-short-words query. A word that exists only in a product's
+		// description/taxonomy terms — never its title or SKU — must still be
+		// findable via the last-resort substring-fill tier.
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			// Prefix pass (title/sku only) finds nothing; substring fill does.
+			return str_contains( $sql, "'%ab%'" ) ? array( $this->fakeRow( 1 ) ) : array();
+		};
+
+		$results = $this->search( 'ab' );
+
+		$this->assertCount( 2, $this->wpdb->queries );
+		$fill = $this->wpdb->queries[1];
+		$this->assertStringContainsString( "content LIKE '%ab%'", $fill );
+		$this->assertCount( 1, $results );
+	}
+
 	public function test_no_substring_fill_when_prefix_pass_fills_the_limit(): void {
 		$rows = array_map( fn( $i ) => $this->fakeRow( $i ), range( 1, 6 ) );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? $rows : null;

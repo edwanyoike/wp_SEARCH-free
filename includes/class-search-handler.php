@@ -31,7 +31,7 @@ class Search_Handler {
 			'callback'            => array( __CLASS__, 'handle_request' ),
 			'permission_callback' => array( __CLASS__, 'check_permissions' ),
 			'args'                => array(
-				'q' => array(
+				'q'        => array(
 					'required'          => true,
 					'type'              => 'string',
 					'sanitize_callback' => 'sanitize_text_field',
@@ -40,11 +40,13 @@ class Search_Handler {
 					'required' => true,
 					'type'     => 'string',
 				),
-				'currency' => array(
-					'required'          => false,
-					'type'              => 'string',
-					'sanitize_callback' => 'sanitize_text_field',
-				),
+				// No `currency` arg: multi-currency price conversion is a
+				// Pro-only feature, and this edition always serves prices in
+				// the store's default currency (see handle_request() below).
+				// The frontend JS may still send ?currency=... (assets/js/
+				// search.js is shared verbatim with Pro), which is harmless
+				// here — WordPress does not reject undeclared query params,
+				// it simply never reads this one.
 			),
 		) );
 	}
@@ -166,8 +168,8 @@ class Search_Handler {
 
 		// ── 4. DB: run the search query ──────────────────────────────────────
 		self::$last_corrected_query = null;
-		$results         = self::query_database( $query );
-		$corrected_query = self::$last_corrected_query;
+		$results                    = self::query_database( $query );
+		$corrected_query            = self::$last_corrected_query;
 
 		// First-run window: until the initial index build completes, an empty
 		// result set means "not indexed yet", not "no matching products".
@@ -532,9 +534,18 @@ class Search_Handler {
 			$results = self::get_rows( $sql );
 
 			// ── Tier 3: substring fill ────────────────────────────────────────────
-			// Only when prefix matching came up short. Catches words mid-title and
-			// mid-SKU — the SKU alternative is what lets the tokenized "abc 123"
-			// still find SKU "ABC-123". Excludes rows tier 2 already returned.
+			// Only when prefix matching came up short. Catches words mid-title,
+			// mid-SKU, and mid-content — the SKU alternative is what lets the
+			// tokenized "abc 123" still find SKU "ABC-123", and the content
+			// alternative is what lets a word below the FULLTEXT gate (ft_gate
+			// above) that only appears in a product's description/taxonomy
+			// terms still be found at all: Tier 1 is the only other tier that
+			// ever reads content, and it's skipped entirely when every word in
+			// the query is short enough that $ft_words ends up empty. Content
+			// is already empty in every row when wcs_search_content is
+			// disabled (set at index time), so this condition simply never
+			// matches in that case — no separate guard needed here. Excludes
+			// rows tier 2 already returned.
 			$remaining = $limit - count( $results );
 			if ( $remaining > 0 ) {
 				$groups = array();
@@ -545,7 +556,8 @@ class Search_Handler {
 						$escaped = $wpdb->esc_like( $alt );
 						$conds[] = 'title LIKE %s';
 						$conds[] = 'sku LIKE %s';
-						array_push( $params, '%' . $escaped . '%', '%' . $escaped . '%' );
+						$conds[] = 'content LIKE %s';
+						array_push( $params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
 					}
 					$groups[] = '(' . implode( ' OR ', $conds ) . ')';
 				}
