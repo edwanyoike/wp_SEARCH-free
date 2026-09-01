@@ -13,6 +13,10 @@
 #    and the zip is still built.
 #  - If any build step fails (rsync, zip, mv) the script aborts immediately
 #    and the dist/ directory is left unchanged.
+#
+# The WordPress.org package must contain runtime files only. Keep every
+# development/release-process path in the rsync exclusions below, then enforce
+# that contract against the staged tree before creating the zip.
 
 set -euo pipefail
 
@@ -137,13 +141,40 @@ rsync -a \
   --exclude='vendor'           \
   --exclude='composer.json'    \
   --exclude='composer.lock'    \
+  --exclude='phpcs.xml'        \
   --exclude='phpunit.xml.dist' \
   --exclude='.phpunit.cache'   \
   --exclude='.playwright-mcp'  \
+  --exclude='.kiro'            \
+  --exclude='hooks'            \
+  --exclude='releasenotes'     \
   --exclude='/icon-*'          \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
   "$REPO_DIR/" "$TMP_DIR/"
+
+# Regression guard: these paths are development tooling or repository
+# metadata and must never be submitted to WordPress.org. This assertion is
+# intentionally separate from the rsync excludes so a future build edit fails
+# loudly instead of silently expanding the public package.
+for forbidden_path in \
+	phpcs.xml \
+	phpunit.xml.dist \
+	composer.json \
+	composer.lock \
+	build.sh \
+	hooks \
+	tests \
+	dist \
+	releasenotes \
+	.kiro \
+	.phpunit.cache \
+	.playwright-mcp; do
+	if [ -e "$TMP_DIR/$forbidden_path" ]; then
+		echo "Error: development-only path was staged: $forbidden_path" >&2
+		exit 1
+	fi
+done
 
 # Build the zip in /tmp, then move to dist/.
 # The subshell keeps the main shell's working directory unchanged.

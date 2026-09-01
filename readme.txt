@@ -76,6 +76,18 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 1. Live search dropdown showing instant results as a customer types, on a real store selling in KES.
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
+== External services ==
+
+This plugin periodically requests an optional promotional announcement from OzuPay's API at
+`https://ozupay.com/wp-json/ozls/v1/promo`. The request is made when an administrator visits the
+Turbo Search settings screen and the locally cached response has expired. The only application data
+sent is the static plugin-edition identifier `turbo_search_free`; the request never includes
+administrator details, product data, search queries, or usage telemetry. As with any outbound
+WordPress HTTP API request, the standard `User-Agent` header (which includes this site's URL) is
+present, since it is not overridden. Successful responses are cached for 12 hours and failed
+responses for 1 hour. The service is provided by OzuLabs: [service website](https://ozupay.com/)
+and [privacy policy](https://ozupay.com/privacy-policy/).
+
 == Changelog ==
 
 = 1.1.2 =

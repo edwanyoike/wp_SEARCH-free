@@ -233,12 +233,10 @@ No un-prefixed custom hook found.
   content *fetch*, not a data *send*, so it does not trigger the handbook's §14.7 "tracking
   requires opt-in" rule (that rule is about the plugin phoning home with data about the site, not
   about pulling a banner shown in the plugin's own dismissible admin notice). Worth noting
-  regardless since Plugin Check's `i18n_usage`/general-category reviewer read may still want this
-  documented in the readme — it currently is not mentioned in `readme.txt` at all. Not flagged as
-  non-compliant (the handbook's actual behavioral bar is "does it collect data," and this doesn't),
-  but a one-line readme mention ("occasionally shows an announcement banner fetched from
-  ozupay.com") would be a cheap, defensible addition before submission, matching the spirit of the
-  §13 "openness/transparency" privacy principle even though nothing here is personal data.
+  content fetch, not a data send. The readme now has a dedicated `External services` section that
+  names the endpoint, trigger, static plugin-edition parameter, cache periods, data not sent, and
+  the provider's website/privacy policy. This replaces the original audit's changelog-only
+  disclosure gap.
 
 ---
 
@@ -462,10 +460,11 @@ No un-prefixed custom hook found.
 
 ## §16 Plugin Check tool — audit against all 33 checks
 
-**No actual Plugin Check tool run was performed in this session** — the WordPress.org MCP server
-(§22) was not available/authorized here. Everything below is a manual read of the source against
-each check's stated purpose, not a real automated scan. Re-run the actual tool before any
-submission rather than trusting this table alone.
+The table below began as a manual source review. A real WordPress.org Plugin Check run was later
+performed against a live WordPress 7.1 install on 2026-09-01. It found two readme/header issues
+(stale `Tested up to` and an overlong short-description block); both were fixed in commit
+`5c9d9bb`. Re-run Plugin Check against the final uploaded ZIP before submission because this
+recorded run does not automatically validate later package changes.
 
 | Check | Verdict | Evidence |
 |---|---|---|
@@ -488,9 +487,9 @@ submission rather than trusting this table alone.
 | `no_unfiltered_uploads` | N/A | Plugin does not handle file uploads at all. |
 | `trademarks` | Clean | See §14.17. |
 | `offloading_files` | Clean | No CDN-hosted asset loading found — everything is served from the plugin's own `assets/` directory via `WCS_PLUGIN_URL`. |
-| **`write_file`** | **NOT clean — real finding** | `Activator::install_mu_plugin()` (`class-activator.php:411-456`) uses raw `copy()` and `unlink()` — not the `WP_Filesystem` API — to write `wcs-cache-bypass.php` into `wp-content/mu-plugins/`. Same pattern in `remove_mu_plugin()` (`class-activator.php:465-474`) and in `uninstall.php:97-107`. Every call site already carries a `phpcs:ignore WordPress.WP.AlternativeFunctions.{copy,unlink}_*` comment — meaning the code is *aware* it diverges from the sanctioned filesystem API, not that it's accidental. This is very likely to trip Plugin Check's `write_file` check as an actual flag, not a false positive: the check specifically wants `WP_Filesystem`, not raw PHP filesystem functions, for exactly this kind of write-outside-plugin-directory operation. **This needs an explicit decision before submission**: either migrate to `WP_Filesystem` (`WP_Filesystem()`/`$wp_filesystem->put_contents()`/`->delete()`), or, if the team decides raw calls are deliberately kept (e.g. `WP_Filesystem` requires FTP credentials prompting in some edge-case hosting setups, which raw `copy()` avoids), document that decision explicitly here and be prepared to justify it to a human reviewer — WordPress.org reviewers have flagged this exact "plugin writes a file into mu-plugins/ via raw PHP calls" pattern before. This is the single most concrete, actionable finding in this entire audit. |
+| **`write_file`** | **Fixed** | The original audit found raw `copy()`/`unlink()` calls in the MU-plugin lifecycle. Commit `3f2de99` migrated these paths to WordPress's filesystem API using the direct adapter only when it can run without requesting credentials. |
 | `setting_sanitization` | Clean | Real `register_setting()` calls with real `sanitize_callback` entries throughout (§9) — unlike a hand-rolled settings page, this check has actual data to inspect and should pass cleanly. |
-| **`prefixing`** | Clean, verified by manual sweep (see §19) | No PHPCS config exists in this repo at all (confirmed: no `phpcs.xml`/`.phpcs.xml.dist` anywhere, `composer.json` has no lint script) — meaning the "PHPCS declarations-only gap" the handbook warns about isn't even a partial safety net here; the *only* check performed was the manual grep sweep in §19. That sweep found zero un-prefixed option/transient/hook/handle/nonce-action names. Re-run this sweep before every future submission — there is no automated equivalent currently wired into this repo's build process at all (see the `AGENT_CODING_STANDARDS.md` gap noted below). |
+| **`prefixing`** | Clean | The manual §19 sweep found no unprefixed identifiers. Commit `ba3fc67` subsequently added `phpcs.xml` and Composer lint scripts; the current PHPCS gate passes. |
 | `minified_files` | Clean | See §14.4. |
 | `direct_file_access` | Clean | Every PHP file opens with an `ABSPATH` guard (`turbo-search-for-woocommerce.php`, every `includes/*.php`, every `includes/views/*.php`, `uninstall.php` via its own `WP_UNINSTALL_PLUGIN` guard, and the MU plugin) — verified by reading each file's opening lines. |
 | `external_admin_menu_links` | Clean | The admin menu itself points only at the plugin's own settings page; external `ozulabs.com` links exist only as upsell `<a>` tags *within* rendered page content, not as menu items. |
@@ -499,10 +498,9 @@ submission rather than trusting this table alone.
 | `php_error_reporting` | Clean | Grepped for `error_reporting(`/`ini_set( 'display_errors'` — zero hits. The plugin does call raw `error_log()` in two places (`Logger::log()`'s fallback path when `wc_get_logger()` is unavailable, and `uninstall.php`'s MU-file-removal-failure path) — that's a different, allowed thing (writing a log line) from *changing the site's error-reporting configuration*, which is what this check actually targets. |
 | `ai_provider` | N/A | No AI-service integration of any kind. |
 
-**Summary: one real, actionable finding (`write_file`), everything else clean or not independently
-verifiable without the actual tool.** The `write_file` finding is the one item in this document
-that should be treated as a blocking-severity open question, not a "looks fine" — it's a real
-divergence from a specific, named Plugin Check rule, not a matter of interpretation.
+**Summary:** the original actionable `write_file` finding is fixed, and the later real Plugin
+Check run's two metadata findings are fixed. A final run against the exact upload ZIP remains a
+release gate.
 
 ---
 
@@ -585,14 +583,10 @@ dimensions by filename convention (`banner-772x250`, `banner-1544x500`, `icon-12
 
 ## §19 Prefixing
 
-**No PHPCS configuration exists anywhere in this repository** — confirmed via
-`find . -iname "*phpcs*"` (excluding `vendor/`): zero results. This is a real gap relative to
-`AGENT_CODING_STANDARDS.md`'s own stated requirement ("Code strictly passes all WordPress.org
-Plugin Check (PCP) requirements") and relative to OzuPay's setup (which has a `phpcs.xml` with an
-explicit prefix allow-list). Without any PHPCS config, there is no automated check at all here —
-not even the partial, declarations-only one the handbook describes as insufficient on its own. The
-**entire** prefixing verification for this plugin rests on the manual grep sweep below; there is no
-mechanical safety net behind it.
+The original audit found no PHPCS configuration, so its first prefixing verdict rested entirely
+on the manual sweep below. That process gap was fixed later on 2026-09-01: `phpcs.xml` now enables
+WordPress-Core, PHPCompatibilityWP, the plugin text domain, and the established `wcs`/`WCS`
+prefixes; `composer lint` is the automated gate and currently passes.
 
 **Manual grep sweep performed 2026-09-01** (commands run against `includes/`, the main plugin
 file, `uninstall.php`, and the MU plugin):
@@ -620,11 +614,9 @@ file, `uninstall.php`, and the MU plugin):
 - Global constants: `WCS_VERSION`, `WCS_PLUGIN_DIR`, `WCS_PLUGIN_URL`, `WCS_PLUGIN_BASENAME` — all
   prefixed, none using the forbidden `WP_`/`__`/bare-`_` patterns.
 
-**Zero un-prefixed findings.** This is a genuinely clean result — but given there's no PHPCS
-config at all backing it up, this sweep is the *only* thing standing behind that claim, and it
-needs to be re-run by hand (or, better, an actual `phpcs.xml` with a `TurboSearch`/`wcs` prefix
-allow-list should be added to this repo so this stops being a fully manual process every time).
-That's a process gap worth fixing independent of whether it changes the actual verdict today.
+**Zero un-prefixed findings.** PHPCS now backs the declaration-level portion of this result;
+the manual string-literal sweep must still be repeated because WPCS does not validate every
+option, transient, meta-key, nonce-action, and handle string.
 
 ---
 
@@ -689,6 +681,14 @@ explicitly rather than assumed clean.
    splitting the changelog into a separate `changelog.txt` proactively (§17) before it becomes a
    repeat-fix like OzuPay's has are both still open, deliberately deferred (architecture/cosmetic
    calls, not bugs — readme.txt is currently a healthy 6,025 bytes, well under the 10KB threshold).
+6. ~~Release ZIP contained development-only files~~ — **Fixed 2026-09-01.** A direct package
+   inspection found `phpcs.xml`, `hooks/post-commit`, `.kiro/`, and `releasenotes/` in
+   `dist/turbo-search-for-woocommerce-1.1.2.zip`. `build.sh` now excludes those paths and asserts
+   that no development/release-process path reached the staging tree before zipping. The 1.1.2
+   artifact was rebuilt in place and its runtime files were verified against the source tree.
+7. ~~Remote promo service was disclosed only in an old changelog entry~~ — **Fixed 2026-09-01.**
+   `readme.txt` now includes a dedicated `External services` section describing the request trigger,
+   endpoint, static parameter, cache lifetime, data not sent, provider, and privacy-policy URL.
 
 **Also fixed since this snapshot (2026-09-01), beyond what this document originally flagged:**
 real bugs found by a full code-quality/security review — a leftover Pro-only vocabulary-sidecar
