@@ -32,6 +32,37 @@ if ( ! file_exists( ABSPATH . 'wp-admin/includes/upgrade.php' ) ) {
 if ( ! is_dir( WPMU_PLUGIN_DIR ) ) {
 	mkdir( WPMU_PLUGIN_DIR, 0777, true );
 }
+
+// ── WP_Filesystem stubs ──────────────────────────────────────────────────────
+// Real Activator::install_mu_plugin()/remove_mu_plugin() copy/delete a real
+// file under WPMU_PLUGIN_DIR (a real temp dir, not mocked — see ActivatorTest)
+// via WP_Filesystem's "direct" adapter. These stubs perform the same real
+// file operations directly rather than requiring the real (absent in this
+// test environment) wp-admin/includes/file.php.
+function get_filesystem_method( $args = array(), $context = '', $allow_relaxed_file_ownership = false ): string {
+	return 'direct';
+}
+class Fake_WP_Filesystem_Direct {
+	public function exists( string $path ): bool {
+		return file_exists( $path );
+	}
+	public function is_writable( string $path ): bool {
+		return is_writable( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_is_writable
+	}
+	public function delete( string $path ): bool {
+		return @unlink( $path ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink, WordPress.PHP.NoSilencedErrors.Discouraged
+	}
+	public function copy( string $source, string $destination, bool $overwrite = false ): bool {
+		if ( $overwrite && file_exists( $destination ) ) {
+			@unlink( $destination ); // phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink, WordPress.PHP.NoSilencedErrors.Discouraged
+		}
+		return @copy( $source, $destination ); // phpcs:ignore WordPress.WP.AlternativeFunctions.copy_copy, WordPress.PHP.NoSilencedErrors.Discouraged
+	}
+}
+function WP_Filesystem( $args = false, $context = false, $allow_relaxed_file_ownership = false ): bool {
+	$GLOBALS['wp_filesystem'] = new Fake_WP_Filesystem_Direct();
+	return true;
+}
 define( 'WCS_VERSION', '0.0.0-test' );
 define( 'WCS_PLUGIN_DIR', dirname( __DIR__, 2 ) . '/' );
 define( 'WCS_PLUGIN_URL', 'https://example.test/wp-content/plugins/turbo-search-for-woocommerce/' );
@@ -87,6 +118,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_publish_count'] = 10;
 	$GLOBALS['wcs_test_ext_cache']     = false;
 	$GLOBALS['wcs_test_cache_add']     = true;
+	$GLOBALS['wcs_test_search_excluded_ids'] = array();
 	$GLOBALS['wcs_test_marked_failed'] = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
@@ -195,8 +227,15 @@ function do_action( string $tag, ...$args ): void {
 }
 
 // ── Action Scheduler recorders ─────────────────────────────────────────────
-function as_enqueue_async_action( string $hook, array $args = array(), string $group = '', $priority = 0, bool $unique = false ): int {
-	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'enqueue_async', 'hook' => $hook, 'args' => $args, 'group' => $group );
+// Real signature is ($hook, $args, $group, $unique, $priority) — $unique
+// before $priority. This stub previously had them swapped, which the
+// source code's own (0, true) call sites happened to silently compensate
+// for without anyone noticing: under the real API those args mean
+// unique=false/priority=1 (functionally fine, if not the intended priority
+// 10), but under this wrong-order stub the test suite was never actually
+// exercising the real unique/priority semantics at all.
+function as_enqueue_async_action( string $hook, array $args = array(), string $group = '', bool $unique = false, int $priority = 10 ): int {
+	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'enqueue_async', 'hook' => $hook, 'args' => $args, 'group' => $group, 'unique' => $unique );
 	return count( $GLOBALS['wcs_test_as_calls'] );
 }
 function as_schedule_single_action( int $timestamp, string $hook, array $args = array(), string $group = '' ): int {
@@ -508,6 +547,13 @@ function wp_get_attachment_image_url( int $attachment_id, $size = 'thumbnail' ) 
 function get_the_terms( int $id, string $taxonomy ) {
 	return $GLOBALS['wcs_test_terms'][ $id ][ $taxonomy ] ?? false;
 }
+function has_term( $term, string $taxonomy = '', $post = 0 ): bool {
+	$post_id = is_object( $post ) ? $post->ID : (int) $post;
+	if ( 'product_visibility' === $taxonomy && 'exclude-from-search' === $term ) {
+		return in_array( $post_id, $GLOBALS['wcs_test_search_excluded_ids'] ?? array(), true );
+	}
+	return false;
+}
 function wp_get_post_terms( int $id, $taxonomies, array $args = array() ): array {
 	$names = array();
 	foreach ( (array) $taxonomies as $tax ) {
@@ -709,6 +755,7 @@ class Fake_WPDB {
 	public string $blogs      = 'wp_blogs';
 	public string $terms      = 'wp_terms';
 	public string $term_taxonomy = 'wp_term_taxonomy';
+	public string $term_relationships = 'wp_term_relationships';
 	public string $last_error = '';
 
 	/** @var string[] Every SQL string executed, in order. */
