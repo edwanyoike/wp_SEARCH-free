@@ -135,7 +135,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<h3 style="margin-bottom: 6px;"><code>wcs_batch_size</code> <?php esc_html_e( '(filter)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Hard-cap the batch size directly — useful on managed hosting with a memory_limit that WordPress cannot override (WP_MEMORY_LIMIT has no effect when the host enforces memory_limit as a php_admin_value):', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_filter( 'wcs_batch_size', function( int $size ): int {
-    return 25; // always use small batches on this host
+	return 25; // always use small batches on this host
 } );</pre>
 </div>
 
@@ -146,21 +146,21 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<h3><code>wcs_indexed_product_data</code> <?php esc_html_e( '(filter)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Runs just before each product row is written to the index. Use it to add, remove, or transform the data that gets stored.', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_filter( 'wcs_indexed_product_data', function( array $data, int $product_id ): array {
-    // Example: append a custom field value to the searchable content.
-    $extra = get_post_meta( $product_id, '_my_custom_field', true );
-    if ( $extra ) {
-        $data['content'] .= ' ' . sanitize_text_field( $extra );
-    }
-    return $data;
+	// Example: append a custom field value to the searchable content.
+	$extra = get_post_meta( $product_id, '_my_custom_field', true );
+	if ( $extra ) {
+		$data['content'] .= ' ' . sanitize_text_field( $extra );
+	}
+	return $data;
 }, 10, 2 );</pre>
 	<p style="color:#666;font-size:13px;"><?php esc_html_e( 'Available keys: product_id, title, sku, content, excerpt, price_min, price_max, stock_status, total_sales, sales_30d, image_url, permalink, updated_at. Custom keys are ignored — only the listed columns exist in the index table.', 'turbo-search-for-woocommerce' ); ?></p>
 
 	<h3><code>wcs_ranking_weights</code> <?php esc_html_e( '(filter)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Tune how results are ranked. Title matches count 5× a description match by default; exact SKU matches always rank first; in-stock and best-selling products get a boost.', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_filter( 'wcs_ranking_weights', function( array $w ): array {
-    $w['sales']   = 1.0;  // Weight best-sellers more heavily.
-    $w['instock'] = 2.0;  // Push out-of-stock products further down.
-    return $w;
+	$w['sales']   = 1.0;  // Weight best-sellers more heavily.
+	$w['instock'] = 2.0;  // Push out-of-stock products further down.
+	return $w;
 } );
 // Keys: title (5.0), all_fields (1.0), exact_title (10.0), exact_sku (20.0),
 //       title_prefix (3.0), phrase (4.0), instock (0.5), sales (0.3),
@@ -169,22 +169,22 @@ if ( ! defined( 'ABSPATH' ) ) {
 	<h3><code>wcs_indexed_taxonomies</code> <?php esc_html_e( '(filter)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Control which taxonomy term names are searchable. Defaults: categories, tags, brands, and all global attributes (color, material, …).', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_filter( 'wcs_indexed_taxonomies', function( array $taxonomies ): array {
-    return array_diff( $taxonomies, array( 'product_tag' ) ); // Exclude tags.
+	return array_diff( $taxonomies, array( 'product_tag' ) ); // Exclude tags.
 } );</pre>
 
 	<h3><code>wcs_synonym_groups</code> <?php esc_html_e( '(filter)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Add synonym groups in code, on top of any groups configured in the Settings tab. Every word in a group matches products containing any other word in the group.', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_filter( 'wcs_synonym_groups', function( array $groups ): array {
-    $groups[] = array( 'sofa', 'couch', 'settee' );
-    $groups[] = array( 'trousers', 'pants' );
-    return $groups;
+	$groups[] = array( 'sofa', 'couch', 'settee' );
+	$groups[] = array( 'trousers', 'pants' );
+	return $groups;
 } );</pre>
 
 	<h3><code>wcs_index_rebuild_complete</code> <?php esc_html_e( '(action)', 'turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Fires once after a full rebuild finishes and the new index table is live. Use it to bust a CDN cache, send a notification, or trigger a downstream job.', 'turbo-search-for-woocommerce' ); ?></p>
 	<pre>add_action( 'wcs_index_rebuild_complete', function(): void {
-    // Example: purge a CDN or send a Slack notification.
-    my_cdn_purge_all();
+	// Example: purge a CDN or send a Slack notification.
+	my_cdn_purge_all();
 } );</pre>
 </div>
 

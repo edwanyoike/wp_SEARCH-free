@@ -21,7 +21,7 @@ class Frontend {
 	public static function init(): void {
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
 		add_action( 'wp_footer', array( __CLASS__, 'inject_dropdown_container' ) );
-		add_action( 'wp_ajax_wcs_refresh_nonce',        array( __CLASS__, 'ajax_refresh_nonce' ) );
+		add_action( 'wp_ajax_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
 		add_action( 'wp_ajax_nopriv_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
 		add_shortcode( 'turbo_search', array( __CLASS__, 'render_shortcode' ) );
 	}
@@ -43,31 +43,31 @@ class Frontend {
 		wp_enqueue_script( 'wcs-search-js', WCS_PLUGIN_URL . 'assets/js/search.js', array(), $version, true );
 
 		$config = array(
-			'api_url'          => esc_url_raw( rest_url( 'wcs/v1/search' ) ),
-			'nonce'            => wp_create_nonce( 'wp_rest' ),
+			'api_url'           => esc_url_raw( rest_url( 'wcs/v1/search' ) ),
+			'nonce'             => wp_create_nonce( 'wp_rest' ),
 			'nonce_refresh_url' => esc_url_raw( admin_url( 'admin-ajax.php?action=wcs_refresh_nonce' ) ),
-			'version'          => WCS_VERSION,
-			'min_chars' => (int) get_option( 'wcs_min_chars', 2 ),
+			'version'           => WCS_VERSION,
+			'min_chars'         => (int) get_option( 'wcs_min_chars', 2 ),
 			// Plain __(), not esc_html__(): these strings are JSON-encoded into
 			// a JS object and rendered via .textContent (search.js), which does
 			// not decode HTML entities. esc_html__() would leave literal
 			// "&quot;" etc. visible in the dropdown instead of the real
 			// character — exactly what happened to 'view_all' before this fix,
 			// since it's the only string here containing quote characters.
-			'i18n'      => array(
-				'no_results'     => __( 'No products found.', 'turbo-search-for-woocommerce' ),
-				'out_of_stock'   => __( 'Out of Stock', 'turbo-search-for-woocommerce' ),
-				'index_building' => __( 'Search is being set up — please try again in a minute.', 'turbo-search-for-woocommerce' ),
-				'category'       => __( 'Category', 'turbo-search-for-woocommerce' ),
-				'brand'          => __( 'Brand', 'turbo-search-for-woocommerce' ),
+			'i18n'              => array(
+				'no_results'        => __( 'No products found.', 'turbo-search-for-woocommerce' ),
+				'out_of_stock'      => __( 'Out of Stock', 'turbo-search-for-woocommerce' ),
+				'index_building'    => __( 'Search is being set up — please try again in a minute.', 'turbo-search-for-woocommerce' ),
+				'category'          => __( 'Category', 'turbo-search-for-woocommerce' ),
+				'brand'             => __( 'Brand', 'turbo-search-for-woocommerce' ),
 				/* translators: %d: number of products in the category/brand */
-				'products_count' => __( '%d products', 'turbo-search-for-woocommerce' ),
+				'products_count'    => __( '%d products', 'turbo-search-for-woocommerce' ),
 				/* translators: %s: the search query */
-				'view_all'       => __( 'View all results for "%s"', 'turbo-search-for-woocommerce' ),
+				'view_all'          => __( 'View all results for "%s"', 'turbo-search-for-woocommerce' ),
 				/* translators: %s: the corrected search term actually used */
 				'showingResultsFor' => __( 'Showing results for "%s"', 'turbo-search-for-woocommerce' ),
 			),
-			'currency'  => array(
+			'currency'          => array(
 				'code'         => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : get_option( 'woocommerce_currency', 'USD' ),
 				'symbol'       => function_exists( 'get_woocommerce_currency_symbol' ) ? html_entity_decode( get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8' ) : '',
 				'position'     => get_option( 'woocommerce_currency_pos', 'left' ),

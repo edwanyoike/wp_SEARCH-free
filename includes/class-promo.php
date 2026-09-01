@@ -21,13 +21,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class Promo {
 
-	const ENDPOINT     = 'https://ozupay.com/wp-json/ozls/v1/promo';
-	const CACHE_KEY    = 'wcs_promo_cache';
-	const CACHE_TTL    = 12 * HOUR_IN_SECONDS;
-	const FAIL_TTL     = HOUR_IN_SECONDS;
+	const ENDPOINT  = 'https://ozupay.com/wp-json/ozls/v1/promo';
+	const CACHE_KEY = 'wcs_promo_cache';
+	const CACHE_TTL = 12 * HOUR_IN_SECONDS;
+	const FAIL_TTL  = HOUR_IN_SECONDS;
 	// Distinct from Pro's 'turbo_search_pro' — lets the server target promos
 	// (e.g. an upgrade-to-Pro upsell) at only one edition or the other.
-	const PLUGIN_SLUG  = 'turbo_search_free';
+	const PLUGIN_SLUG = 'turbo_search_free';
 
 	/**
 	 * Current promo payload, or null if none is active. Cached in a

@@ -1,0 +1,95 @@
+<?xml version="1.0"?>
+<ruleset name="Turbo Search for WooCommerce (Free)">
+	<description>WordPress Coding Standards ruleset for Turbo Search for WooCommerce — Free edition.</description>
+
+	<file>.</file>
+
+	<exclude-pattern>*/vendor/*</exclude-pattern>
+	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/dist/*</exclude-pattern>
+	<exclude-pattern>*/languages/*</exclude-pattern>
+	<exclude-pattern>*/tests/*</exclude-pattern>
+	<exclude-pattern>*/.phpunit.cache/*</exclude-pattern>
+
+	<arg value="sp"/>
+	<arg name="colors"/>
+	<arg name="extensions" value="php"/>
+	<arg name="parallel" value="8"/>
+
+	<!-- WordPress-Core only, not -Extra/-Docs: this codebase already follows
+	     WPCS's security/naming/structure conventions (verified by hand — see
+	     WORDPRESS_ORG_COMPLIANCE.md) but was never written against PEAR-style
+	     multi-line formatting or mandatory-docblock-on-every-method rules
+	     (WordPress-Extra/-Docs). The goal here is closing the prefixing/
+	     security-sniff enforcement gap those docs identified, not an
+	     unrelated wholesale reformat. -->
+	<rule ref="WordPress-Core">
+		<!-- File organization: this codebase intentionally groups related
+		     small classes/logic per file where that reads better, rather
+		     than a strict one-class-per-file split. -->
+		<exclude name="Generic.Files.OneObjectStructurePerFile"/>
+
+		<!-- declare(strict_types=1) is deliberately the first statement in
+		     every file (before the Plugin Name docblock on the main file),
+		     per this repo's own AGENT_CODING_STANDARDS.md §2.1 — PHP allows
+		     this (only comments may precede a declare statement), but PSR12
+		     wants the docblock first. Reordering every file to satisfy this
+		     is a purely cosmetic, mechanical change across the whole
+		     codebase with no security/correctness value — not worth the
+		     diff size or the review burden of touching every file's header. -->
+		<exclude name="PSR12.Files.FileHeader.IncorrectOrder"/>
+
+		<!-- PEAR-style multi-line function-call formatting (opening paren
+		     must be last on its line, closing paren alone on its own line,
+		     one argument per line) is not this codebase's established
+		     style — enforcing it now would mean reformatting most
+		     multi-line calls across every file for a pure style preference,
+		     not a security/correctness issue. -->
+		<exclude name="PEAR.Functions.FunctionCallSignature"/>
+
+		<!-- Docblocks are already present on nearly everything that benefits
+		     from one; this codebase does not mandate one on every single
+		     private method/property, unlike WordPress-Docs. Not enforced
+		     here for the same "don't force an unrelated wholesale pass"
+		     reason as the ruleset's own top-level comment explains. -->
+		<exclude name="Squiz.Commenting"/>
+		<exclude name="Generic.Commenting.DocComment"/>
+	</rule>
+
+	<rule ref="PHPCompatibilityWP"/>
+	<config name="testVersion" value="8.0-"/>
+
+	<rule ref="WordPress.WP.I18n">
+		<properties>
+			<property name="text_domain" type="array">
+				<element value="turbo-search-for-woocommerce"/>
+			</property>
+		</properties>
+	</rule>
+
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
+		<properties>
+			<property name="prefixes" type="array">
+				<element value="wcs"/>
+				<element value="WCS"/>
+			</property>
+		</properties>
+	</rule>
+	<!-- "wcs"/"WCS" are 3 characters — under WPCS's own recommended 4-char
+	     minimum (WORDPRESS_ORG_HANDBOOK.md §19) — but they are the
+	     established, already-shipped prefix for every option, transient,
+	     table, hook, and identifier in both editions of this plugin.
+	     Renaming them now would mean a breaking migration for every live
+	     site on update (stored option/table names, hook names other code
+	     may have hooked into). Documented exception, not an oversight —
+	     mirrors OzuPay's own `ozp` short-prefix exception in that project's
+	     phpcs.xml for the same reason. -->
+	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.ShortPrefixPassed">
+		<exclude-pattern>*</exclude-pattern>
+	</rule>
+
+	<!-- Namespaced classes (WCS\Search\...) are not global-scope identifiers,
+	     so the prefix requirement above only bites on top-level functions,
+	     constants, and globals — matching this repo's own stated convention
+	     (AGENT_CODING_STANDARDS.md §1.1). -->
+</ruleset>

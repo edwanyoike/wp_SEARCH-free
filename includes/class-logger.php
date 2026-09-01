@@ -23,7 +23,7 @@ class Logger {
 	 */
 	public static function log( string $message, string $level = 'info' ): void {
 		$prefix = '[v' . WCS_VERSION . '] ';
-		
+
 		if ( function_exists( 'wc_get_logger' ) ) {
 			$logger  = wc_get_logger();
 			$context = array( 'source' => 'turbo-search-for-woocommerce' );
