@@ -73,9 +73,8 @@ By default, no. Enable "Delete data on uninstall" in the plugin settings before 
 
 == Screenshots ==
 
-1. Live search dropdown showing instant results as the customer types.
-2. Plugin settings and index status with rebuild button.
-3. Documentation tab showing triggers and uninstall info.
+1. Live search dropdown showing instant results as a customer types, on a real store selling in KES.
+2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
 == Changelog ==
 

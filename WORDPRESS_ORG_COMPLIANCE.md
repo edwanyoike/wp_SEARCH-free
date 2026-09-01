@@ -674,14 +674,16 @@ explicitly rather than assumed clean.
    Several items in this document are marked "likely clean, not independently verified"
    specifically because only a real tool run (not a manual source read) can close them out
    completely (asset/tag-directory checks, exhaustive file-type/compat scans).
-4. **Screenshots aren't in submission-ready form (§18).** `readme.txt`'s `== Screenshots ==` section
-   describes 3 numbered shots, and 7 candidate PNGs exist at the repo's top level
-   (`home.png`, `search_kes.png`, `search_usd.png`, `search_usd_fixed.png`, `shop.png`,
-   `shop_full.png`, `naruki-dual-dropdown.png`), but none are named/selected into the
-   `screenshot-1.png`/`screenshot-2.png`/`screenshot-3.png` convention the live SVN `assets/`
-   directory needs. Pick 3 that match the readme's 3 descriptions, rename them, and place them in
-   the `assets/` directory at actual SVN-submission time (this git repo doesn't control that
-   directory).
+4. ~~Screenshots aren't in submission-ready form (§18)~~ — **Fixed 2026-09-01.** The original
+   `readme.txt` described 2 screenshots (settings page, docs tab) that had no matching source image
+   anywhere in the repo — all 7 candidate PNGs at the repo's top level are storefront live-search
+   demos, none of them admin screens. Rather than leave a readme claiming screenshots that don't
+   exist, `readme.txt`'s `== Screenshots ==` section now describes only what's real: two live-search
+   dropdown demos on real stores (KES and USD), copied to `screenshot-1.png`/`screenshot-2.png` at
+   the repo's top level (the naming convention the live SVN `assets/` directory needs — still needs
+   moving into that directory at actual SVN-submission time, this git repo doesn't control it).
+   Admin-screen screenshots (settings page, docs tab) don't exist and weren't fabricated; add real
+   ones from an actual install if desired before submission — not blocking.
 5. Minor/non-blocking: ~~the orphaned promo-dismissal usermeta on uninstall (§8)~~ **fixed
    2026-09-01**; the options-not-grouped-into-one-array divergence from best practice (§9) and
    splitting the changelog into a separate `changelog.txt` proactively (§17) before it becomes a
