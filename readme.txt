@@ -2,7 +2,7 @@
 Contributors:      ozulabs
 Tags:              woocommerce, search, product search, live search, ajax search
 Requires at least: 6.5
-Tested up to:      7.0
+Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
 Stable tag:        1.1.2
@@ -11,14 +11,14 @@ License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
 Instant live product search for WooCommerce using native MySQL FULLTEXT indexing.
 
+== Description ==
+
+Turbo Search for WooCommerce replaces WooCommerce's default slow search with a dedicated, FULLTEXT-indexed search engine that returns results as customers type.
+
 This free edition indexes up to 100 products. A Pro edition removes that limit and adds typo
 tolerance, synonyms, category/brand suggestions, ranking-weight tuning, sales-weighted ranking,
 zero-result search analytics, and multi-currency price support for serious/high-volume stores —
 see https://ozulabs.com.
-
-== Description ==
-
-Turbo Search for WooCommerce replaces WooCommerce's default slow search with a dedicated, FULLTEXT-indexed search engine that returns results as customers type.
 
 **How it works:**
 

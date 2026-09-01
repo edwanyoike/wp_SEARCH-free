@@ -12,7 +12,7 @@ declare(strict_types=1);
  * Text Domain:          turbo-search-for-woocommerce
  * Domain Path:          /languages
  * Requires at least:    6.5
- * Tested up to:         7.0
+ * Tested up to:         7.1
  * Requires PHP:         8.0
  * Requires Plugins:     woocommerce
  * WC requires at least: 8.0
