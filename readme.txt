@@ -61,7 +61,7 @@ Yes — this free edition indexes up to 100 published products (chosen by lowest
 
 = What does the Pro edition add? =
 
-No 100-product indexing limit, plus typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, zero-result search analytics, and multi-currency price support. See https://ozulabs.com.
+No 100-product indexing limit, plus typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, search merchandising (pin/bury/exclude/redirect), behavioral ranking, click/conversion analytics, and multi-currency price support. See https://ozulabs.com.
 
 = Does it work on WordPress Multisite? =
 
@@ -89,6 +89,13 @@ responses for 1 hour. The service is provided by OzuLabs: [service website](http
 and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.2.0 =
+* Feature: recent searches — the last 5 searches are remembered per browser and offered again when the search box is focused, with a one-click "Clear."
+* Improvement: exact title/SKU matches and title-prefix matches now get a stronger built-in ranking boost.
+* Improvement: the search dropdown shows a "Searching products…" state immediately instead of staying blank while a request is in flight, and a clear "Search is temporarily unavailable — please try again" message if the request fails.
+* Improvement: the no-results message now includes a helpful hint ("Try another spelling or a shorter search.").
+* Change: the Settings tab now shows a disabled Search Merchandising field with an upsell to Turbo Search Pro, matching the existing pattern for other Pro-only fields.
 
 = 1.1.2 =
 * Feature: the App Data tab and the Settings tab's Pro summary now mention Export/Import Settings, a Pro-only feature for moving configuration between sites as a JSON file — matches the disabled-stub-plus-upsell-copy pattern already used for other Pro-only fields.
