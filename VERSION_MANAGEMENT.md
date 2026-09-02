@@ -120,7 +120,11 @@ git push origin vX.Y.Z
 
 ### Distribution
 Upload `dist/turbo-search-for-woocommerce-X.Y.Z.zip` directly to the target
-site's WordPress dashboard (or use the `wp plugin install --force` workflow
-in `../DEPLOYMENT.md`), attach it to a GitHub Release matching the tag, or
-submit it through the wordpress.org SVN process if this edition is listed
-there.
+site's WordPress dashboard, attach it to a GitHub Release matching the tag,
+or submit it through the wordpress.org SVN process if this edition is listed
+there. Unlike Pro (see `../wp_search/DEPLOYMENT.md`), this edition has no
+sanctioned scripted server deploy target — it isn't installed on
+`thogotodeli.com`/`ozulabs.com`, and the copy of it found on `thogotodeli` in
+practice is an unmanaged leftover (running `1.3.15`, a version this repo's
+own changelog has never reached — investigate before trusting or updating
+it).
