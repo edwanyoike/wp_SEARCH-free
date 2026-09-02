@@ -126,6 +126,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
+			<th scope="row"><?php esc_html_e( 'Search Merchandising', 'turbo-search-for-woocommerce' ); ?></th>
+			<td>
+				<textarea class="large-text code" rows="4" disabled placeholder="desk lamp | pin | 123,456"></textarea>
+				<p class="description">
+				<?php
+				echo wp_kses( sprintf( /* translators: %s: Pro product page URL */ __( 'Pin, bury, exclude, redirect, and behavioral ranking are available in <a href="%s" target="_blank" rel="noopener">Turbo Search Pro</a>.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
+					'a' => array(
+						'href'   => array(),
+						'target' => array(),
+						'rel'    => array(),
+					),
+				) );
+				?>
+				</p>
+			</td>
+		</tr>
+		<tr>
 			<th scope="row">
 				<label for="wcs_min_chars"><?php esc_html_e( 'Minimum Characters', 'turbo-search-for-woocommerce' ); ?></label>
 				<div class="wcs-tooltip">

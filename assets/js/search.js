@@ -9,6 +9,7 @@
 	// slow network response for an older keystroke can arrive after a newer
 	// (e.g. cache-served) query already rendered, overwriting fresh results.
 	let searchSeq = 0;
+	let renderedQuery = '';
 	const portal = document.getElementById('wcs-dropdown-portal');
 
 	if (!portal) return;
@@ -18,23 +19,24 @@
 	dropdown.className = 'wcs-dropdown';
 	dropdown.id = 'wcs-listbox';
 	dropdown.setAttribute('role', 'listbox');
+	dropdown.setAttribute('aria-label', wcs_config.i18n.results_label || 'Product search results');
 	portal.appendChild(dropdown);
 
 	// Match any input[name="s"] — standard WooCommerce uses type="search",
 	// Woodmart uses type="text" with class="s", other themes vary. The form-level
 	// post_type=product check below is the real gate.
-	const searchInputs = document.querySelectorAll('input[name="s"]');
-
 	let activeInput = null;
 	let activeIndex = -1;
 
-	searchInputs.forEach(input => {
+	function attachSearchInput(input) {
+		if (input.dataset.wcsAttached === '1') return;
 		// Only attach to WooCommerce product search forms.
 		const form = input.closest('form');
 		if (!form) return;
 
 		const postType = form.querySelector('input[name="post_type"]');
 		if (!postType || postType.value !== 'product') return;
+		input.dataset.wcsAttached = '1';
 
 		// Woodmart (and similar themes) have their own AJAX search attached to the
 		// "woodmart-ajax-search" class. Remove it so both dropdowns don't fire at
@@ -55,6 +57,12 @@
 			const query = e.target.value.trim();
 			const minChars = parseInt(wcs_config.min_chars, 10) || 2;
 			if (query.length < minChars) {
+				searchSeq++;
+				if (controller) {
+					controller.abort();
+					controller = null;
+				}
+				renderedQuery = '';
 				hideDropdown();
 				return;
 			}
@@ -64,14 +72,28 @@
 		input.addEventListener('focus', () => {
 			activeInput = input;
 			const minChars = parseInt(wcs_config.min_chars, 10) || 2;
-			if (input.value.trim().length >= minChars && dropdown.children.length > 0) {
+			const query = input.value.trim();
+			if (query.length >= minChars && query === renderedQuery && dropdown.children.length > 0) {
 				positionDropdown(input);
 				showDropdown();
+			} else if (query.length >= minChars) {
+				performSearch(query, input);
+			} else if (query.length === 0) {
+				renderRecentSearches(input);
 			}
 		});
 
 		input.addEventListener('keydown', (e) => {
 			if (!dropdown.classList.contains('is-active')) return;
+			if (e.key === 'Escape') {
+				e.preventDefault();
+				hideDropdown();
+				return;
+			}
+			if (e.key === 'Tab') {
+				hideDropdown();
+				return;
+			}
 
 			const items = dropdown.querySelectorAll('.wcs-result-item');
 			if (items.length === 0) return;
@@ -89,12 +111,27 @@
 					e.preventDefault();
 					items[activeIndex].click();
 				}
-			} else if (e.key === 'Escape') {
+			} else if (e.key === 'Home') {
 				e.preventDefault();
-				hideDropdown();
+				activeIndex = 0;
+				highlightItem(items);
+			} else if (e.key === 'End') {
+				e.preventDefault();
+				activeIndex = items.length - 1;
+				highlightItem(items);
 			}
 		});
+	}
+
+	document.querySelectorAll('input[name="s"]').forEach(attachSearchInput);
+	const inputObserver = new MutationObserver(mutations => {
+		mutations.forEach(mutation => mutation.addedNodes.forEach(node => {
+			if (!(node instanceof Element)) return;
+			if (node.matches('input[name="s"]')) attachSearchInput(node);
+			node.querySelectorAll('input[name="s"]').forEach(attachSearchInput);
+		}));
 	});
+	inputObserver.observe(document.body, { childList: true, subtree: true });
 
 	// Single document-level click listener shared across all inputs. Attaching
 	// one per input caused earlier inputs to close the dropdown when a later
@@ -119,6 +156,10 @@
 		});
 	}
 	window.addEventListener('resize', scheduleReposition, { passive: true });
+	if (window.visualViewport) {
+		window.visualViewport.addEventListener('resize', scheduleReposition, { passive: true });
+		window.visualViewport.addEventListener('scroll', scheduleReposition, { passive: true });
+	}
 
 	// True when some ancestor (e.g. a sticky/fixed theme header) takes the
 	// input out of normal document flow. Cheap: reading the `position`
@@ -168,6 +209,7 @@
 
 	function showDropdown() {
 		dropdown.classList.add('is-active');
+		document.documentElement.classList.add('wcs-search-active');
 		if (activeInput) {
 			activeInput.setAttribute('aria-expanded', 'true');
 		}
@@ -175,6 +217,7 @@
 
 	function hideDropdown() {
 		dropdown.classList.remove('is-active');
+		document.documentElement.classList.remove('wcs-search-active');
 		activeIndex = -1;
 		if (activeInput) {
 			activeInput.setAttribute('aria-expanded', 'false');
@@ -212,6 +255,20 @@
 
 	function positionDropdown(input) {
 		const rect = input.getBoundingClientRect();
+		const viewportWidth = document.documentElement.clientWidth;
+		if (viewportWidth <= 640) {
+			const gutter = 12;
+			const visualHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+			const visualOffset = window.visualViewport ? window.visualViewport.offsetTop : 0;
+			const top = Math.min(rect.bottom + 5, visualOffset + visualHeight - 120);
+			dropdown.style.position = 'fixed';
+			dropdown.style.top = top + 'px';
+			dropdown.style.left = gutter + 'px';
+			dropdown.style.width = Math.max(0, viewportWidth - (gutter * 2)) + 'px';
+			dropdown.style.maxHeight = Math.max(96, visualOffset + visualHeight - top - gutter) + 'px';
+			return;
+		}
+		dropdown.style.maxHeight = '';
 		if (isViewportAnchored(input)) {
 			// Viewport coordinates only, no scroll offset — matches
 			// position:fixed, which is what keeps this glued to the input
@@ -349,6 +406,7 @@
 			controller.abort();
 		}
 		controller = new AbortController();
+		renderLoading(input);
 
 		doSearch(query, currency, false)
 			.then(data => {
@@ -366,8 +424,98 @@
 			.catch(err => {
 				if (err.name !== 'AbortError') {
 					console.error(`WCS Search [v${wcs_config.version}] Error:`, err);
+					if (seq === searchSeq) renderError(input);
 				}
 			});
+	}
+
+	function renderLoading(input) {
+		renderedQuery = '';
+		dropdown.innerHTML = '';
+		const status = document.createElement('div');
+		status.className = 'wcs-loading';
+		status.setAttribute('role', 'status');
+		status.setAttribute('aria-live', 'polite');
+		const spinner = document.createElement('span');
+		spinner.className = 'wcs-loading-spinner';
+		spinner.setAttribute('aria-hidden', 'true');
+		status.appendChild(spinner);
+		status.appendChild(document.createTextNode(wcs_config.i18n.searching || 'Searching products…'));
+		dropdown.appendChild(status);
+		positionDropdown(input);
+		showDropdown();
+	}
+
+	function renderError(input) {
+		renderedQuery = input.value.trim();
+		dropdown.innerHTML = '';
+		const status = document.createElement('div');
+		status.className = 'wcs-no-results wcs-search-error';
+		status.setAttribute('role', 'alert');
+		const message = document.createElement('strong');
+		message.textContent = wcs_config.i18n.search_error || 'Search is temporarily unavailable.';
+		const hint = document.createElement('span');
+		hint.textContent = wcs_config.i18n.try_again || 'Please try again.';
+		status.appendChild(message);
+		status.appendChild(hint);
+		dropdown.appendChild(status);
+		positionDropdown(input);
+		showDropdown();
+	}
+
+	function getRecentSearches() {
+		try {
+			const stored = JSON.parse(window.localStorage.getItem('wcs_recent_searches') || '[]');
+			return Array.isArray(stored) ? stored.filter(item => typeof item === 'string').slice(0, 5) : [];
+		} catch (_) {
+			return [];
+		}
+	}
+
+	function saveRecentSearch(query) {
+		try {
+			const recent = getRecentSearches().filter(item => item.toLowerCase() !== query.toLowerCase());
+			recent.unshift(query);
+			window.localStorage.setItem('wcs_recent_searches', JSON.stringify(recent.slice(0, 5)));
+		} catch (_) {}
+	}
+
+	function renderRecentSearches(input) {
+		const recent = getRecentSearches();
+		if (!recent.length) return;
+		dropdown.innerHTML = '';
+		renderedQuery = '';
+		const heading = document.createElement('div');
+		heading.className = 'wcs-section-heading wcs-recent-heading';
+		const label = document.createElement('span');
+		label.textContent = wcs_config.i18n.recent_searches || 'Recent searches';
+		const clear = document.createElement('button');
+		clear.type = 'button';
+		clear.className = 'wcs-clear-recent';
+		clear.textContent = wcs_config.i18n.clear_recent || 'Clear';
+		clear.addEventListener('click', () => {
+			try { window.localStorage.removeItem('wcs_recent_searches'); } catch (_) {}
+			hideDropdown();
+		});
+		heading.appendChild(label);
+		heading.appendChild(clear);
+		dropdown.appendChild(heading);
+		recent.forEach((query, index) => {
+			const button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'wcs-result-item wcs-recent-item';
+			button.id = 'wcs-option-recent-' + index;
+			button.setAttribute('role', 'option');
+			button.setAttribute('aria-selected', 'false');
+			button.textContent = query;
+			button.addEventListener('click', () => {
+				input.value = query;
+				performSearch(query, input);
+			});
+			dropdown.appendChild(button);
+		});
+		positionDropdown(input);
+		showDropdown();
 	}
 
 	/**
@@ -473,6 +621,7 @@
 	}
 
 	function renderResults(results, input, currency, query) {
+		renderedQuery = query;
 		// Highlight the words the server actually matched. When typo
 		// correction silently substituted a different query (e.g. "necklase"
 		// -> "necklace"), the corrected form is what appears in the result
@@ -483,13 +632,22 @@
 		requestAnimationFrame(() => {
 			dropdown.innerHTML = '';
 			activeIndex = -1;
+			if (!results.__indexing && results.length > 0) saveRecentSearch(query);
 
 			if (results.length === 0) {
 				const noResultsDiv = document.createElement('div');
 				noResultsDiv.className = 'wcs-no-results';
-				noResultsDiv.textContent = results.__indexing
+				noResultsDiv.setAttribute('role', 'status');
+				const message = document.createElement('strong');
+				message.textContent = results.__indexing
 					? (wcs_config.i18n.index_building || wcs_config.i18n.no_results)
 					: wcs_config.i18n.no_results;
+				noResultsDiv.appendChild(message);
+				if (!results.__indexing) {
+					const hint = document.createElement('span');
+					hint.textContent = wcs_config.i18n.try_another || 'Try another spelling or a shorter search.';
+					noResultsDiv.appendChild(hint);
+				}
 				dropdown.appendChild(noResultsDiv);
 			} else {
 				// Tell the shopper when we silently corrected their query —
@@ -549,6 +707,7 @@
 					img.className = 'wcs-result-img';
 					img.alt = '';
 					img.loading = 'lazy';
+					img.decoding = 'async';
 
 					let safeImgUrl = '';
 					try {

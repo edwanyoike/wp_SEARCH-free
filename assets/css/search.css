@@ -55,8 +55,8 @@
 }
 
 .wcs-result-img {
-	width: 40px;
-	height: 40px;
+	width: 56px;
+	height: 56px;
 	object-fit: cover;
 	border-radius: 4px;
 	margin-right: 12px;
@@ -129,10 +129,57 @@ mark.wcs-highlight {
 }
 
 .wcs-no-results {
-	padding: 16px;
+	padding: 24px 16px;
 	text-align: center;
 	color: #64748b;
 	font-size: 14px;
+}
+
+.wcs-no-results strong,
+.wcs-no-results span {
+	display: block;
+}
+
+.wcs-no-results strong {
+	color: var(--wcs-text);
+	font-size: 15px;
+}
+
+.wcs-no-results span {
+	margin-top: 5px;
+	font-size: 12px;
+}
+
+.wcs-loading {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	padding: 22px 16px;
+	color: #64748b;
+	font-size: 14px;
+}
+
+.wcs-loading-spinner {
+	width: 16px;
+	height: 16px;
+	border: 2px solid var(--wcs-border);
+	border-top-color: var(--wcs-primary);
+	border-radius: 50%;
+	animation: wcs-spin 0.7s linear infinite;
+}
+
+@keyframes wcs-spin {
+	to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.wcs-loading-spinner {
+		animation-duration: 1.5s;
+	}
+	.wcs-result-item {
+		transition: none;
+	}
 }
 
 .wcs-corrected-notice {
@@ -225,11 +272,68 @@ form.wcs-form-wrap .wcs-form-btn svg {
  * !important is required because the plugin's own JS toggles a
  * non-!important inline display:block on these nodes; the stylesheet
  * rule still wins over that inline style. */
-.live-search-results,
-.autocomplete-suggestions,
-.aws-search-result,
-.dgwt-wcas-suggestions-wrapper {
+.wcs-search-active .live-search-results,
+.wcs-search-active .autocomplete-suggestions,
+.wcs-search-active .aws-search-result,
+.wcs-search-active .dgwt-wcas-suggestions-wrapper {
 	display: none !important;
+}
+
+.wcs-section-heading {
+	padding: 7px 16px;
+	border-bottom: 1px solid var(--wcs-border);
+	background: var(--wcs-hover);
+	color: #64748b;
+	font-size: 11px;
+	font-weight: 700;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+}
+
+.wcs-recent-heading {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.wcs-clear-recent {
+	padding: 2px 4px;
+	border: 0;
+	background: transparent;
+	color: var(--wcs-primary);
+	font: inherit;
+	font-weight: 600;
+	text-transform: none;
+	cursor: pointer;
+}
+
+.wcs-recent-item {
+	width: 100%;
+	min-height: 44px;
+	border: 0;
+	border-bottom: 1px solid var(--wcs-border);
+	background: var(--wcs-bg);
+	font: inherit;
+	font-size: 14px;
+	text-align: left;
+	cursor: pointer;
+}
+
+.wcs-recent-item::before {
+	content: '\21B7';
+	margin-right: 10px;
+	color: #94a3b8;
+}
+
+@media (max-width: 480px) {
+	.wcs-dropdown {
+		max-height: min(65vh, 520px);
+		border-radius: 10px;
+	}
+	.wcs-result-item {
+		min-height: 72px;
+		padding: 10px 12px;
+	}
 }
 
 /* Category / brand suggestion rows */

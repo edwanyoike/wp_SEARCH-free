@@ -525,9 +525,10 @@ class Search_Handler {
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY total_sales DESC, title ASC
+				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title LIKE %s, 20, 0) DESC,
+				 total_sales DESC, title ASC
 				 LIMIT %d",
-				...array_merge( array( $table_name ), $params, array( $limit ) )
+				...array_merge( array( $table_name ), $params, array( $query, $query, $wpdb->esc_like( $query ) . '%', $limit ) )
 			);
 			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
@@ -574,9 +575,10 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY total_sales DESC, title ASC
+					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title LIKE %s, 12, 0) + IF(title LIKE %s, 6, 0) DESC,
+					 total_sales DESC, title ASC
 					 LIMIT %d",
-					...array_merge( array( $table_name ), $params, array( $remaining ) )
+					...array_merge( array( $table_name ), $params, array( $query, $query, $wpdb->esc_like( $query ) . '%', '%' . $wpdb->esc_like( $query ) . '%', $remaining ) )
 				);
 				// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 

@@ -206,10 +206,13 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertStringContainsString( "IF(sku = 'hazina', 99.5, 0)", $this->wpdb->queries[0] );
 	}
 
-	public function test_like_tiers_order_by_popularity_then_title(): void {
+	public function test_like_tiers_prioritize_exact_and_prefix_intent_before_popularity(): void {
 		$this->search( 'ab' );
 
-		$this->assertStringContainsString( 'ORDER BY total_sales DESC, title ASC', $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "ORDER BY IF(title = 'ab', 100, 0)", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(sku = 'ab', 120, 0)", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(title LIKE 'ab%', 20, 0) DESC", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( 'total_sales DESC, title ASC', $this->wpdb->queries[0] );
 	}
 
 	// ── Synonym expansion in SQL ─────────────────────────────────────────────

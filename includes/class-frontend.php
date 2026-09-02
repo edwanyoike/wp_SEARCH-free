@@ -56,6 +56,14 @@ class Frontend {
 			// since it's the only string here containing quote characters.
 			'i18n'              => array(
 				'no_results'        => __( 'No products found.', 'turbo-search-for-woocommerce' ),
+				'searching'         => __( 'Searching products…', 'turbo-search-for-woocommerce' ),
+				'try_another'       => __( 'Try another spelling or a shorter search.', 'turbo-search-for-woocommerce' ),
+				'search_error'      => __( 'Search is temporarily unavailable.', 'turbo-search-for-woocommerce' ),
+				'try_again'         => __( 'Please try again.', 'turbo-search-for-woocommerce' ),
+				'product_results'   => __( 'Products', 'turbo-search-for-woocommerce' ),
+				'results_label'     => __( 'Product search results', 'turbo-search-for-woocommerce' ),
+				'recent_searches'   => __( 'Recent searches', 'turbo-search-for-woocommerce' ),
+				'clear_recent'      => __( 'Clear', 'turbo-search-for-woocommerce' ),
 				'out_of_stock'      => __( 'Out of Stock', 'turbo-search-for-woocommerce' ),
 				'index_building'    => __( 'Search is being set up — please try again in a minute.', 'turbo-search-for-woocommerce' ),
 				'category'          => __( 'Category', 'turbo-search-for-woocommerce' ),
