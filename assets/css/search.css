@@ -74,9 +74,14 @@
 	font-weight: 600;
 	font-size: 14px;
 	line-height: 1.3;
-	white-space: nowrap;
 	overflow: hidden;
-	text-overflow: ellipsis;
+	/* Wraps up to 2 lines instead of cutting off after a handful of
+	   characters — on a narrow mobile viewport a single nowrap+ellipsis
+	   line left long titles reading as just the first word or two, hard
+	   to scan and easy to mistake for a different, shorter-named product. */
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
 }
 
 .wcs-result-meta {
