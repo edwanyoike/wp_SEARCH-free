@@ -90,6 +90,10 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.2.3 =
+* Fix: the 1.2.1 title-prefix fix wasn't enough on its own — confirmed live on a real store. The "title contains query as a phrase" boost had the identical raw-character flaw (searching "dog" still credited "Dogo African Choker Necklace" via a plain '%dog%' substring match), which was enough to tie it with genuine "... dog ..." titles and hand the win to an unrelated total_sales/alphabetical tiebreak. The phrase boost now requires "dog" to appear as a genuine whole word too, the same as the prefix boost already did.
+* Fix: the result dropdown's width was set to exactly match the search box it's attached to, with no minimum — a theme with a compact header search box (a couple hundred px) forced an equally cramped, hard-to-read dropdown. Now has a sensible minimum width, capped so it can never overflow past the edge of the screen.
+
 = 1.2.2 =
 * Fix: result titles in the dropdown were forced onto a single line and cut off with "…" as soon as they ran out of room — on a narrow mobile screen this could leave a title reading as just its first word or two, hard to scan and easy to mistake for a shorter, differently-named product. Titles now wrap onto 2 lines.
 
