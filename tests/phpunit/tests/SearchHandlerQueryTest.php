@@ -211,7 +211,7 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$this->assertStringContainsString( "ORDER BY IF(title = 'ab', 100, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( "IF(sku = 'ab', 120, 0)", $this->wpdb->queries[0] );
-		$this->assertStringContainsString( "IF(title LIKE 'ab%', 20, 0) DESC", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(title = 'ab' OR title LIKE 'ab %', 20, 0) DESC", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( 'total_sales DESC, title ASC', $this->wpdb->queries[0] );
 	}
 
@@ -251,8 +251,29 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->search( 'hazina' );
 
 		$sql = $this->wpdb->queries[0];
-		$this->assertStringContainsString( "IF(title LIKE 'hazina%', 3, 0)", $sql );
+		$this->assertStringContainsString( "IF(title = 'hazina' OR title LIKE 'hazina %', 3, 0)", $sql );
 		$this->assertStringContainsString( "IF(title LIKE '%hazina%', 4, 0)", $sql );
+	}
+
+	/**
+	 * Regression test: searching "dog" must not give a title-prefix boost to
+	 * a product titled "Dogo ..." just because the raw characters happen to
+	 * line up — that product is a different, unrelated word, not a shopper
+	 * typing a prefix of "dog". The boost requires the match be followed by
+	 * a word boundary (nothing, or a space), not just any character.
+	 *
+	 * "dog" is 3 characters — below the default FULLTEXT minimum word
+	 * length, so (like the real report this test is guarding against) it
+	 * lands on the Tier 2 LIKE-fallback path, not Tier 1's FULLTEXT scoring.
+	 */
+	public function test_title_prefix_boost_requires_a_word_boundary(): void {
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'dog' );
+
+		$sql = $this->wpdb->queries[0];
+		$this->assertStringContainsString( "IF(title = 'dog' OR title LIKE 'dog %', 20, 0)", $sql );
+		$this->assertStringNotContainsString( "IF(title LIKE 'dog%', 20, 0)", $sql );
 	}
 
 	public function test_synonyms_option_has_no_effect_on_like_groups(): void {

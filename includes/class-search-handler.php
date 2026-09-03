@@ -467,7 +467,7 @@ class Search_Handler {
 					 + %f * MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
 					 + IF(title = %s, %f, 0)
 					 + IF(sku = %s, %f, 0)
-					 + IF(title LIKE %s, %f, 0)
+					 + IF(title = %s OR title LIKE %s, %f, 0)
 					 + IF(title LIKE %s, %f, 0)
 					 + IF(stock_status = 'instock', %f, 0)
 					 + %f * LEAST(LOG(1 + total_sales), 3)
@@ -486,7 +486,19 @@ class Search_Handler {
 						(float) ( $weights['exact_title'] ?? 10.0 ),
 						$query,
 						(float) ( $weights['exact_sku'] ?? 20.0 ),
-						$escaped_query . '%',
+						// title_prefix requires a word boundary after the match
+						// (query alone, or query + a space) — a plain
+						// esc_like($query).'%' pattern also matches a totally
+						// different, longer word that merely starts with the
+						// same letters (query "dog" prefix-matching the title
+						// "DOGO ..."), stacking an unearned boost on top of the
+						// FULLTEXT prefix-wildcard match every title already
+						// gets from that same coincidence. That FULLTEXT match
+						// itself is correct/intended (search.js prefix-wildcards
+						// the word still being typed, for live search-as-you-type)
+						// — this fixes only the extra scoring boost on top of it.
+						$query,
+						$escaped_query . ' %',
 						(float) ( $weights['title_prefix'] ?? 3.0 ),
 						'%' . $escaped_query . '%',
 						(float) ( $weights['phrase'] ?? 4.0 ),
@@ -525,10 +537,14 @@ class Search_Handler {
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title LIKE %s, 20, 0) DESC,
+				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 20, 0) DESC,
 				 total_sales DESC, title ASC
 				 LIMIT %d",
-				...array_merge( array( $table_name ), $params, array( $query, $query, $wpdb->esc_like( $query ) . '%', $limit ) )
+				// title-prefix boost requires a word boundary — see Tier 1's
+				// comment above for why a plain esc_like($query).'%' pattern
+				// wrongly boosts an unrelated, longer word that just starts
+				// with the same letters as the query.
+				...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', $limit ) )
 			);
 			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
@@ -575,10 +591,14 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title LIKE %s, 12, 0) + IF(title LIKE %s, 6, 0) DESC,
+					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title LIKE %s, 6, 0) DESC,
 					 total_sales DESC, title ASC
 					 LIMIT %d",
-					...array_merge( array( $table_name ), $params, array( $query, $query, $wpdb->esc_like( $query ) . '%', '%' . $wpdb->esc_like( $query ) . '%', $remaining ) )
+					// title-prefix boost requires a word boundary — see Tier 1's
+					// comment above for why a plain esc_like($query).'%' pattern
+					// wrongly boosts an unrelated, longer word that just starts
+					// with the same letters as the query.
+					...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', '%' . $wpdb->esc_like( $query ) . '%', $remaining ) )
 				);
 				// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
