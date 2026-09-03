@@ -317,7 +317,11 @@ class Search_Handler {
 		$show_oos = (bool) get_option( 'wcs_show_out_of_stock', 1 );
 
 		// Tokenize — collapses multiple spaces and strips empty tokens.
-		$words = Query_Normalizer::tokenize( $query );
+		// Stopwords come out here, before any tier sees the word list: every
+		// tier treats each word as mandatory, so a function word doesn't just
+		// fail to narrow, it deletes real matches ("bacon" found a product,
+		// "bacon for" and "bacon with" found nothing). See STOPWORDS.
+		$words = Query_Normalizer::remove_stopwords( Query_Normalizer::tokenize( $query ) );
 		if ( empty( $words ) ) {
 			return array();
 		}
@@ -385,13 +389,15 @@ class Search_Handler {
 		// a full SKU always puts that product first, in-stock rows edge out
 		// out-of-stock ones, and log-capped lifetime sales break the remaining
 		// ties so popular products surface. All weights are filterable.
+		// Kept in scope for the relaxed pass at the bottom of this method.
+		$boolean_parts = array();
+
 		if ( ! empty( $ft_words ) ) {
 			// Each word expands to itself + configured synonyms. A word with
 			// synonyms becomes a required OR-group: "+(sofa* couch settee)" —
 			// at least one alternative must match. The prefix wildcard stays on
 			// the typed word only. Synonyms too short for this index's parser
 			// are dropped from the FULLTEXT group (the LIKE tiers still cover them).
-			$boolean_parts = array();
 			foreach ( $ft_words as $i => $word ) {
 				$use_wildcard = ( $i === $last_idx && 'ngram' !== $parser );
 				$alts         = array_values( array_filter(
@@ -432,103 +438,56 @@ class Search_Handler {
 				$short_sql .= ' AND (' . implode( ' OR ', $conds ) . ')';
 			}
 
-			/**
-			 * Filters the relevance-ranking weights.
-			 *
-			 * @param array $weights {
-			 *     @type float $title        Multiplier for the title-only FULLTEXT score.
-			 *     @type float $all_fields   Multiplier for the combined title/sku/content score.
-			 *     @type float $exact_title  Fixed boost when the title equals the whole query.
-			 *     @type float $exact_sku    Fixed boost when the SKU equals the whole query.
-			 *     @type float $title_prefix Fixed boost when the title starts with the query.
-			 *     @type float $phrase       Fixed boost when the title contains the query as a phrase.
-			 *     @type float $instock      Fixed boost for in-stock products.
-			 *     @type float $sales        Multiplier for LEAST(LOG(1 + total_sales), 3).
-			 * }
-			 */
-			$weights = (array) apply_filters( 'wcs_ranking_weights', self::default_ranking_weights() );
+			$results = self::get_rows( self::fulltext_sql(
+				$table_name,
+				$boolean_query,
+				$short_sql,
+				$short_params,
+				$stock_clause,
+				self::ranking_weights(),
+				$query,
+				$limit
+			) );
+		}
 
-			// Recent-sales-weighted ranking is a Pro feature; sales_30d is never
-			// populated in this edition, so pin the weight to zero regardless of
-			// what a filter tries to set it to.
-			$weights['recent_sales'] = 0.0;
+		// Tier 1's own yield decides whether the scanning tier below may run —
+		// captured before tier 2 tops the set up.
+		$fulltext_count = count( $results );
 
-			$escaped_query = $wpdb->esc_like( $query );
-
-			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $stock_clause is a fixed SQL literal; $short_sql is built from %s placeholders; %i handles the table
-			$sql = $wpdb->prepare(
-				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
-				 FROM %i
-				 WHERE MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
-				 {$short_sql}
-				 {$stock_clause}
-				 ORDER BY (
-					   %f * MATCH(title) AGAINST (%s IN BOOLEAN MODE)
-					 + %f * MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
-					 + IF(title = %s, %f, 0)
-					 + IF(sku = %s, %f, 0)
-					 + IF(title = %s OR title LIKE %s, %f, 0)
-					 + IF(CONCAT(' ', title, ' ') LIKE %s, %f, 0)
-					 + IF(stock_status = 'instock', %f, 0)
-					 + %f * LEAST(LOG(1 + total_sales), 3)
-					 + %f * LEAST(LOG(1 + sales_30d), 3)
-				 ) DESC
-				 LIMIT %d",
-				...array_merge(
-					array( $table_name, $boolean_query ),
-					$short_params,
-					array(
-						(float) ( $weights['title'] ?? 5.0 ),
-						$boolean_query,
-						(float) ( $weights['all_fields'] ?? 1.0 ),
-						$boolean_query,
-						$query,
-						(float) ( $weights['exact_title'] ?? 10.0 ),
-						$query,
-						(float) ( $weights['exact_sku'] ?? 20.0 ),
-						// title_prefix requires a word boundary after the match
-						// (query alone, or query + a space) — a plain
-						// esc_like($query).'%' pattern also matches a totally
-						// different, longer word that merely starts with the
-						// same letters (query "dog" prefix-matching the title
-						// "DOGO ..."), stacking an unearned boost on top of the
-						// FULLTEXT prefix-wildcard match every title already
-						// gets from that same coincidence. That FULLTEXT match
-						// itself is correct/intended (search.js prefix-wildcards
-						// the word still being typed, for live search-as-you-type)
-						// — this fixes only the extra scoring boost on top of it.
-						$query,
-						$escaped_query . ' %',
-						(float) ( $weights['title_prefix'] ?? 3.0 ),
-						// phrase now requires "query" to appear as a genuine
-						// whole word too — the padded-spaces CONCAT match is
-						// a standard whole-word-via-LIKE idiom, matching at
-						// the start, middle, or end of the title uniformly.
-						// Without it, "dog" still scored a phrase-boost
-						// substring hit against "DOGO ..." exactly like the
-						// fixed title_prefix boost used to, which was enough
-						// on its own to tie DOGO with genuine "... dog ..."
-						// matches and hand the win to an unrelated
-						// total_sales/alphabetical tiebreak instead of actual
-						// relevance — confirmed live, not just in theory.
-						'% ' . $escaped_query . ' %',
-						(float) ( $weights['phrase'] ?? 4.0 ),
-						(float) ( $weights['instock'] ?? 0.5 ),
-						(float) ( $weights['sales'] ?? 0.3 ),
-						(float) ( $weights['recent_sales'] ?? 1.0 ),
-						$limit,
-					)
-				)
-			);
-			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
-
-			$results = self::get_rows( $sql );
+		// Per-word title relevance for the LIKE tiers below.
+		//
+		// Their boosts are all whole-query ones (title equals / starts with /
+		// contains the entire query), which say nothing at all about a
+		// multi-word query where no single product matches the full string. So
+		// every row scored identically and the real ordering fell through to
+		// "total_sales DESC, title ASC" — popularity and the alphabet, not
+		// relevance. That is not a rare corner either: a query made up entirely
+		// of words below the parser's token gate ("lg tv") skips FULLTEXT
+		// altogether and is ranked here, by these tiers alone.
+		//
+		// Scores a whole-word title hit above a title-prefix hit, per word, so a
+		// product matching more of the query outranks one matching less of it.
+		$word_score_sql    = '';
+		$word_score_params = array();
+		foreach ( $words as $word ) {
+			$escaped             = $wpdb->esc_like( $word );
+			$word_score_sql     .= " + IF(CONCAT(' ', title, ' ') LIKE %s, 8, 0) + IF(title LIKE %s, 4, 0)";
+			$word_score_params[] = '% ' . $escaped . ' %';
+			$word_score_params[] = $escaped . '%';
 		}
 
 		// ── Tier 2: prefix LIKE (index-served, AND across words) ─────────────────
 		// utf8mb4_*_ci collations make LIKE case-insensitive without LOWER(), so
 		// these conditions use idx_title_prefix / idx_sku directly.
-		if ( empty( $results ) ) {
+		//
+		// Runs whenever tier 1 came up SHORT, not only when it returned nothing:
+		// a FULLTEXT pass that found 1 row against a requested 6 still left five
+		// slots that real prefix matches could have filled, and discarding them
+		// was pure lost recall. Tier 3 below already topped up a partial set
+		// exactly this way — tier 2 was the odd one out. Rows append after
+		// tier 1's, so the better-ranked FULLTEXT matches keep their positions.
+		$remaining = $limit - count( $results );
+		if ( $remaining > 0 ) {
 			$groups = array();
 			$params = array();
 			foreach ( $words as $word ) {
@@ -543,23 +502,35 @@ class Search_Handler {
 			}
 			$where_sql = '(' . implode( ' AND ', $groups ) . ') ' . $stock_clause; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
-			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where_sql is built from %s placeholders and fixed literals
+			$found_ids = array_map( 'intval', array_column( $results, 'product_id' ) );
+			if ( $found_ids ) {
+				$where_sql .= ' AND product_id NOT IN (' . implode( ',', array_fill( 0, count( $found_ids ), '%d' ) ) . ')';
+				$params     = array_merge( $params, $found_ids );
+			}
+
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where_sql is built from %s/%d placeholders and fixed literals
 			$sql = $wpdb->prepare(
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 20, 0) DESC,
+				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 20, 0){$word_score_sql} DESC,
 				 total_sales DESC, title ASC
 				 LIMIT %d",
 				// title-prefix boost requires a word boundary — see Tier 1's
 				// comment above for why a plain esc_like($query).'%' pattern
 				// wrongly boosts an unrelated, longer word that just starts
 				// with the same letters as the query.
-				...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', $limit ) )
+				...array_merge(
+					array( $table_name ),
+					$params,
+					array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %' ),
+					$word_score_params,
+					array( $remaining )
+				)
 			);
 			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
-			$results = self::get_rows( $sql );
+			$results = array_merge( $results, self::get_rows( $sql ) );
 
 			// ── Tier 3: substring fill ────────────────────────────────────────────
 			// Only when prefix matching came up short. Catches words mid-title,
@@ -574,8 +545,15 @@ class Search_Handler {
 			// disabled (set at index time), so this condition simply never
 			// matches in that case — no separate guard needed here. Excludes
 			// rows tier 2 already returned.
+			//
+			// Deliberately still gated on FULLTEXT having found NOTHING, rather
+			// than on the merged set being short like tier 2 now is: this is the
+			// only tier that scans, and letting it top up every partially-filled
+			// result set would have turned a rare fallback into a routine cost on
+			// large catalogs. Tier 2's fill is free by comparison (index-served),
+			// so it gets the looser trigger and this one keeps the old behavior.
 			$remaining = $limit - count( $results );
-			if ( $remaining > 0 ) {
+			if ( 0 === $fulltext_count && $remaining > 0 ) {
 				$groups = array();
 				$params = array();
 				foreach ( $words as $word ) {
@@ -602,7 +580,7 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0) DESC,
+					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0){$word_score_sql} DESC,
 					 total_sales DESC, title ASC
 					 LIMIT %d",
 					// Both boosts require a word boundary — see Tier 1's comment
@@ -612,7 +590,13 @@ class Search_Handler {
 					// query, which on its own was enough to tie an unrelated
 					// product with a genuine match and hand the win to the
 					// total_sales/alphabetical tiebreak instead of relevance.
-					...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', '% ' . $wpdb->esc_like( $query ) . ' %', $remaining ) )
+					...array_merge(
+						array( $table_name ),
+						$params,
+						array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', '% ' . $wpdb->esc_like( $query ) . ' %' ),
+						$word_score_params,
+						array( $remaining )
+					)
 				);
 				// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
@@ -624,6 +608,39 @@ class Search_Handler {
 		// catalog vocabulary) is a Pro feature — this edition returns zero
 		// results as-is rather than guessing a correction.
 
+		// ── Partial-match relaxation (zero results only) ─────────────────────────
+		// Every tier above requires EVERY word to match, so one word the catalog
+		// simply does not contain takes the whole query down with it: "bacon
+		// zzzz" returns nothing even though "bacon" is a real product.
+		//
+		// So as a last resort, re-run the FULLTEXT pass with the "+" required
+		// operators dropped: any word may match, and MATCH()'s own score ranks a
+		// product matching more of the query above one matching less. Ranking is
+		// otherwise identical to the strict pass, so nothing outranks what a
+		// strict match would have returned — there just aren't any.
+		//
+		// Runs only when the alternative is an empty dropdown, and only for
+		// genuinely multi-word queries (relaxing a single required word changes
+		// nothing). One extra query at most, and only on a search that already
+		// failed.
+		if ( empty( $results ) && count( $boolean_parts ) >= 2 ) {
+			$relaxed = implode( ' ', array_map(
+				static fn( string $part ): string => ltrim( $part, '+' ),
+				$boolean_parts
+			) );
+
+			$results = self::get_rows( self::fulltext_sql(
+				$table_name,
+				$relaxed,
+				'', // short-word filters are mandatory by nature — dropped with the rest
+				array(),
+				$stock_clause,
+				self::ranking_weights(),
+				$query,
+				$limit
+			) );
+		}
+
 		/**
 		 * Filters the raw search results before they are cached and returned.
 		 *
@@ -634,6 +651,127 @@ class Search_Handler {
 		 * @param string $query   The sanitized search query.
 		 */
 		return (array) apply_filters( 'wcs_search_results', $results, $query );
+	}
+
+	/**
+	 * Resolve the ranking weights for a search.
+	 *
+	 * @return array<string, float>
+	 */
+	private static function ranking_weights(): array {
+		/**
+		 * Filters the relevance-ranking weights.
+		 *
+		 * @param array $weights {
+		 *     @type float $title        Multiplier for the title-only FULLTEXT score.
+		 *     @type float $all_fields   Multiplier for the combined title/sku/content score.
+		 *     @type float $exact_title  Fixed boost when the title equals the whole query.
+		 *     @type float $exact_sku    Fixed boost when the SKU equals the whole query.
+		 *     @type float $title_prefix Fixed boost when the title starts with the query.
+		 *     @type float $phrase       Fixed boost when the title contains the query as a phrase.
+		 *     @type float $instock      Fixed boost for in-stock products.
+		 *     @type float $sales        Multiplier for LEAST(LOG(1 + total_sales), 3).
+		 * }
+		 */
+		$weights = (array) apply_filters( 'wcs_ranking_weights', self::default_ranking_weights() );
+
+		// Recent-sales-weighted ranking is a Pro feature; sales_30d is never
+		// populated in this edition, so pin the weight to zero regardless of
+		// what a filter tries to set it to.
+		$weights['recent_sales'] = 0.0;
+
+		return $weights;
+	}
+
+	/**
+	 * Build the weighted FULLTEXT query.
+	 *
+	 * Shared by the primary (all-words-required) pass and the relaxed
+	 * any-word pass, which differ only in their boolean string and in whether
+	 * the short-word LIKE filters apply — the ranking is identical, so a
+	 * relaxed match is scored on the same scale as a strict one.
+	 *
+	 * @param string  $table_name    Index table.
+	 * @param string  $boolean_query BOOLEAN MODE expression.
+	 * @param string  $short_sql     Extra ANDed LIKE conditions (may be empty).
+	 * @param array   $short_params  Parameters for $short_sql.
+	 * @param string  $stock_clause  Fixed stock-filter literal (may be empty).
+	 * @param array   $weights       Ranking weights.
+	 * @param string  $query         Normalized query, for whole-query boosts.
+	 * @param int     $limit         Row limit.
+	 * @return string Prepared SQL.
+	 */
+	private static function fulltext_sql( string $table_name, string $boolean_query, string $short_sql, array $short_params, string $stock_clause, array $weights, string $query, int $limit ): string {
+		global $wpdb;
+
+		$escaped_query = $wpdb->esc_like( $query );
+
+		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $stock_clause is a fixed SQL literal; $short_sql is built from %s placeholders; %i handles the table
+		return (string) $wpdb->prepare(
+			"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
+			 FROM %i
+			 WHERE MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
+			 {$short_sql}
+			 {$stock_clause}
+			 ORDER BY (
+				   %f * MATCH(title) AGAINST (%s IN BOOLEAN MODE)
+				 + %f * MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
+				 + IF(title = %s, %f, 0)
+				 + IF(sku = %s, %f, 0)
+				 + IF(title = %s OR title LIKE %s, %f, 0)
+				 + IF(CONCAT(' ', title, ' ') LIKE %s, %f, 0)
+				 + IF(stock_status = 'instock', %f, 0)
+				 + %f * LEAST(LOG(1 + total_sales), 3)
+				 + %f * LEAST(LOG(1 + sales_30d), 3)
+			 ) DESC
+			 LIMIT %d",
+			...array_merge(
+				array( $table_name, $boolean_query ),
+				$short_params,
+				array(
+					(float) ( $weights['title'] ?? 5.0 ),
+					$boolean_query,
+					(float) ( $weights['all_fields'] ?? 1.0 ),
+					$boolean_query,
+					$query,
+					(float) ( $weights['exact_title'] ?? 10.0 ),
+					$query,
+					(float) ( $weights['exact_sku'] ?? 20.0 ),
+					// title_prefix requires a word boundary after the match
+					// (query alone, or query + a space) — a plain
+					// esc_like($query).'%' pattern also matches a totally
+					// different, longer word that merely starts with the
+					// same letters (query "dog" prefix-matching the title
+					// "DOGO ..."), stacking an unearned boost on top of the
+					// FULLTEXT prefix-wildcard match every title already
+					// gets from that same coincidence. That FULLTEXT match
+					// itself is correct/intended (search.js prefix-wildcards
+					// the word still being typed, for live search-as-you-type)
+					// — this fixes only the extra scoring boost on top of it.
+					$query,
+					$escaped_query . ' %',
+					(float) ( $weights['title_prefix'] ?? 3.0 ),
+					// phrase now requires "query" to appear as a genuine
+					// whole word too — the padded-spaces CONCAT match is
+					// a standard whole-word-via-LIKE idiom, matching at
+					// the start, middle, or end of the title uniformly.
+					// Without it, "dog" still scored a phrase-boost
+					// substring hit against "DOGO ..." exactly like the
+					// fixed title_prefix boost used to, which was enough
+					// on its own to tie DOGO with genuine "... dog ..."
+					// matches and hand the win to an unrelated
+					// total_sales/alphabetical tiebreak instead of actual
+					// relevance — confirmed live, not just in theory.
+					'% ' . $escaped_query . ' %',
+					(float) ( $weights['phrase'] ?? 4.0 ),
+					(float) ( $weights['instock'] ?? 0.5 ),
+					(float) ( $weights['sales'] ?? 0.3 ),
+					(float) ( $weights['recent_sales'] ?? 1.0 ),
+					$limit,
+				)
+			)
+		);
+		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 	}
 
 	private static function get_rows( string $sql ): array {

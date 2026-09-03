@@ -138,7 +138,6 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$this->search( 'hazina lamp' );
 
-		$this->assertCount( 1, $this->wpdb->queries );
 		$sql = $this->wpdb->queries[0];
 		$this->assertStringContainsString( 'MATCH(title, sku, content)', $sql );
 		// Plural-variant expansion is a Pro feature — only the typed words
@@ -211,7 +210,7 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$this->assertStringContainsString( "ORDER BY IF(title = 'ab', 100, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( "IF(sku = 'ab', 120, 0)", $this->wpdb->queries[0] );
-		$this->assertStringContainsString( "IF(title = 'ab' OR title LIKE 'ab %', 20, 0) DESC", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(title = 'ab' OR title LIKE 'ab %', 20, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( 'total_sales DESC, title ASC', $this->wpdb->queries[0] );
 	}
 
@@ -363,6 +362,132 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertSame( array(), $results );
 		$vocab = array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) );
 		$this->assertSame( array(), $vocab );
+	}
+
+
+	// ── Tier fill, per-word ranking, and relaxation ─────────────────────────
+
+	public function test_prefix_pass_tops_up_a_partial_fulltext_result_set(): void {
+		// Regression: the prefix tier used to run only when FULLTEXT returned
+		// NOTHING, so a FULLTEXT pass yielding 1 row against a requested 6
+		// threw away five slots that real prefix matches could have filled.
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			return str_contains( $sql, 'MATCH' )
+				? array( $this->fakeRow( 1 ) )
+				: array( $this->fakeRow( 2 ), $this->fakeRow( 3 ) );
+		};
+
+		$results = $this->search( 'hazina' );
+
+		$this->assertGreaterThanOrEqual( 2, count( $this->wpdb->queries ) );
+		$fill = $this->wpdb->queries[1];
+		$this->assertStringNotContainsString( 'MATCH', $fill );
+		// Only the unfilled slots are requested, and rows already found are excluded.
+		$this->assertStringContainsString( 'LIMIT 5', $fill );
+		$this->assertStringContainsString( 'NOT IN (1)', $fill );
+		// FULLTEXT rows keep their (better-ranked) position ahead of the fill.
+		$this->assertSame( array( 1, 2, 3 ), array_column( $results, 'product_id' ) );
+	}
+
+	public function test_scanning_tier_stays_gated_on_fulltext_finding_nothing(): void {
+		// The substring tier is the only one that scans. Tier 2 tops up partial
+		// sets now, but letting this one do the same would turn a rare fallback
+		// into a routine cost on a large catalog — so a partial FULLTEXT result
+		// must never reach it.
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			return str_contains( $sql, 'MATCH' ) ? array( $this->fakeRow( 1 ) ) : array();
+		};
+
+		$this->search( 'hazina' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			$this->assertStringNotContainsString( "content LIKE '%hazina%'", $sql );
+		}
+	}
+
+	public function test_like_tiers_score_each_word_before_falling_back_to_popularity(): void {
+		// Regression: every boost in these tiers was a WHOLE-QUERY one, so a
+		// multi-word query where no product matched the entire string scored
+		// every row identically and ordered by "total_sales DESC, title ASC" —
+		// popularity and the alphabet rather than relevance. A query made
+		// entirely of words below the FULLTEXT gate is ranked here and nowhere
+		// else, so this was the only ranking those queries ever got.
+		$this->search( 'lg tv' );
+
+		$sql = $this->wpdb->queries[0];
+		// A whole-word title hit outranks a mere title-prefix hit, per word.
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% lg %', 8, 0)", $sql );
+		$this->assertStringContainsString( "IF(title LIKE 'lg%', 4, 0)", $sql );
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% tv %', 8, 0)", $sql );
+		$this->assertStringContainsString( "IF(title LIKE 'tv%', 4, 0)", $sql );
+		// Popularity still only breaks ties left over after relevance.
+		$this->assertStringContainsString( 'DESC,', $sql );
+		$this->assertStringContainsString( 'total_sales DESC, title ASC', $sql );
+	}
+
+	public function test_per_word_scoring_escapes_like_metacharacters(): void {
+		$this->search( '50% off' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			$this->assertStringNotContainsString( "LIKE '% 50% %'", $sql, 'an unescaped % would turn the score into a wildcard match' );
+		}
+	}
+
+	public function test_zero_result_multiword_query_retries_with_any_word_matching(): void {
+		// Regression: every tier requires EVERY word, so one word the catalog
+		// does not contain took the whole query down with it — "hazina zzzz"
+		// returned nothing even though "hazina" is a real product.
+		// The boolean string is what distinguishes the two passes — "+" also
+		// appears in every ranking expression, so it can't be the discriminator.
+		$is_relaxed = static fn( string $sql ): bool =>
+			str_contains( $sql, 'IN BOOLEAN MODE' ) && ! str_contains( $sql, "('+" );
+
+		$this->wpdb->handler = function ( string $sql, string $type ) use ( $is_relaxed ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			return $is_relaxed( $sql ) ? array( $this->fakeRow( 1 ) ) : array();
+		};
+
+		$results = $this->search( 'hazina zzzz' );
+
+		$this->assertCount( 1, $results );
+		$relaxed = array_values( array_filter( $this->wpdb->queries, $is_relaxed ) );
+		$this->assertNotEmpty( $relaxed );
+		// Same ranking as the strict pass — a relaxed match is scored on the
+		// same scale, it simply isn't required to match everything.
+		$this->assertStringContainsString( 'MATCH(title) AGAINST', $relaxed[0] );
+		$this->assertStringContainsString( 'LEAST(LOG(1 + total_sales), 3)', $relaxed[0] );
+	}
+
+	public function test_relaxation_is_skipped_when_the_strict_pass_found_anything(): void {
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'hazina lamp' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			if ( str_contains( $sql, 'IN BOOLEAN MODE' ) ) {
+				$this->assertStringContainsString( "('+", $sql, 'the relaxed pass must not run when results already exist' );
+			}
+		}
+	}
+
+	public function test_relaxation_is_skipped_for_a_single_word_query(): void {
+		// Relaxing one required word to optional changes nothing — it would be
+		// a duplicate query for an identical result set.
+		$this->search( 'hazina' );
+
+		$fulltext = array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, 'MATCH' )
+		);
+		$this->assertCount( 1, $fulltext );
 	}
 
 }

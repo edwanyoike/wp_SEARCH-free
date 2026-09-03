@@ -36,8 +36,24 @@ final class SearchHandlerRequestTest extends TestCase {
 	private function scriptRows( array $rows ): void {
 		// Serve product rows only for index-table queries — the vocabulary,
 		// suggestion, and zero-log queries get the default empty result.
-		$this->wpdb->handler = static fn( string $sql, string $type ) =>
-			( 'results' === $type && str_contains( $sql, 'wcs_search_index' ) ) ? $rows : null;
+		//
+		// Honors the NOT IN exclusion the way the real database would: a tier
+		// that tops up a partial result set excludes what earlier tiers already
+		// returned, so a fake that replayed the same rows for every tier would
+		// hand back duplicates no real query could produce.
+		$this->wpdb->handler = static function ( string $sql, string $type ) use ( $rows ) {
+			if ( 'results' !== $type || ! str_contains( $sql, 'wcs_search_index' ) ) {
+				return null;
+			}
+			if ( preg_match( '/NOT IN \(([\d,]+)\)/', $sql, $m ) ) {
+				$excluded = array_map( 'intval', explode( ',', $m[1] ) );
+				return array_values( array_filter(
+					$rows,
+					static fn( array $row ): bool => ! in_array( (int) $row['product_id'], $excluded, true )
+				) );
+			}
+			return $rows;
+		};
 	}
 
 	private function row( int $id, string $price = '100.00' ): array {

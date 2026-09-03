@@ -62,6 +62,71 @@ final class QueryNormalizerTest extends TestCase {
 		$this->assertSame( array(), Query_Normalizer::tokenize( '' ) );
 	}
 
+	// ── remove_stopwords() ──────────────────────────────────────────────────
+
+	public function test_stopwords_are_dropped_from_multi_word_queries(): void {
+		// Regression: every tier treats a word as mandatory, so these used to
+		// return nothing at all — confirmed live, "bacon" found a product while
+		// "bacon for"/"bacon with"/"the bacon" found none.
+		$this->assertSame(
+			array( 'bacon' ),
+			Query_Normalizer::remove_stopwords( array( 'bacon', 'for' ) )
+		);
+		$this->assertSame(
+			array( 'bacon' ),
+			Query_Normalizer::remove_stopwords( array( 'the', 'bacon' ) )
+		);
+		$this->assertSame(
+			array( 'red', 'shoes', 'summer' ),
+			Query_Normalizer::remove_stopwords( array( 'red', 'shoes', 'for', 'the', 'summer' ) )
+		);
+	}
+
+	public function test_short_non_function_words_are_never_treated_as_stopwords(): void {
+		// Brand/size tokens are short but highly selective — dropping them
+		// would be far worse than dropping "for".
+		$this->assertSame(
+			array( 'lg', 'tv' ),
+			Query_Normalizer::remove_stopwords( array( 'lg', 'tv' ) )
+		);
+		$this->assertSame(
+			array( '3m', 'tape' ),
+			Query_Normalizer::remove_stopwords( array( '3m', 'tape' ) )
+		);
+	}
+
+	public function test_a_single_word_query_is_never_filtered(): void {
+		// "the" alone must still search for "the" — an empty word list reads
+		// as "no query" and returns nothing.
+		$this->assertSame( array( 'the' ), Query_Normalizer::remove_stopwords( array( 'the' ) ) );
+	}
+
+	public function test_an_all_stopword_query_keeps_every_word(): void {
+		$this->assertSame(
+			array( 'the', 'and' ),
+			Query_Normalizer::remove_stopwords( array( 'the', 'and' ) )
+		);
+	}
+
+	public function test_surviving_word_order_is_preserved_and_reindexed(): void {
+		// query_database() wildcards the LAST word (the one still being typed)
+		// by numeric index, so gaps or reordering here would misplace it.
+		$this->assertSame(
+			array( 'blue', 'cotton', 'shirt' ),
+			Query_Normalizer::remove_stopwords( array( 'blue', 'and', 'cotton', 'shirt' ) )
+		);
+	}
+
+	public function test_stopword_list_is_filterable(): void {
+		$filter = static fn(): array => array( 'bacon' );
+		add_filter( 'wcs_stopwords', $filter );
+		$this->assertSame(
+			array( 'pieces' ),
+			Query_Normalizer::remove_stopwords( array( 'bacon', 'pieces' ) )
+		);
+		remove_filter( 'wcs_stopwords', $filter );
+	}
+
 	// ── cache_key() ─────────────────────────────────────────────────────────
 
 	public function test_cache_key_shape_and_determinism(): void {

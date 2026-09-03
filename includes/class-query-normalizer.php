@@ -34,6 +34,37 @@ class Query_Normalizer {
 	public const MAX_LENGTH = 100;
 
 	/**
+	 * English function words dropped from a multi-word query.
+	 *
+	 * Every tier treats a query word as MANDATORY — eligible words become
+	 * required FULLTEXT terms (+word), shorter ones become ANDed LIKE filters,
+	 * and tiers 2/3 require every word to match — so a word that carries no
+	 * product meaning does not merely fail to help, it deletes otherwise-good
+	 * results. Confirmed live before this list existed: "bacon" returned a
+	 * product, "bacon for", "bacon with" and "the bacon" all returned nothing.
+	 *
+	 * Both failure paths trace back to the same cause. Short words (below the
+	 * parser's token gate) become required `title/sku LIKE '%word%'` filters,
+	 * so "for" had to literally appear in a title or SKU. Longer ones are
+	 * worse: this list is a superset of InnoDB's own default stopword list, and
+	 * a required term the FULLTEXT index never tokenized ("+with") makes the
+	 * whole boolean expression unmatchable — guaranteeing zero rows rather than
+	 * simply not narrowing.
+	 *
+	 * Deliberately function words only, not "every short word": "LG", "HP",
+	 * "3M", "2XL" and the like are real, highly selective queries. Filterable
+	 * via wcs_stopwords for stores whose catalog genuinely needs one of these
+	 * (and a query made up entirely of stopwords keeps all of them — see
+	 * remove_stopwords()).
+	 */
+	public const STOPWORDS = array(
+		'a', 'about', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'for',
+		'from', 'how', 'i', 'in', 'into', 'is', 'it', 'of', 'on', 'or', 'that',
+		'the', 'their', 'then', 'there', 'these', 'they', 'this', 'to', 'was',
+		'what', 'when', 'where', 'which', 'who', 'will', 'with', 'your',
+	);
+
+	/**
 	 * Parsed synonym map, built once per request.
 	 *
 	 * @var array<string, string[]>|null Map of word => alternatives (word itself first).
@@ -86,6 +117,46 @@ class Query_Normalizer {
 	public static function tokenize( string $normalized ): array {
 		$words = preg_split( '/\s+/', $normalized, -1, PREG_SPLIT_NO_EMPTY );
 		return is_array( $words ) ? $words : array();
+	}
+
+	/**
+	 * Drop function words that would otherwise be required to match.
+	 *
+	 * See the STOPWORDS constant for why a stopword is actively harmful here
+	 * rather than merely useless. Two guards keep this from ever losing a
+	 * search outright:
+	 *
+	 *  - A query consisting only of stopwords is returned untouched. Someone
+	 *    searching "the" on a store selling a product called "The" should get
+	 *    that product, not an empty word list (which every tier reads as "no
+	 *    query" and answers with nothing).
+	 *  - Filtering never reorders or rewrites the surviving words, so the
+	 *    caller's "last word is the one still being typed" wildcard logic
+	 *    stays correct.
+	 *
+	 * @param string[] $words Output of tokenize().
+	 * @return string[] Words with stopwords removed, re-indexed from 0.
+	 */
+	public static function remove_stopwords( array $words ): array {
+		if ( count( $words ) < 2 ) {
+			return $words; // A single word is the whole query — never drop it.
+		}
+
+		/**
+		 * Filters the stopword list applied to multi-word queries.
+		 *
+		 * @param string[] $stopwords Lowercase words to drop.
+		 * @param string[] $words     The query's words, before filtering.
+		 */
+		$stopwords = (array) apply_filters( 'wcs_stopwords', self::STOPWORDS, $words );
+		$stopwords = array_flip( array_map( 'strval', $stopwords ) );
+
+		$kept = array_values( array_filter(
+			$words,
+			static fn( string $word ): bool => ! isset( $stopwords[ $word ] )
+		) );
+
+		return empty( $kept ) ? $words : $kept;
 	}
 
 	/**
