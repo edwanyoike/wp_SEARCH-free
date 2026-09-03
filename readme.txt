@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.4.1 =
+* Fix: 1.4.0's "one word missing from the catalog still finds the rest" relaxation had a gap — it only covered queries with at least one longer, FULLTEXT-eligible word. A query made entirely of short words (each under 4 characters) skipped that entirely, so it could still come back empty even when products matching either word plainly existed — confirmed live: "egg mix" returned nothing despite an egg product and a "mix" product both being in the catalog. A matching fallback now covers this case too.
+
 = 1.4.0 =
 * Fix: a search containing an ordinary connecting word returned nothing at all. Every word in a query has to match, so "for", "with", "the" and the like had to appear in a product's own title or SKU — confirmed live on a real store, where "bacon" found a product and "bacon for", "bacon with" and "the bacon" each found none. Those words are now dropped from a multi-word search (short, genuinely selective terms like "LG", "HP" or "3M" are kept, and a search made up entirely of such words still searches for them).
 * Fix: a search whose FULLTEXT pass found only one or two products stopped there instead of filling the rest of the dropdown. Prefix matches now top up a partial result set the way the substring pass already did, so a search asking for 6 results no longer shows 1 when 5 more genuinely matched. The stronger FULLTEXT matches keep their positions at the top.
