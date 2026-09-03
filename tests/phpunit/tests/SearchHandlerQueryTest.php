@@ -490,4 +490,74 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertCount( 1, $fulltext );
 	}
 
+
+	public function test_any_word_like_relaxation_rescues_an_all_short_word_query(): void {
+		// Regression: the FULLTEXT relaxation above is keyed off $boolean_parts,
+		// which only exists inside the "if ( ! empty( $ft_words ) )" block — a
+		// query made ENTIRELY of words below the parser's gate skips Tier 1
+		// outright, so that relaxation never fires. Confirmed live on a real
+		// catalog: "egg mix" (a product titled "Egg ...", another titled
+		// "... Mix ...", but none containing both words) returned zero even
+		// though products matching either word plainly existed.
+		update_option( 'wcs_ft_parser', 'default' ); // gate = 4 chars; "ab"/"cd" both sit below it
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			// Only the OR-joined relaxation pass (word groups joined by OR, not
+			// AND) finds anything.
+			return str_contains( $sql, "') OR (" ) ? array( $this->fakeRow( 1 ) ) : array();
+		};
+
+		$results = $this->search( 'ab cd' );
+
+		$this->assertCount( 1, $results );
+		$relaxed = array_values( array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, "') OR (" )
+		) );
+		$this->assertNotEmpty( $relaxed );
+		$this->assertStringNotContainsString( 'MATCH', $relaxed[0], 'this is the LIKE-tier fallback, not FULLTEXT' );
+		// Same per-word scoring as tiers 2/3, so a fuller match still outranks a partial one.
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% ab %', 8, 0)", $relaxed[0] );
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% cd %', 8, 0)", $relaxed[0] );
+	}
+
+	public function test_like_relaxation_is_skipped_when_an_earlier_tier_found_anything(): void {
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'ab cd' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			$this->assertStringNotContainsString( "') OR (", $sql, 'the OR-relaxation must not run once results already exist' );
+		}
+	}
+
+	public function test_like_relaxation_is_skipped_for_a_single_word_query(): void {
+		$this->search( 'ab' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			$this->assertStringNotContainsString( "') OR (", $sql );
+		}
+	}
+
+	public function test_like_relaxation_searches_content_so_short_words_are_not_stranded(): void {
+		// The strict tiers already do this (Tier 3), but the relaxed OR pass
+		// rebuilds its own WHERE clause from scratch — easy to accidentally
+		// drop the content column and silently lose the one thing this pass
+		// exists for: a short word that only ever appears in a description.
+		update_option( 'wcs_ft_parser', 'default' );
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array() : null;
+
+		$this->search( 'ab cd' );
+
+		$relaxed = array_values( array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, "') OR (" )
+		) );
+		$this->assertNotEmpty( $relaxed );
+		$this->assertStringContainsString( "content LIKE '%ab%'", $relaxed[0] );
+		$this->assertStringContainsString( "content LIKE '%cd%'", $relaxed[0] );
+	}
+
 }

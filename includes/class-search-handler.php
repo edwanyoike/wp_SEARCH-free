@@ -641,6 +641,65 @@ class Search_Handler {
 			) );
 		}
 
+		// ── Any-word LIKE relaxation (zero results only) ─────────────────────────
+		// The FULLTEXT relaxation above only ever runs for a query with at least
+		// two FULLTEXT-eligible words — it is keyed off $boolean_parts, which is
+		// populated only inside the "if ( ! empty( $ft_words ) )" block, so a
+		// query made ENTIRELY of words below the parser's gate never reaches it:
+		// Tier 1 is skipped outright, and $boolean_parts stays empty. Those
+		// queries hit the identical "one word doesn't exist in the catalog"
+		// problem with no rescue at all — tiers 2/3's strict AND-across-words
+		// returns nothing, same as the FULLTEXT tier did before the relaxation
+		// above existed. Confirmed live: "egg mix" (a product titled "Egg ..."
+		// and another titled "... Mix ...", but none containing both words)
+		// returned zero.
+		//
+		// So as a last resort, OR the word groups instead of ANDing them —
+		// mirroring the FULLTEXT relaxation's own logic, just for the tiers that
+		// cover words FULLTEXT never saw. Reuses the per-word scoring already
+		// computed above (for tiers 2/3), so a product matching more of the
+		// query still outranks one matching less.
+		//
+		// Same guards as the FULLTEXT relaxation: only when the alternative is
+		// an empty dropdown, and only for genuinely multi-word queries.
+		if ( empty( $results ) && count( $words ) >= 2 ) {
+			$escaped_query = $wpdb->esc_like( $query );
+			$or_groups     = array();
+			$or_params     = array();
+			foreach ( $words as $word ) {
+				$conds = array();
+				foreach ( Query_Normalizer::expand( $word ) as $alt ) {
+					$escaped = $wpdb->esc_like( $alt );
+					$conds[] = 'title LIKE %s';
+					$conds[] = 'sku LIKE %s';
+					$conds[] = 'content LIKE %s';
+					array_push( $or_params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
+				}
+				$or_groups[] = '(' . implode( ' OR ', $conds ) . ')';
+			}
+			$where_sql = '(' . implode( ' OR ', $or_groups ) . ') ' . $stock_clause; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+
+			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $where_sql is built from %s placeholders and fixed literals
+			$sql = $wpdb->prepare(
+				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
+				 FROM %i
+				 WHERE {$where_sql}
+				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0){$word_score_sql} DESC,
+				 total_sales DESC, title ASC
+				 LIMIT %d",
+				...array_merge(
+					array( $table_name ),
+					$or_params,
+					array( $query, $query, $query, $escaped_query . ' %', '% ' . $escaped_query . ' %' ),
+					$word_score_params,
+					array( $limit )
+				)
+			);
+			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
+
+			$results = self::get_rows( $sql );
+		}
+
 		/**
 		 * Filters the raw search results before they are cached and returned.
 		 *
