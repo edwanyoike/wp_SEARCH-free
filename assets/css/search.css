@@ -3,6 +3,7 @@
 	--wcs-bg: #ffffff;
 	--wcs-text: #333333;
 	--wcs-border: #e2e8f0;
+	--wcs-separator: #cbd5e1;
 	--wcs-hover: #f8fafc;
 	--wcs-primary: #2563eb;
 	--wcs-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
@@ -41,7 +42,7 @@
 	padding: 12px 16px;
 	text-decoration: none;
 	color: var(--wcs-text);
-	border-bottom: 1px solid var(--wcs-border);
+	border-bottom: 1px solid var(--wcs-separator);
 	transition: background-color 0.15s ease;
 }
 
@@ -316,7 +317,7 @@ form.wcs-form-wrap .wcs-form-btn svg {
 	width: 100%;
 	min-height: 44px;
 	border: 0;
-	border-bottom: 1px solid var(--wcs-border);
+	border-bottom: 1px solid var(--wcs-separator);
 	background: var(--wcs-bg);
 	font: inherit;
 	font-size: 14px;
