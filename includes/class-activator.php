@@ -20,7 +20,7 @@ class Activator {
 	 * existing installs receive the new schema via the plugins_loaded check
 	 * in init() — WordPress does not re-run activation hooks on plugin updates.
 	 */
-	private const DB_VERSION = '1.8.0';
+	private const DB_VERSION = '1.9.0';
 
 	/**
 	 * Upgrading installs whose stored version is below this need one full
