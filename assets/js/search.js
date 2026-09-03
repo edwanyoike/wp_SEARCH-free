@@ -281,7 +281,15 @@
 			dropdown.style.top  = (rect.bottom + window.scrollY + 5) + 'px';
 			dropdown.style.left = (rect.left + window.scrollX) + 'px';
 		}
-		dropdown.style.width = rect.width + 'px';
+		// Never narrower than the input itself, but also never narrower than
+		// a usable minimum — a theme's own search box can be quite compact
+		// (a couple hundred px in a condensed header nav), and a dropdown
+		// that just inherits that width crams image+title+price+excerpt
+		// into a column too tight to read no matter the row content. Capped
+		// at the space actually available to the right of the input so it
+		// can never overflow off the viewport edge.
+		const minWidth = Math.min(360, viewportWidth - rect.left - 12);
+		dropdown.style.width = Math.max(rect.width, minWidth) + 'px';
 	}
 
 	/**

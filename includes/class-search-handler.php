@@ -468,7 +468,7 @@ class Search_Handler {
 					 + IF(title = %s, %f, 0)
 					 + IF(sku = %s, %f, 0)
 					 + IF(title = %s OR title LIKE %s, %f, 0)
-					 + IF(title LIKE %s, %f, 0)
+					 + IF(CONCAT(' ', title, ' ') LIKE %s, %f, 0)
 					 + IF(stock_status = 'instock', %f, 0)
 					 + %f * LEAST(LOG(1 + total_sales), 3)
 					 + %f * LEAST(LOG(1 + sales_30d), 3)
@@ -500,7 +500,18 @@ class Search_Handler {
 						$query,
 						$escaped_query . ' %',
 						(float) ( $weights['title_prefix'] ?? 3.0 ),
-						'%' . $escaped_query . '%',
+						// phrase now requires "query" to appear as a genuine
+						// whole word too — the padded-spaces CONCAT match is
+						// a standard whole-word-via-LIKE idiom, matching at
+						// the start, middle, or end of the title uniformly.
+						// Without it, "dog" still scored a phrase-boost
+						// substring hit against "DOGO ..." exactly like the
+						// fixed title_prefix boost used to, which was enough
+						// on its own to tie DOGO with genuine "... dog ..."
+						// matches and hand the win to an unrelated
+						// total_sales/alphabetical tiebreak instead of actual
+						// relevance — confirmed live, not just in theory.
+						'% ' . $escaped_query . ' %',
 						(float) ( $weights['phrase'] ?? 4.0 ),
 						(float) ( $weights['instock'] ?? 0.5 ),
 						(float) ( $weights['sales'] ?? 0.3 ),
@@ -591,14 +602,17 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title LIKE %s, 6, 0) DESC,
+					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0) DESC,
 					 total_sales DESC, title ASC
 					 LIMIT %d",
-					// title-prefix boost requires a word boundary — see Tier 1's
-					// comment above for why a plain esc_like($query).'%' pattern
-					// wrongly boosts an unrelated, longer word that just starts
-					// with the same letters as the query.
-					...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', '%' . $wpdb->esc_like( $query ) . '%', $remaining ) )
+					// Both boosts require a word boundary — see Tier 1's comment
+					// above: a plain esc_like($query).'%'/'%'.esc_like($query).'%'
+					// pattern also matches a totally different, longer word that
+					// merely starts with or contains the same letters as the
+					// query, which on its own was enough to tie an unrelated
+					// product with a genuine match and hand the win to the
+					// total_sales/alphabetical tiebreak instead of relevance.
+					...array_merge( array( $table_name ), $params, array( $query, $query, $query, $wpdb->esc_like( $query ) . ' %', '% ' . $wpdb->esc_like( $query ) . ' %', $remaining ) )
 				);
 				// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 

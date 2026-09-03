@@ -252,7 +252,7 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$sql = $this->wpdb->queries[0];
 		$this->assertStringContainsString( "IF(title = 'hazina' OR title LIKE 'hazina %', 3, 0)", $sql );
-		$this->assertStringContainsString( "IF(title LIKE '%hazina%', 4, 0)", $sql );
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% hazina %', 4, 0)", $sql );
 	}
 
 	/**
@@ -274,6 +274,28 @@ final class SearchHandlerQueryTest extends TestCase {
 		$sql = $this->wpdb->queries[0];
 		$this->assertStringContainsString( "IF(title = 'dog' OR title LIKE 'dog %', 20, 0)", $sql );
 		$this->assertStringNotContainsString( "IF(title LIKE 'dog%', 20, 0)", $sql );
+	}
+
+	/**
+	 * Regression test: the Tier 3 substring boost had the identical raw-LIKE
+	 * flaw as title_prefix, just one tier further down — confirmed live on
+	 * narukistore.com after the title_prefix fix alone still ranked "Dogo
+	 * African Choker Necklace" first for "dog" over genuine dog-collar
+	 * titles, because both then tied at 0 on title_prefix and the phrase
+	 * boost (a plain '%dog%' substring match) still credited "Dogo" too,
+	 * leaving an unrelated total_sales/alphabetical tiebreak to decide it.
+	 */
+	public function test_substring_boost_requires_a_word_boundary(): void {
+		// Empty prefix pass forces the fall-through to Tier 3.
+		$this->wpdb->handler = fn( string $sql, string $type ) =>
+			'results' === $type ? ( str_contains( $sql, "CONCAT(' ', title, ' ')" ) ? array( $this->fakeRow( 1 ) ) : array() ) : null;
+
+		$this->search( 'dog' );
+
+		$this->assertCount( 2, $this->wpdb->queries );
+		$fill = $this->wpdb->queries[1];
+		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% dog %', 6, 0)", $fill );
+		$this->assertStringNotContainsString( "IF(title LIKE '%dog%', 6, 0)", $fill );
 	}
 
 	public function test_synonyms_option_has_no_effect_on_like_groups(): void {
