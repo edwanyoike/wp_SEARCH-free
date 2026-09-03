@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.5.1 =
+* Fix: 1.5.0's new rate-limit table wasn't actually created on an in-place upgrade (only on a brand-new install) — the schema-version marker that triggers table creation on update wasn't bumped alongside it. Caught before it caused any visible problem (the plugin fails open — allows every request — when this table is missing, exactly to avoid blocking search traffic over an internal gap like this), but the atomic rate limiting from 1.5.0 wasn't actually active on any site that upgraded rather than installed fresh until now.
+
 = 1.5.0 =
 * Improvement: search abuse protection is now self-contained instead of leaning on your server's configuration. Previously, the per-visitor request limit was only exact on a host with the APCu extension — without it, two requests arriving at the same instant could both slip through the check before either was recorded, letting roughly double the intended rate through under real concurrent load (confirmed directly: 15 genuinely simultaneous requests with no coordination at all). It's now enforced exactly either way, with no extension or external cache required.
 * Feature: a second, much stricter limit specifically for searches that find nothing and fall through every fallback the plugin tries (broadened matching) — the most expensive kind of request, and the shape a scripted flood of random search terms would use to run up load without ever repeating a query the result cache could serve cheaply. A normal shopper never notices it; it only engages once a search would already have come back empty.
