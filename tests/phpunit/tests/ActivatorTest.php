@@ -54,6 +54,23 @@ final class ActivatorTest extends TestCase {
 		$this->assertNotSame( '1.0.0', get_option( 'wcs_db_version' ) );
 	}
 
+	public function test_wcs_rate_limits_table_is_created_on_migration(): void {
+		// Backs Rate_Limiter's atomic DB fallback (used on any host without
+		// APCu) — shared by both editions, since search abuse protection
+		// isn't a Pro feature. Missing this table silently falls open (every
+		// request allowed) rather than erroring, so it's worth confirming it
+		// actually gets created rather than relying on that fail-open path.
+		update_option( 'wcs_db_version', '1.0.0' );
+		update_option( 'wcs_mu_version', WCS_VERSION );
+		$this->healthyTables();
+
+		Activator::init();
+
+		$statements = implode( "\n", $GLOBALS['wcs_test_dbdelta'] );
+		$this->assertStringContainsString( 'wcs_rate_limits', $statements );
+		$this->assertStringContainsString( 'PRIMARY KEY  (rl_key)', $statements );
+	}
+
 	public function test_current_version_skips_migration_and_table_probe_on_frontend(): void {
 		// Simulate an up-to-date install: read the version Activator would store.
 		$this->healthyTables();

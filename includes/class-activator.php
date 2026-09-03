@@ -59,6 +59,10 @@ class Activator {
 		'wcs_search_taxonomy',
 		'wcs_delete_data_on_uninstall',
 		'wcs_free_cap_reached',
+		'wcs_rate_limit_requests',
+		'wcs_rate_limit_window',
+		'wcs_fallback_rate_limit_requests',
+		'wcs_fallback_rate_limit_window',
 	);
 
 	/**
@@ -318,6 +322,23 @@ class Activator {
 				}
 			}
 		}
+
+		// Rate-limit counters — shared by both editions, since search abuse
+		// protection isn't a Pro feature. One row per limiter key (an IP hash,
+		// scoped by which limiter — general search, nonce refresh, or the
+		// expensive-fallback-tier guard). Backs Rate_Limiter::allow()'s atomic
+		// UPSERT fallback for hosts without APCu; on a host WITH APCu this
+		// table is simply never written to. Rows are small and bounded by
+		// unique-visitor count, not by request count (each key is upserted in
+		// place, never inserted again), and stale rows are pruned by the daily
+		// GC (Indexer::run_transient_gc()).
+		$rl_table = $wpdb->prefix . 'wcs_rate_limits';
+		dbDelta( "CREATE TABLE {$rl_table} (
+			rl_key varchar(191) NOT NULL,
+			window_start bigint(20) unsigned NOT NULL,
+			hits bigint(20) unsigned NOT NULL DEFAULT 1,
+			PRIMARY KEY  (rl_key)
+		) {$charset_collate} ENGINE=InnoDB;" );
 
 		// Search analytics (wcs_search_log) and the typo-correction
 		// vocabulary sidecar (wcs_search_terms) are Pro features — this

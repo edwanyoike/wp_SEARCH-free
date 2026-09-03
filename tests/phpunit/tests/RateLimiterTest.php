@@ -5,8 +5,9 @@ use PHPUnit\Framework\TestCase;
 use WCS\Search\Rate_Limiter;
 
 /**
- * Exercises the transient fallback path (APCu is not loaded in the test CLI,
- * matching hosts without the extension).
+ * Exercises the DB fallback path (APCu is not loaded in the test CLI,
+ * matching hosts without the extension) — the atomic UPSERT against
+ * wcs_rate_limits that replaced the old non-atomic transient pair.
  */
 final class RateLimiterTest extends TestCase {
 
@@ -28,14 +29,51 @@ final class RateLimiterTest extends TestCase {
 		$this->assertTrue( Rate_Limiter::allow( 'b', 1, 60 ) );
 	}
 
-	public function test_denied_request_does_not_extend_the_counter(): void {
+	public function test_denied_requests_keep_incrementing_the_counter(): void {
+		// Unlike the old transient pair (which stopped writing once denied,
+		// specifically to avoid extending that key's TTL), the atomic UPSERT
+		// always increments in one statement — a read-then-conditionally-write
+		// would reintroduce the exact race this replaced the transients to
+		// avoid. This is harmless here: the window is bucketed to wall-clock
+		// time (see test_window_start_is_bucketed_to_wall_clock_time), not
+		// extended by writes, so a flood of denied requests can never keep a
+		// window open longer than it would have run anyway.
 		Rate_Limiter::allow( 'k', 1, 60 );
 		Rate_Limiter::allow( 'k', 1, 60 ); // denied
-		$this->assertSame( 1, $GLOBALS['wcs_test_transients']['data']['k'] );
+		Rate_Limiter::allow( 'k', 1, 60 ); // denied
+		$this->assertSame( 3, $GLOBALS['wcs_test_rate_limits']['k']['hits'] );
 	}
 
-	public function test_window_is_passed_to_the_transient(): void {
-		Rate_Limiter::allow( 'k', 10, 123 );
-		$this->assertSame( 123, $GLOBALS['wcs_test_transients']['expiry']['k'] );
+	public function test_window_start_is_bucketed_to_wall_clock_time(): void {
+		// Fixed-window semantics: the bucket is floor(time()/window)*window,
+		// not "starts at the first request" — this is what makes the atomic
+		// UPSERT correct: every concurrent caller for the same key computes
+		// the identical window boundary independently, with no coordination.
+		Rate_Limiter::allow( 'k', 10, 100 );
+		$expected = (int) floor( time() / 100 ) * 100;
+		$this->assertSame( $expected, $GLOBALS['wcs_test_rate_limits']['k']['window_start'] );
+	}
+
+	public function test_a_new_window_resets_the_counter(): void {
+		$GLOBALS['wcs_test_rate_limits']['k'] = array( 'window_start' => 0, 'hits' => 999 );
+		Rate_Limiter::allow( 'k', 10, 60 );
+		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits']['k']['hits'] );
+	}
+
+	public function test_fails_open_when_the_table_is_missing(): void {
+		// A missing wcs_rate_limits table (fresh install mid-upgrade, or
+		// "Delete All Data" racing a request) must never block search traffic —
+		// it's a temporary gap, not a reason to 403 every visitor.
+		global $wpdb;
+		$wpdb->handler = static function ( string $sql, string $type ) use ( $wpdb ) {
+			if ( 'query' === $type && str_contains( $sql, 'wcs_rate_limits' ) ) {
+				$wpdb->last_error = "Table 'wp_wcs_rate_limits' doesn't exist";
+				return false;
+			}
+			return null;
+		};
+
+		$this->assertTrue( Rate_Limiter::allow( 'k', 1, 60 ) );
+		$this->assertTrue( Rate_Limiter::allow( 'k', 1, 60 ), 'still allowed — the missing table never lets a real count accumulate' );
 	}
 }

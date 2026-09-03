@@ -1351,6 +1351,21 @@ class Indexer {
 	public static function run_transient_gc(): void {
 		global $wpdb;
 
+		// Prune stale rate-limit rows. Shared by both editions — search abuse
+		// protection isn't a Pro feature. Each key is upserted in place (never
+		// re-inserted), so the table doesn't grow with request volume, only
+		// with unique-visitor count over the site's lifetime; this bounds that
+		// slow growth. A generous 1-day cutoff is safe regardless of how any
+		// individual limiter's own window is configured — a row that hasn't
+		// been touched in a day is not mid-window for any sane window length.
+		$rl_table    = $wpdb->prefix . 'wcs_rate_limits';
+		$rl_suppress = $wpdb->suppress_errors( true );
+		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			"DELETE FROM {$rl_table} WHERE window_start < %d",
+			time() - DAY_IN_SECONDS
+		) );
+		$wpdb->suppress_errors( $rl_suppress );
+
 		// Search analytics logging (and its retention prune) is a Pro
 		// feature — this edition never creates wcs_search_log, so there is
 		// nothing to prune here.

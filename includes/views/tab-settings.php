@@ -157,6 +157,32 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</tr>
 		<tr>
 			<th scope="row">
+				<?php esc_html_e( 'Rate Limiting', 'turbo-search-for-woocommerce' ); ?>
+				<div class="wcs-tooltip">
+					<span class="wcs-tooltip-icon">?</span>
+					<span class="wcs-tooltip-text"><?php esc_html_e( 'Caps how many searches a single visitor can make. The stricter limit applies only to searches that find nothing and fall through every fallback the plugin tries — the most expensive kind of request, and the shape a scripted flood would use to run up load. A normal shopper never notices either limit.', 'turbo-search-for-woocommerce' ); ?></span>
+				</div>
+			</th>
+			<td>
+				<p>
+					<label for="wcs_rate_limit_requests" style="display:inline-block; min-width: 150px;"><?php esc_html_e( 'Searches per visitor', 'turbo-search-for-woocommerce' ); ?></label>
+					<input name="wcs_rate_limit_requests" type="number" id="wcs_rate_limit_requests" value="<?php echo esc_attr( (string) get_option( 'wcs_rate_limit_requests', 60 ) ); ?>" class="small-text" min="5" max="1000" />
+					<?php esc_html_e( 'per', 'turbo-search-for-woocommerce' ); ?>
+					<input name="wcs_rate_limit_window" type="number" id="wcs_rate_limit_window" value="<?php echo esc_attr( (string) get_option( 'wcs_rate_limit_window', 60 ) ); ?>" class="small-text" min="10" max="3600" />
+					<?php esc_html_e( 'seconds', 'turbo-search-for-woocommerce' ); ?>
+				</p>
+				<p style="margin-top:8px;">
+					<label for="wcs_fallback_rate_limit_requests" style="display:inline-block; min-width: 150px;"><?php esc_html_e( 'Zero-result fallback searches per visitor', 'turbo-search-for-woocommerce' ); ?></label>
+					<input name="wcs_fallback_rate_limit_requests" type="number" id="wcs_fallback_rate_limit_requests" value="<?php echo esc_attr( (string) get_option( 'wcs_fallback_rate_limit_requests', 10 ) ); ?>" class="small-text" min="1" max="1000" />
+					<?php esc_html_e( 'per', 'turbo-search-for-woocommerce' ); ?>
+					<input name="wcs_fallback_rate_limit_window" type="number" id="wcs_fallback_rate_limit_window" value="<?php echo esc_attr( (string) get_option( 'wcs_fallback_rate_limit_window', 60 ) ); ?>" class="small-text" min="10" max="3600" />
+					<?php esc_html_e( 'seconds', 'turbo-search-for-woocommerce' ); ?>
+				</p>
+				<p class="description"><?php esc_html_e( 'Applies per visitor, not sitewide — a burst from one bot or IP never affects other shoppers.', 'turbo-search-for-woocommerce' ); ?></p>
+			</td>
+		</tr>
+		<tr>
+			<th scope="row">
 				<?php esc_html_e( 'Recent Searches', 'turbo-search-for-woocommerce' ); ?>
 				<div class="wcs-tooltip">
 					<span class="wcs-tooltip-icon">?</span>

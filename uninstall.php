@@ -28,15 +28,18 @@ $delete_data = (bool) get_option( 'wcs_delete_data_on_uninstall', false );
 function wcs_uninstall_single_site(): void {
 	global $wpdb;
 
-	// 1. Drop the custom search index tables (main + staging). Typo-correction
-	// vocabulary (wcs_search_terms*), search-analytics (wcs_search_log), and
-	// its defunct predecessor (wcs_zero_hits) are Pro-only/Pro-history
-	// tables this edition's Activator never creates — see PORTING.md — so
-	// there is nothing to drop for them here.
+	// 1. Drop the custom search index tables (main + staging) and the
+	// rate-limit counters. Typo-correction vocabulary (wcs_search_terms*),
+	// search-analytics (wcs_search_log), and its defunct predecessor
+	// (wcs_zero_hits) are Pro-only/Pro-history tables this edition's
+	// Activator never creates — see PORTING.md — so there is nothing to drop
+	// for them here.
 	$main_table  = $wpdb->prefix . 'wcs_search_index';
 	$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+	$rl_table    = $wpdb->prefix . 'wcs_rate_limits';
 	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $main_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $rl_table ) );    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 	// 2. Delete the plugin's own options. Explicit list — a broad LIKE 'wcs_%'
 	// would also delete WooCommerce Subscriptions' options (shared prefix).

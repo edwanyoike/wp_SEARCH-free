@@ -139,6 +139,13 @@ function wcs_tests_reset(): void {
 	// Unset (not merely reset) so dynamic_batch_size() falls through to the
 	// real system functions by default; tests opt in explicitly.
 	unset( $GLOBALS['wcs_test_loadavg'], $GLOBALS['wcs_test_memory_usage'], $GLOBALS['wcs_test_memory_limit'] );
+	// Stateful simulation of the wcs_rate_limits table (rl_key => [window_start,
+	// hits]) — Rate_Limiter's DB fallback runs by default in tests (no APCu in
+	// the test CLI), so without this every unrelated test touching a rate
+	// limiter would see an unscripted, stateless get_var() and rely entirely
+	// on the fail-open branch. This makes the fake behave like real MySQL well
+	// enough for RateLimiterTest to assert real allow/deny sequences.
+	$GLOBALS['wcs_test_rate_limits'] = array();
 
 	if ( class_exists( \WCS\Search\Search_Handler::class, false ) ) {
 		\WCS\Search\Search_Handler::flush_runtime_cache();
@@ -802,6 +809,35 @@ class Fake_WPDB {
 		$this->queries[] = $sql;
 		if ( $this->handler ) {
 			return ( $this->handler )( $sql, $type );
+		}
+		return self::defaultRun( $sql, $type );
+	}
+
+	/**
+	 * The default (no custom handler) responses, factored out so a test's own
+	 * custom handler can delegate to the same simulated statements — the
+	 * rate-limiter one in particular, since several tests need realistic
+	 * allow/deny behavior even while scripting their own search-tier SQL.
+	 *
+	 * @return mixed
+	 */
+	public static function defaultRun( string $sql, string $type ) {
+		// Stateful simulation of Rate_Limiter's atomic wcs_rate_limits UPSERT +
+		// SELECT — see wcs_test_rate_limits in wcs_tests_reset() for why this
+		// exists (the DB fallback runs by default in tests, with no APCu in
+		// the test CLI).
+		if ( 'query' === $type && 1 === preg_match( "/INSERT INTO `[^`]*wcs_rate_limits` \(rl_key, window_start, hits\) VALUES \('((?:[^'\\\\]|\\\\.)*)', (\d+), 1\)/", $sql, $m ) ) {
+			$key          = stripslashes( $m[1] );
+			$window_start = (int) $m[2];
+			$row          = $GLOBALS['wcs_test_rate_limits'][ $key ] ?? null;
+			$GLOBALS['wcs_test_rate_limits'][ $key ] = ( $row && $row['window_start'] === $window_start )
+				? array( 'window_start' => $window_start, 'hits' => $row['hits'] + 1 )
+				: array( 'window_start' => $window_start, 'hits' => 1 );
+			return 1;
+		}
+		if ( 'var' === $type && 1 === preg_match( "/SELECT hits FROM `[^`]*wcs_rate_limits` WHERE rl_key = '((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
+			$key = stripslashes( $m[1] );
+			return $GLOBALS['wcs_test_rate_limits'][ $key ]['hits'] ?? null;
 		}
 		return match ( $type ) {
 			'results' => array(),

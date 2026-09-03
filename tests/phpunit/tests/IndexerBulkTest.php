@@ -352,4 +352,22 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertCount( 1, $batch );
 		$this->assertFalse( $batch[0]['unique'] );
 	}
+
+	public function test_gc_prunes_stale_rate_limit_rows(): void {
+		// Each rl_key is upserted in place (never re-inserted), so the table
+		// doesn't grow with request volume — only with unique-visitor count
+		// over the site's lifetime. This bounds that slow growth. Runs
+		// unconditionally (unlike the transient-timeout cleanup further down
+		// in this method), since it's a plain table with no relationship to
+		// the object-cache backend. Shared by both editions — search abuse
+		// protection isn't a Pro feature.
+		Indexer::run_transient_gc();
+
+		$prune = array_values( array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, 'wcs_rate_limits' ) && str_contains( $sql, 'DELETE' )
+		) );
+		$this->assertNotEmpty( $prune, 'stale rate-limit rows must be pruned' );
+		$this->assertStringContainsString( 'window_start <', $prune[0] );
+	}
 }

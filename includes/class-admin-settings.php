@@ -272,6 +272,36 @@ class Admin_Settings {
 			},
 			'default'           => 5,
 		) );
+		register_setting( 'wcs_settings_group', 'wcs_rate_limit_requests', array(
+			'type'              => 'integer',
+			'sanitize_callback' => static function ( $value ): int {
+				// Floor of 5: low enough to matter, but a store owner mistyping
+				// "0" must not accidentally block every shopper's search.
+				return min( 1000, max( 5, absint( $value ) ) );
+			},
+			'default'           => 60,
+		) );
+		register_setting( 'wcs_settings_group', 'wcs_rate_limit_window', array(
+			'type'              => 'integer',
+			'sanitize_callback' => static function ( $value ): int {
+				return min( 3600, max( 10, absint( $value ) ) );
+			},
+			'default'           => MINUTE_IN_SECONDS,
+		) );
+		register_setting( 'wcs_settings_group', 'wcs_fallback_rate_limit_requests', array(
+			'type'              => 'integer',
+			'sanitize_callback' => static function ( $value ): int {
+				return min( 1000, max( 1, absint( $value ) ) );
+			},
+			'default'           => 10,
+		) );
+		register_setting( 'wcs_settings_group', 'wcs_fallback_rate_limit_window', array(
+			'type'              => 'integer',
+			'sanitize_callback' => static function ( $value ): int {
+				return min( 3600, max( 10, absint( $value ) ) );
+			},
+			'default'           => MINUTE_IN_SECONDS,
+		) );
 		register_setting( 'wcs_settings_group', 'wcs_search_title', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
@@ -418,11 +448,13 @@ class Admin_Settings {
 
 		$main_table  = $wpdb->prefix . 'wcs_search_index';
 		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		$rl_table    = $wpdb->prefix . 'wcs_rate_limits';
 
-		// Drop the index tables. (The zero-result log and vocabulary sidecar are
-		// Pro-only tables this edition never creates.)
+		// Drop the index tables and the rate-limit counters. (The zero-result
+		// log and vocabulary sidecar are Pro-only tables this edition never creates.)
 		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $main_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $rl_table ) );    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 		// Delete plugin options via the API (invalidates object-cache entries too).
 		// Explicit list — a broad LIKE 'wcs_%' would also delete WooCommerce

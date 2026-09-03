@@ -560,4 +560,93 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertStringContainsString( "content LIKE '%cd%'", $relaxed[0] );
 	}
 
+	// ── Expensive-fallback-tier guard ────────────────────────────────────────
+
+	/**
+	 * A handler that makes every search-index tier find nothing, so
+	 * query_database() always reaches the expensive fallback phase — while
+	 * still delegating rate-limiter SQL to the real stateful simulation
+	 * (Fake_WPDB::defaultRun()), so the guard's own allow/deny logic is
+	 * exercised for real rather than assumed.
+	 */
+	private function alwaysEmptyHandler(): callable {
+		return static function ( string $sql, string $type ) {
+			if ( str_contains( $sql, 'wcs_rate_limits' ) ) {
+				return Fake_WPDB::defaultRun( $sql, $type );
+			}
+			return 'results' === $type ? array() : null;
+		};
+	}
+
+	public function test_expensive_fallback_runs_within_budget(): void {
+		update_option( 'wcs_fallback_rate_limit_requests', 10 );
+		$this->wpdb->handler = $this->alwaysEmptyHandler();
+
+		$this->search( 'hazina lamp' ); // two FULLTEXT-eligible words, nothing matches
+
+		$relaxed = array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, 'IN BOOLEAN MODE' ) && ! str_contains( $sql, "('+" )
+		);
+		$this->assertNotEmpty( $relaxed, 'relaxation should run while the fallback budget is not spent' );
+	}
+
+	public function test_expensive_fallback_is_skipped_once_the_budget_is_spent(): void {
+		// Regression target: a two-word garbage query that matches nothing
+		// triggers the FULLTEXT relaxation pass AND the LIKE OR-relaxation
+		// pass. That's exactly the shape a cache-busted abuse flood would send
+		// (a fresh random string every request, so the 24h result cache never
+		// helps). This guard caps how many times one visitor can trigger that
+		// phase per window, separately from — and much stricter than — the
+		// main per-IP limit.
+		update_option( 'wcs_fallback_rate_limit_requests', 1 );
+		update_option( 'wcs_fallback_rate_limit_window', 60 );
+		$this->wpdb->handler = $this->alwaysEmptyHandler();
+
+		$this->search( 'hazina lamp' ); // spends the one-request budget
+		$this->wpdb->queries = array();
+		$this->search( 'hazina lamp' ); // budget already spent
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			// Tier 1's normal strict pass ('+...') always runs regardless of
+			// this guard — only the RELAXED (no leading "+") pass is gated.
+			$is_relaxed_fulltext = str_contains( $sql, 'IN BOOLEAN MODE' ) && ! str_contains( $sql, "('+" );
+			$this->assertFalse( $is_relaxed_fulltext, 'no FULLTEXT relaxation pass once the budget is spent' );
+			$this->assertStringNotContainsString( "') OR (", $sql, 'no LIKE OR-relaxation pass once the budget is spent' );
+		}
+	}
+
+	public function test_expensive_fallback_guard_never_touches_the_normal_search_path(): void {
+		// The guard is computed unconditionally near the top of the fallback
+		// section, but must cost nothing extra for the overwhelmingly common
+		// case: a query that resolves in tiers 0-3 and never reaches it.
+		update_option( 'wcs_fallback_rate_limit_requests', 1 );
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'hazina' );
+
+		foreach ( $this->wpdb->queries as $sql ) {
+			$this->assertStringNotContainsString( 'wcs_rate_limits', $sql, 'a resolved search should never consult the fallback-tier limiter at all' );
+		}
+	}
+
+	public function test_expensive_fallback_guard_is_keyed_per_client_ip(): void {
+		update_option( 'wcs_fallback_rate_limit_requests', 1 );
+		$this->wpdb->handler = $this->alwaysEmptyHandler();
+
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.5';
+		$this->search( 'hazina lamp' ); // spends 203.0.113.5's budget
+
+		$_SERVER['REMOTE_ADDR'] = '203.0.113.9';
+		$this->wpdb->queries    = array();
+		$this->search( 'hazina lamp' ); // a different visitor — budget untouched
+
+		unset( $_SERVER['REMOTE_ADDR'] );
+
+		$relaxed = array_filter(
+			$this->wpdb->queries,
+			static fn( string $sql ): bool => str_contains( $sql, 'IN BOOLEAN MODE' ) && ! str_contains( $sql, "('+" )
+		);
+		$this->assertNotEmpty( $relaxed, 'a different IP must have its own, unspent budget' );
+	}
 }

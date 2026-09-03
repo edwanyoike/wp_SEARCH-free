@@ -63,9 +63,12 @@ class Search_Handler {
 			return new \WP_Error( 'rest_forbidden', esc_html__( 'Invalid nonce.', 'turbo-search-for-woocommerce' ), array( 'status' => 403 ) );
 		}
 
-		// Per-IP rate limiting: max 60 requests per minute.
-		$ip = self::get_client_ip();
-		if ( ! Rate_Limiter::allow( 'wcs_rl_' . md5( $ip ), 60, MINUTE_IN_SECONDS ) ) {
+		// Per-IP rate limiting. Configurable on the Settings tab; defaults
+		// match the previous fixed 60/minute.
+		$ip     = self::get_client_ip();
+		$max    = max( 1, (int) get_option( 'wcs_rate_limit_requests', 60 ) );
+		$window = max( 1, (int) get_option( 'wcs_rate_limit_window', MINUTE_IN_SECONDS ) );
+		if ( ! Rate_Limiter::allow( 'wcs_rl_' . md5( $ip ), $max, $window ) ) {
 			return new \WP_Error( 'rest_too_many_requests', esc_html__( 'Too many requests.', 'turbo-search-for-woocommerce' ), array( 'status' => 429 ) );
 		}
 
@@ -608,6 +611,33 @@ class Search_Handler {
 		// catalog vocabulary) is a Pro feature — this edition returns zero
 		// results as-is rather than guessing a correction.
 
+		// ── Expensive-fallback-tier guard ─────────────────────────────────────────
+		// Both relaxation passes below run ONLY when every cheap/index-served
+		// tier above found nothing — which is also exactly the shape of a query
+		// crafted to cost the most: a two-word garbage string that matches
+		// nothing triggers the FULLTEXT relaxation pass AND the LIKE
+		// OR-relaxation scan, several queries from one HTTP request. A
+		// cache-busted flood of distinct garbage queries (a different random
+		// string every request — the standard way to defeat the 24h result
+		// cache) would pay that cost on every single hit. The main per-IP rate
+		// limit above still applies, but it wasn't sized with "every request in
+		// the window can trigger a scan" in mind.
+		//
+		// So this phase gets its own, stricter budget — separately configurable
+		// on the Settings tab, far lower by default (10/min vs. 60/min) — and a
+		// request that has burned through it just gets the same "no results" it
+		// would very likely have gotten anyway (these tiers exist to rescue a
+		// small fraction of genuine zero-result searches, not most of them), not
+		// an error.
+		$expensive_fallback_allowed = true;
+		if ( empty( $results ) ) {
+			$expensive_fallback_allowed = Rate_Limiter::allow(
+				'wcs_ef_' . md5( self::get_client_ip() ),
+				max( 1, (int) get_option( 'wcs_fallback_rate_limit_requests', 10 ) ),
+				max( 1, (int) get_option( 'wcs_fallback_rate_limit_window', MINUTE_IN_SECONDS ) )
+			);
+		}
+
 		// ── Partial-match relaxation (zero results only) ─────────────────────────
 		// Every tier above requires EVERY word to match, so one word the catalog
 		// simply does not contain takes the whole query down with it: "bacon
@@ -619,11 +649,10 @@ class Search_Handler {
 		// otherwise identical to the strict pass, so nothing outranks what a
 		// strict match would have returned — there just aren't any.
 		//
-		// Runs only when the alternative is an empty dropdown, and only for
+		// Runs only when the alternative is an empty dropdown, only for
 		// genuinely multi-word queries (relaxing a single required word changes
-		// nothing). One extra query at most, and only on a search that already
-		// failed.
-		if ( empty( $results ) && count( $boolean_parts ) >= 2 ) {
+		// nothing), and only within the expensive-fallback-tier budget above.
+		if ( empty( $results ) && $expensive_fallback_allowed && count( $boolean_parts ) >= 2 ) {
 			$relaxed = implode( ' ', array_map(
 				static fn( string $part ): string => ltrim( $part, '+' ),
 				$boolean_parts
@@ -661,8 +690,9 @@ class Search_Handler {
 		// query still outranks one matching less.
 		//
 		// Same guards as the FULLTEXT relaxation: only when the alternative is
-		// an empty dropdown, and only for genuinely multi-word queries.
-		if ( empty( $results ) && count( $words ) >= 2 ) {
+		// an empty dropdown, only for genuinely multi-word queries, and only
+		// within the same expensive-fallback-tier budget.
+		if ( empty( $results ) && $expensive_fallback_allowed && count( $words ) >= 2 ) {
 			$escaped_query = $wpdb->esc_like( $query );
 			$or_groups     = array();
 			$or_params     = array();

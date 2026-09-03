@@ -111,4 +111,15 @@ final class CleanupCoverageTest extends TestCase {
 		$this->assertStringContainsString( 'Activator::PLUGIN_OPTIONS', $src );
 		$this->assertStringContainsString( 'Activator::TRANSIENT_PREFIXES', $src );
 	}
+
+	public function test_wcs_rate_limits_table_is_dropped_on_uninstall(): void {
+		// Tables aren't covered by the shared PLUGIN_OPTIONS/TRANSIENT_PREFIXES
+		// lists above, so a table added to create_tables() needs its own drop
+		// added by hand in both cleanup paths — easy to forget one of the two.
+		$uninstall = (string) file_get_contents( WCS_PLUGIN_DIR . 'uninstall.php' );
+		$this->assertStringContainsString( 'wcs_rate_limits', $uninstall );
+
+		$admin = (string) file_get_contents( WCS_PLUGIN_DIR . 'includes/class-admin-settings.php' );
+		$this->assertStringContainsString( 'wcs_rate_limits', $admin );
+	}
 }

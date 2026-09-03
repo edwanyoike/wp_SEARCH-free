@@ -112,12 +112,12 @@ final class CacheKeyParityTest extends TestCase {
 		$this->interceptedKey();
 
 		$expected_key = 'wcs_rl_' . md5( '' ); // no REMOTE_ADDR set in this test environment
-		$this->assertSame( 1, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
+		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 
 		// A second call within the window must increment the same counter,
 		// not reset it or use a different key.
 		$this->interceptedKey();
-		$this->assertSame( 2, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
+		$this->assertSame( 2, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 	}
 
 	public function test_rate_limiter_uses_the_same_key_format_as_the_rest_route(): void {
@@ -129,6 +129,6 @@ final class CacheKeyParityTest extends TestCase {
 		$this->interceptedKey();
 
 		$expected_key = 'wcs_rl_' . md5( '203.0.113.7' );
-		$this->assertSame( 1, $GLOBALS['wcs_test_transients']['data'][ $expected_key ] ?? null );
+		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 	}
 }

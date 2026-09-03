@@ -108,6 +108,7 @@ final class AdminSettingsTest extends TestCase {
 		$sql = implode( "\n", $this->wpdb->queries );
 		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index`', $sql );
 		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index_stage`', $sql );
+		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_rate_limits`', $sql );
 
 		$unscheduled = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'unschedule_all' === $c['fn'] );
 		$this->assertNotEmpty( $unscheduled );
@@ -302,6 +303,29 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( 1, $sanitize( null ) );
 		$this->assertSame( 20, $sanitize( 999 ) );
 		$this->assertSame( 6, $sanitize( 6 ) );
+	}
+
+	public function test_rate_limit_sanitizers_clamp_to_valid_ranges(): void {
+		Admin_Settings::register_settings();
+
+		$requests = $GLOBALS['wcs_test_registered_settings']['wcs_rate_limit_requests']['sanitize_callback'];
+		$this->assertSame( 5, $requests( 0 ), 'a blank/zero submission must not silently disable search behind a near-zero limit' );
+		$this->assertSame( 1000, $requests( 999999 ) );
+		$this->assertSame( 100, $requests( 100 ) );
+
+		$window = $GLOBALS['wcs_test_registered_settings']['wcs_rate_limit_window']['sanitize_callback'];
+		$this->assertSame( 10, $window( 0 ) );
+		$this->assertSame( 3600, $window( 999999 ) );
+		$this->assertSame( 60, $window( 60 ) );
+
+		$fallback_requests = $GLOBALS['wcs_test_registered_settings']['wcs_fallback_rate_limit_requests']['sanitize_callback'];
+		$this->assertSame( 1, $fallback_requests( 0 ) );
+		$this->assertSame( 1000, $fallback_requests( 999999 ) );
+		$this->assertSame( 10, $fallback_requests( 10 ) );
+
+		$fallback_window = $GLOBALS['wcs_test_registered_settings']['wcs_fallback_rate_limit_window']['sanitize_callback'];
+		$this->assertSame( 10, $fallback_window( 0 ) );
+		$this->assertSame( 3600, $fallback_window( 999999 ) );
 	}
 
 	public function test_every_registered_setting_is_in_the_cleanup_list(): void {
