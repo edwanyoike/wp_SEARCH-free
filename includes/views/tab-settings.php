@@ -156,6 +156,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
+			<th scope="row"><?php esc_html_e( 'Quick Add to Cart', 'turbo-search-for-woocommerce' ); ?></th>
+			<td>
+				<fieldset disabled>
+					<label><input type="checkbox" /> <?php esc_html_e( 'Show a quantity selector and Add to Cart button on each result.', 'turbo-search-for-woocommerce' ); ?></label>
+				</fieldset>
+				<p class="description">
+				<?php
+				echo wp_kses( sprintf( /* translators: %s: Pro product page URL */ __( 'Quick Add to Cart is available in <a href="%s" target="_blank" rel="noopener">Turbo Search Pro</a>.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
+					'a' => array(
+						'href'   => array(),
+						'target' => array(),
+						'rel'    => array(),
+					),
+				) );
+				?>
+				</p>
+			</td>
+		</tr>
+		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Out of Stock Products', 'turbo-search-for-woocommerce' ); ?>
 				<div class="wcs-tooltip">

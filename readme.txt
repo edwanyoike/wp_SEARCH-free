@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.2.3
+Stable tag:        1.2.4
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,7 +61,7 @@ Yes — this free edition indexes up to 100 published products (chosen by lowest
 
 = What does the Pro edition add? =
 
-No 100-product indexing limit, plus typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, search merchandising (pin/bury/exclude/redirect), behavioral ranking, click/conversion analytics, and multi-currency price support. See https://ozulabs.com.
+No 100-product indexing limit, plus typo tolerance, search synonyms, category/brand suggestions in the dropdown, ranking-weight tuning, sales-weighted ranking, search merchandising (pin/bury/exclude/redirect), behavioral ranking, click/conversion analytics, Quick Add to Cart, and multi-currency price support. See https://ozulabs.com.
 
 = Does it work on WordPress Multisite? =
 
