@@ -227,4 +227,64 @@ final class ActivatorTest extends TestCase {
 
 		$this->assertFalse( Activator::is_pro_edition_active() );
 	}
+
+	// ── Network site iteration (each_network_site) ───────────────────────────
+	//
+	// Regression coverage for the removed 1,000-site hard cap: activate()/
+	// deactivate()/uninstall.php used to run a single `LIMIT 1000` query, so a
+	// network above that size silently skipped every later site. Tested here
+	// directly against each_network_site() rather than through activate()/
+	// deactivate() themselves, which stay @codeCoverageIgnore (they need a
+	// real multisite activation context) — this is the one piece of that path
+	// that's meaningfully unit-testable in isolation.
+
+	public function test_each_network_site_processes_every_site_across_multiple_pages(): void {
+		$page_size                        = ( new ReflectionClass( Activator::class ) )->getConstant( 'NETWORK_SITE_PAGE_SIZE' );
+		$GLOBALS['wcs_test_all_site_ids'] = range( 1, $page_size + 5 ); // more than one page
+
+		$visited = array();
+		Activator::each_network_site( function () use ( &$visited ) {
+			$visited[] = end( $GLOBALS['wcs_test_current_blog_stack'] );
+		} );
+
+		$this->assertSame( range( 1, $page_size + 5 ), $visited, 'every site across every page must be visited, not just the first page' );
+	}
+
+	public function test_each_network_site_restores_blog_context_after_every_site(): void {
+		$GLOBALS['wcs_test_all_site_ids'] = array( 5, 6, 7 );
+
+		Activator::each_network_site( static function () {} );
+
+		$this->assertSame( array( 5, 6, 7 ), $GLOBALS['wcs_test_switched_blogs'] );
+		$this->assertSame( 3, $GLOBALS['wcs_test_restored_blogs_count'], 'restore_current_blog() must run once per switch_to_blog()' );
+		$this->assertSame( array(), $GLOBALS['wcs_test_current_blog_stack'], 'no blog context should remain switched after the loop finishes' );
+	}
+
+	public function test_each_network_site_restores_blog_context_even_when_callback_throws(): void {
+		$GLOBALS['wcs_test_all_site_ids'] = array( 1, 2, 3 );
+
+		try {
+			Activator::each_network_site( static function () {
+				throw new \RuntimeException( 'simulated per-site failure' );
+			} );
+			$this->fail( 'expected the exception to propagate' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'simulated per-site failure', $e->getMessage() );
+		}
+
+		// The very first site's callback already threw, but restore_current_blog()
+		// must still have run for it before the exception propagated.
+		$this->assertSame( 1, $GLOBALS['wcs_test_restored_blogs_count'] );
+		$this->assertSame( array(), $GLOBALS['wcs_test_current_blog_stack'] );
+	}
+
+	public function test_each_network_site_handles_an_empty_network(): void {
+		$GLOBALS['wcs_test_all_site_ids'] = array();
+
+		Activator::each_network_site( function () {
+			$this->fail( 'callback must never run when there are no sites' );
+		} );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_switched_blogs'] );
+	}
 }

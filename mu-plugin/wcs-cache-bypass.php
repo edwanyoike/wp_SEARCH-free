@@ -3,7 +3,7 @@
  * Turbo Search for WooCommerce Cache Bypass
  *
  * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
- * Version:     1.5.0
+ * Version:     1.6.1
  * Author:      Ozulabs
  * Author URI:  https://ozulabs.com
  * License:     GPLv2 or later
@@ -17,6 +17,51 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
+/**
+ * Whether $basename is active, site-wide or network-wide — without loading
+ * wp-admin/includes/plugin.php. WordPress core's own is_plugin_active() does
+ * exactly these two option reads internally; this file runs at
+ * plugins_loaded -10 on every front-end search request, so it reimplements
+ * that check against already-loaded option data rather than pulling in an
+ * admin-only file for it.
+ */
+function wcs_mu_is_plugin_active( string $basename ): bool {
+	if ( in_array( $basename, (array) get_option( 'active_plugins', array() ), true ) ) {
+		return true;
+	}
+	return is_multisite() && array_key_exists( $basename, (array) get_site_option( 'active_sitewide_plugins', array() ) );
+}
+
+/**
+ * Resolve which edition is active and where its files live — WordPress's own
+ * active-plugin state only, never directory/file existence. It is entirely
+ * normal for a site to have both editions' directories present with only one
+ * truly active (Pro purchased then deactivated for troubleshooting, a
+ * leftover install, etc.); selecting whichever edition merely HAS a
+ * directory on disk could execute an inactive plugin's code, diverge its
+ * cache-key logic from the REST route the active edition actually
+ * dispatches, or run either edition against a mismatched database schema.
+ *
+ * Returns null when the state can't be resolved unambiguously — neither
+ * edition active, or (a narrow same-request window before the mutual-
+ * exclusion guard's deferred 'shutdown' deactivation runs) both somehow
+ * active — in which case the caller must skip the fast path and let
+ * WordPress dispatch the normal REST route, which uses core's own
+ * already-correct resolution.
+ *
+ * @return array{dir: string, is_pro: bool}|null
+ */
+function wcs_mu_resolve_active_edition(): ?array {
+	$free_active = wcs_mu_is_plugin_active( 'turbo-search-for-woocommerce/turbo-search-for-woocommerce.php' );
+	$pro_active  = wcs_mu_is_plugin_active( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+	if ( $free_active === $pro_active ) {
+		return null;
+	}
+	return array(
+		'dir'    => WP_PLUGIN_DIR . '/' . ( $pro_active ? 'turbo-search-for-woocommerce-pro' : 'turbo-search-for-woocommerce' ),
+		'is_pro' => $pro_active,
+	);
+}
 
 /**
  * Early intercept — runs at plugins_loaded priority -10, before any other
@@ -38,34 +83,26 @@ function wcs_cache_bypass_intercept(): void {
 		return;
 	}
 
-	// ── 3. Normalize via the shared Query_Normalizer — the exact same code
-	// path Search_Handler uses, so both sides always compute identical cache
-	// keys. This one MU file is shared byte-for-byte between both editions
-	// (each Activator::install_mu_plugin() copies the same source), so it
-	// cannot hardcode a single edition's folder name — whichever edition
-	// most recently installed this file may not be the one actually active.
-	// Check both known folder names and use whichever is present; if the
-	// main plugin is missing entirely (deleted while this MU file
-	// survived), skip the fast path and let the REST route 404.
-	// $raw_query is already unslashed above — do not unslash twice; queries
-	// containing quotes/backslashes would diverge from the REST key.
-	$normalizer = null;
-	foreach ( array( 'turbo-search-for-woocommerce-pro', 'turbo-search-for-woocommerce' ) as $wcs_edition_slug ) {
-		$candidate = WP_PLUGIN_DIR . '/' . $wcs_edition_slug . '/includes/class-query-normalizer.php';
-		if ( file_exists( $candidate ) ) {
-			$normalizer = $candidate;
-			break;
-		}
+	// ── 3. Determine which edition is actually active. This one MU file is
+	// shared byte-for-byte between both editions (each
+	// Activator::install_mu_plugin() copies the same source) — see
+	// wcs_mu_resolve_active_edition()'s own docblock for why this can't be
+	// inferred from directory/file existence.
+	$edition = wcs_mu_resolve_active_edition();
+	if ( null === $edition ) {
+		return;
 	}
-	if ( null === $normalizer ) {
+	$is_pro_edition = $edition['is_pro'];
+	$edition_dir    = $edition['dir'];
+
+	// The active edition's own files must still exist — e.g. a race where a
+	// plugin was just deleted but the active_plugins option hasn't been
+	// cleaned up yet. Skip rather than fatal.
+	$normalizer = $edition_dir . '/includes/class-query-normalizer.php';
+	if ( ! file_exists( $normalizer ) ) {
 		return;
 	}
 	require_once $normalizer;
-	// Determined from the actual file composition, not the folder-name slug
-	// the normalizer happened to be found under — a custom install slug would
-	// still resolve correctly, and class-license.php is Pro-exclusive (see
-	// PORTING.md's "Pro-only — never create in Free" table).
-	$is_pro_edition = file_exists( dirname( $normalizer ) . '/class-license.php' );
 
 	$query = \WCS\Search\Query_Normalizer::normalize( sanitize_text_field( $raw_query ) );
 
@@ -82,18 +119,22 @@ function wcs_cache_bypass_intercept(): void {
 	}
 
 	// ── 5. Rate limiting ──────────────────────────────────────────────────────
-	// Search_Handler::check_permissions() applies the same 60-req/min-per-IP
-	// limit to the real REST route, but this fast path runs before that route
-	// is ever dispatched — without a matching check here, a cache-warm query
-	// could be flooded with no rate limit applied at all, since the nonce
-	// above is the shared, non-secret guest 'wp_rest' nonce and proves nothing
-	// about the requester. Same key format (so a request denied here and one
-	// denied by the REST route share one counter, not two), same limit.
-	require_once dirname( $normalizer ) . '/class-rate-limiter.php';
+	// Search_Handler::check_permissions() applies the same administrator-
+	// configured per-IP limit to the real REST route, but this fast path runs
+	// before that route is ever dispatched — without a matching check here, a
+	// cache-warm query could be flooded with no rate limit applied at all,
+	// since the nonce above is the shared, non-secret guest 'wp_rest' nonce
+	// and proves nothing about the requester. Same key format (so a request
+	// denied here and one denied by the REST route share one counter, not
+	// two) and the same bounds, read via Rate_Limiter::resolved_search_limit()
+	// so this can never drift back onto a hardcoded default while the REST
+	// route honors whatever an administrator configured.
+	require_once $edition_dir . '/includes/class-rate-limiter.php';
 	$client_ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) ); // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized on this line
 	/** This filter is documented in includes/class-search-handler.php */
-	$client_ip = (string) apply_filters( 'wcs_get_client_ip', $client_ip );
-	if ( ! \WCS\Search\Rate_Limiter::allow( 'wcs_rl_' . md5( $client_ip ), 60, MINUTE_IN_SECONDS ) ) {
+	$client_ip                      = (string) apply_filters( 'wcs_get_client_ip', $client_ip );
+	[ $wcs_rl_max, $wcs_rl_window ] = \WCS\Search\Rate_Limiter::resolved_search_limit();
+	if ( ! \WCS\Search\Rate_Limiter::allow( 'wcs_rl_' . md5( $client_ip ), $wcs_rl_max, $wcs_rl_window ) ) {
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'Cache-Control: no-store' );
 		http_response_code( 429 );

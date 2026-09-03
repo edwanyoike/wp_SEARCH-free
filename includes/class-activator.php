@@ -78,6 +78,46 @@ class Activator {
 	);
 
 	/**
+	 * Maximum site IDs requested from get_sites() per page while iterating a
+	 * whole network. Bounds the memory/query cost of any single page rather
+	 * than capping the network size this plugin can operate on — see
+	 * each_network_site().
+	 */
+	private const NETWORK_SITE_PAGE_SIZE = 1000;
+
+	/**
+	 * Run $callback once per site in the current multisite network, in
+	 * bounded pages via get_sites() (WordPress's own sanctioned site-listing
+	 * API, which itself paginates internally on very large networks) rather
+	 * than a single unbounded query — a network of any size is fully
+	 * processed, not just its first NETWORK_SITE_PAGE_SIZE sites. switch_to_blog()
+	 * is always paired with restore_current_blog() in a finally block, so a
+	 * site whose callback throws never leaves the loop stuck in that site's
+	 * blog context for every subsequent iteration.
+	 *
+	 * @param callable $callback Invoked with no arguments after switch_to_blog().
+	 */
+	public static function each_network_site( callable $callback ): void {
+		$offset = 0;
+		do {
+			$site_ids = get_sites( array(
+				'fields' => 'ids',
+				'number' => self::NETWORK_SITE_PAGE_SIZE,
+				'offset' => $offset,
+			) );
+			foreach ( $site_ids as $site_id ) {
+				switch_to_blog( (int) $site_id );
+				try {
+					$callback();
+				} finally {
+					restore_current_blog();
+				}
+			}
+			$offset += self::NETWORK_SITE_PAGE_SIZE;
+		} while ( count( $site_ids ) === self::NETWORK_SITE_PAGE_SIZE );
+	}
+
+	/**
 	 * Run on plugin activation.
 	 *
 	 * @param bool $network_wide Whether the plugin is being activated network-wide.
@@ -87,17 +127,7 @@ class Activator {
 		self::check_requirements();
 
 		if ( is_multisite() && $network_wide ) {
-			global $wpdb;
-			// LIMIT 1000: bounds activation time on huge networks (each site
-			// needs table creation + a rebuild kick-off, and this runs in one
-			// request). Sites beyond the cap are picked up individually by the
-			// wp_initialize_site handler / per-site schema check on first load.
-			$site_ids = $wpdb->get_col( "SELECT blog_id FROM {$wpdb->blogs} LIMIT 1000" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			foreach ( $site_ids as $site_id ) {
-				switch_to_blog( (int) $site_id );
-				self::activate_single_site();
-				restore_current_blog();
-			}
+			self::each_network_site( array( __CLASS__, 'activate_single_site' ) );
 		} else {
 			self::activate_single_site();
 		}
@@ -134,15 +164,7 @@ class Activator {
 	 */
 	public static function deactivate( bool $network_wide = false ): void {
 		if ( is_multisite() && $network_wide ) {
-			global $wpdb;
-			// LIMIT 1000: see activate(). Beyond-cap sites only keep scheduled
-			// jobs, which no-op safely once the plugin files are gone.
-			$site_ids = $wpdb->get_col( "SELECT blog_id FROM {$wpdb->blogs} LIMIT 1000" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-			foreach ( $site_ids as $site_id ) {
-				switch_to_blog( (int) $site_id );
-				self::deactivate_single_site();
-				restore_current_blog();
-			}
+			self::each_network_site( array( __CLASS__, 'deactivate_single_site' ) );
 		} else {
 			self::deactivate_single_site();
 		}

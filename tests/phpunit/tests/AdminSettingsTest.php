@@ -114,6 +114,17 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertNotEmpty( $unscheduled );
 	}
 
+	public function test_delete_all_data_never_flushes_the_global_object_cache(): void {
+		// Regression: this handler used to call wp_cache_flush(), which clears
+		// every active plugin's cached objects (WooCommerce included), not
+		// just this plugin's own data — a real cache-stampede risk on a large
+		// store. The options this handler deletes already invalidate their
+		// own cache entries via delete_option().
+		$this->ajax( array( Admin_Settings::class, 'ajax_delete_all_data' ) );
+
+		$this->assertSame( 0, $GLOBALS['wcs_test_cache_flush_calls'] ?? 0 );
+	}
+
 	// ── Status endpoint ──────────────────────────────────────────────────────
 
 	public function test_status_reports_idle_state(): void {

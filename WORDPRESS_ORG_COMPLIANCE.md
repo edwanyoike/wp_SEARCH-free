@@ -735,3 +735,56 @@ lint` and the full PHPUnit suite (233 tests) both pass clean as of this remediat
 an actual WordPress.org Plugin Check tool run and Readme Validator pass against the rebuilt zip
 (§16, §17, §22) — still open from the 2026-09-01 snapshot, and this remediation makes that run more
 urgent to actually perform rather than defer again.
+
+**Second remediation pass, 2026-09-03** (per `WORDPRESS_ORG_DEEP_REVIEW_1.6.0.txt`, a deeper review
+run against the 1.6.0 zip produced by the first pass above): that review found the 1.6.0 ZIP itself
+had regressed on package hygiene (it contained the internal `WORDPRESS_ORG_REVIEW_1.5.1.txt` report,
+which explicitly states "NOT READY FOR SUBMISSION" — a real risk if a human reviewer read it as the
+developer's own current admission) and found two real MU cache-bypass bugs:
+
+- **Package hygiene**: `build.sh` and `hooks/post-commit` now exclude `/WORDPRESS_ORG_*.txt` and,
+  as defense in depth, assert a positive allowlist — the only root-level `.txt` files a build may
+  stage are `readme.txt` and `changelog.txt`, anything else aborts the build. Verified: rebuilding
+  the zip after this fix no longer contains either review report; `unzip -Z1` confirmed clean.
+- **MU fast path rate-limit drift** (`mu-plugin/wcs-cache-bypass.php`): previously hardcoded
+  60 requests/minute regardless of the `wcs_rate_limit_requests`/`wcs_rate_limit_window` options an
+  administrator configures — cached and uncached search requests were governed by two different
+  effective limits. Both paths now read `Rate_Limiter::resolved_search_limit()`, a single shared
+  method, so they can't drift apart again. See `RateLimiterTest.php`'s `resolved_search_limit()`
+  tests and `CacheKeyParityTest.php`'s non-default-setting tests (deliberately never exercising the
+  actual rejection branch through the MU intercept, since that calls `exit` directly and would kill
+  the PHPUnit process rather than fail a clean assertion — `Rate_Limiter::allow()`'s own
+  reject-at-the-boundary behavior is covered by `RateLimiterTest.php` in isolation instead).
+- **MU fast path could execute an inactive edition**: previously selected whichever of
+  `turbo-search-for-woocommerce(-pro)` had a directory on disk, preferring Pro whenever both existed
+  — regardless of which one WordPress actually had active. Replaced with
+  `wcs_mu_resolve_active_edition()`, which resolves strictly from WordPress's own active-plugin state
+  (site-level `active_plugins` and, on multisite, network-level `active_sitewide_plugins`) and
+  returns null (skip the fast path entirely) whenever exactly one edition can't be resolved as
+  active. See `MuEditionResolutionTest.php`.
+- **`ajax_delete_all_data()` global cache flush**: replaced `wp_cache_flush()` (which cleared every
+  active plugin's cached objects, not just this plugin's) with no call at all — the options this
+  handler already deletes go through `delete_option()`, which invalidates its own cache entry
+  correctly, and the one residual risk case (a stale `wcs_db_version` value) is independently guarded
+  in `Activator::init()`'s own `delete_option()`+`add_option()` pattern. See
+  `test_delete_all_data_never_flushes_the_global_object_cache` in `AdminSettingsTest.php`.
+- **Multisite lifecycle capped at 1,000 sites**: `Activator::each_network_site()` now paginates via
+  `get_sites()` in bounded pages instead of a single `LIMIT 1000` query, restoring blog context in a
+  `finally` block so one site's failure never leaves the loop stuck in that site's context. Used by
+  `activate()`, `deactivate()`, and `uninstall.php`. See the `each_network_site` tests in
+  `ActivatorTest.php`.
+- **Stale translation template**: regenerated `languages/turbo-search-for-woocommerce.pot` via
+  `wp i18n make-pot` — now correctly versioned at 1.6.0, includes every current string (Rate
+  Limiting, Recent Searches, the consolidated Pro card's copy), and points `Report-Msgid-Bugs-To` at
+  the real slug instead of the old `wp_search` one. `build.sh` now regenerates it on every release
+  automatically (skips gracefully if `wp-cli` isn't installed on the machine running the build).
+
+**Left open, deliberately**: `WC tested up to: 9.4` is stale (WooCommerce is at 11.1.0 as of this
+review), but the review's own instruction is not to bump this blindly — it requires actually testing
+against the current WooCommerce release first, which needs a live WordPress/WooCommerce install this
+environment doesn't have. Bump it only after that testing actually happens.
+
+All fixes verified: `composer lint` (0 findings), `./vendor/bin/phpunit` (253 tests), `composer
+coverage` (90.40%, threshold 85%), `composer audit` (no advisories), a full `php -l` sweep (clean),
+and a rebuilt zip whose `readme.txt`/`changelog.txt`/main plugin file hashes match source exactly
+and whose contents no longer include either internal review report.

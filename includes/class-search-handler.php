@@ -64,10 +64,11 @@ class Search_Handler {
 		}
 
 		// Per-IP rate limiting. Configurable on the Settings tab; defaults
-		// match the previous fixed 60/minute.
-		$ip     = self::get_client_ip();
-		$max    = max( 1, (int) get_option( 'wcs_rate_limit_requests', 60 ) );
-		$window = max( 1, (int) get_option( 'wcs_rate_limit_window', MINUTE_IN_SECONDS ) );
+		// match the previous fixed 60/minute. Bounds resolution is shared with
+		// the MU cache-bypass fast path via Rate_Limiter::resolved_search_limit()
+		// so the two paths can never enforce different effective limits.
+		$ip               = self::get_client_ip();
+		[ $max, $window ] = Rate_Limiter::resolved_search_limit();
 		if ( ! Rate_Limiter::allow( 'wcs_rl_' . md5( $ip ), $max, $window ) ) {
 			return new \WP_Error( 'rest_too_many_requests', esc_html__( 'Too many requests.', 'turbo-search-for-woocommerce' ), array( 'status' => 429 ) );
 		}

@@ -60,6 +60,34 @@ final class RateLimiterTest extends TestCase {
 		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits']['k']['hits'] );
 	}
 
+	// ── resolved_search_limit() ───────────────────────────────────────────────
+	//
+	// Single source of truth for both Search_Handler::check_permissions()
+	// (the REST route) and the MU cache-bypass fast path — a regression here
+	// would silently drift the two paths onto different effective limits
+	// again, the exact bug this method was added to close.
+
+	public function test_resolved_search_limit_defaults_to_sixty_per_sixty_seconds(): void {
+		$this->assertSame( array( 60, 60 ), Rate_Limiter::resolved_search_limit() );
+	}
+
+	public function test_resolved_search_limit_reads_configured_options(): void {
+		update_option( 'wcs_rate_limit_requests', 5 );
+		update_option( 'wcs_rate_limit_window', 3600 );
+
+		$this->assertSame( array( 5, 3600 ), Rate_Limiter::resolved_search_limit() );
+	}
+
+	public function test_resolved_search_limit_clamps_to_a_minimum_of_one(): void {
+		// A blank/zero submission must never silently disable rate limiting
+		// (max_requests=0 would make Rate_Limiter::allow() always deny, and a
+		// window of 0 would divide by zero in the window-bucket calculation).
+		update_option( 'wcs_rate_limit_requests', 0 );
+		update_option( 'wcs_rate_limit_window', -5 );
+
+		$this->assertSame( array( 1, 1 ), Rate_Limiter::resolved_search_limit() );
+	}
+
 	public function test_fails_open_when_the_table_is_missing(): void {
 		// A missing wcs_rate_limits table (fresh install mid-upgrade, or
 		// "Delete All Data" racing a request) must never block search traffic —

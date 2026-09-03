@@ -63,6 +63,7 @@ rsync -a \
   --exclude='/icon-*'          \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
+  --exclude='/WORDPRESS_ORG_*.txt' \
   "$REPO_DIR/" "$TMP_DIR/"
 
 # Regression guard: kept in sync with build.sh's own copy of this check —
@@ -86,6 +87,19 @@ for forbidden_path in \
 	.playwright-mcp; do
 	if [ -e "$TMP_DIR/$forbidden_path" ]; then
 		echo "[post-commit] Error: development-only path was staged: $forbidden_path" >&2
+		rm -rf "$TMP_DIR"
+		exit 1
+	fi
+done
+
+# Positive allowlist for root-level .txt files — kept in sync with build.sh's
+# own copy of this check. See build.sh for why this is a shape-based
+# allowlist rather than another name-specific exclude.
+for txt_file in "$TMP_DIR"/*.txt; do
+	[ -f "$txt_file" ] || continue
+	base="$(basename "$txt_file")"
+	if [ "$base" != "readme.txt" ] && [ "$base" != "changelog.txt" ]; then
+		echo "[post-commit] Error: unexpected root-level .txt file staged: $base" >&2
 		rm -rf "$TMP_DIR"
 		exit 1
 	fi

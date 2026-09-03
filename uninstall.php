@@ -71,16 +71,11 @@ function wcs_uninstall_single_site(): void {
 
 if ( true === $delete_data ) {
 	// Perform cleanup across all sites in Multisite or the current single site.
+	// Paginates via Activator::each_network_site() (get_sites() in bounded
+	// pages, restoring blog context even if a site's cleanup throws) so a
+	// network of any size is fully cleaned up, not just its first 1,000 sites.
 	if ( is_multisite() ) {
-		// LIMIT 1000: bounds uninstall time on huge networks (mirrors the cap
-		// in Activator::activate()). Beyond-cap sites retain their two index
-		// tables and options; harmless orphans that can be dropped manually.
-		$site_ids = $wpdb->get_col( "SELECT blog_id FROM {$wpdb->blogs} LIMIT 1000" ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-		foreach ( $site_ids as $site_id ) {
-			switch_to_blog( (int) $site_id );
-			wcs_uninstall_single_site();
-			restore_current_blog();
-		}
+		\WCS\Search\Activator::each_network_site( 'wcs_uninstall_single_site' );
 	} else {
 		wcs_uninstall_single_site();
 	}

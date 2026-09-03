@@ -19,6 +19,11 @@ final class CacheKeyParityTest extends TestCase {
 		wcs_tests_reset();
 		require_once WCS_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
 
+		// The MU fast path now resolves the active edition from WordPress's own
+		// active-plugin state rather than directory existence — these tests
+		// exercise the Free-active scenario, matching this repo's own edition.
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce/turbo-search-for-woocommerce.php' );
+
 		update_option( 'woocommerce_currency', 'USD' );
 		update_option( 'wcs_cache_version', 3 );
 
@@ -130,5 +135,62 @@ final class CacheKeyParityTest extends TestCase {
 
 		$expected_key = 'wcs_rl_' . md5( '203.0.113.7' );
 		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
+	}
+
+	// ── Rate-limit parity with a non-default administrator setting ──────────
+	//
+	// Regression: this fast path used to hardcode 60 requests/minute
+	// regardless of the wcs_rate_limit_requests/window options an
+	// administrator configures on the Settings tab, so cached and uncached
+	// requests were governed by two different effective limits. These tests
+	// prove the MU path reads the same options
+	// Rate_Limiter::resolved_search_limit() resolves for the REST route —
+	// deliberately only ever staying on the "allowed" side of the limit:
+	// wcs_cache_bypass_intercept() calls `exit` directly the moment
+	// Rate_Limiter::allow() returns false, which would kill the PHPUnit
+	// process itself rather than fail the assertion. Rate_Limiter::allow()'s
+	// own reject-at-the-boundary behavior is covered in isolation by
+	// RateLimiterTest.php, which never goes through this intercept.
+
+	public function test_configured_max_above_sixty_does_not_reject_the_sixty_first_request(): void {
+		update_option( 'wcs_rate_limit_requests', 200 );
+		$GLOBALS['wcs_test_rate_limits']['wcs_rl_' . md5( '' )] = array(
+			'window_start' => (int) floor( time() / MINUTE_IN_SECONDS ) * MINUTE_IN_SECONDS,
+			'hits'         => 60, // already at the OLD hardcoded limit
+		);
+		$_GET['q'] = 'lamp';
+
+		$this->interceptedKey();
+
+		// Under the old hardcoded 60/minute this 61st hit would have been
+		// rejected; a configured 200 must still allow it.
+		$this->assertSame( 61, $GLOBALS['wcs_test_rate_limits'][ 'wcs_rl_' . md5( '' ) ]['hits'] ?? null );
+	}
+
+	public function test_configured_window_is_passed_through_unchanged(): void {
+		// A distinct, non-default window value reaching Rate_Limiter::allow()
+		// unchanged proves the MU path reads wcs_rate_limit_window rather than
+		// the old literal MINUTE_IN_SECONDS.
+		update_option( 'wcs_rate_limit_window', 3600 );
+		$_GET['q'] = 'lamp';
+
+		$this->interceptedKey();
+
+		$expected_key = 'wcs_rl_' . md5( '' );
+		$expected_window_start = (int) floor( time() / 3600 ) * 3600;
+		$this->assertSame( $expected_window_start, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['window_start'] ?? null );
+	}
+
+	public function test_default_behavior_remains_sixty_requests_per_sixty_seconds(): void {
+		// No wcs_rate_limit_requests/window option set — must match the
+		// REST route's own defaults exactly.
+		$_GET['q'] = 'lamp';
+
+		$this->interceptedKey();
+
+		$expected_key           = 'wcs_rl_' . md5( '' );
+		$expected_window_start  = (int) floor( time() / MINUTE_IN_SECONDS ) * MINUTE_IN_SECONDS;
+		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
+		$this->assertSame( $expected_window_start, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['window_start'] ?? null );
 	}
 }

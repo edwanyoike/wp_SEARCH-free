@@ -39,7 +39,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</p>
 	<p id="wcs-progress-wrapper">
 		<?php
-		/* translators: 1: number of processed products, 2: total products */
+		/* translators: 1: number of processed products, 2: total number of published products */
 		echo esc_html( sprintf( __( 'Processed %1$d of %2$d published products.', 'turbo-search-for-woocommerce' ), $processed, $total ) );
 		?>
 	</p>

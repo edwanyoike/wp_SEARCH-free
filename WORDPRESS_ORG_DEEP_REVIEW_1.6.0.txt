@@ -1,0 +1,770 @@
+Turbo Search for WooCommerce (Free)
+Deep WordPress.org Submission Review — Version 1.6.0
+Review date: 2026-09-03
+Status: SUPERSEDES WORDPRESS_ORG_REVIEW_1.5.1.txt
+
+IMPORTANT: This is an internal development document. It must not be included
+in the WordPress.org release ZIP.
+
+======================================================================
+1. EXECUTIVE SUMMARY
+======================================================================
+
+Submission verdict: NOT READY FOR WORDPRESS.ORG SUBMISSION
+
+Version 1.6.0 resolves all three blockers from the 1.5.1 review:
+
+- The prohibited/high-risk 100-product indexing quota was removed.
+- PHPCS now passes cleanly.
+- readme.txt was reduced below 10 KB by moving older history to changelog.txt.
+
+The Pro upsell presentation was also substantially improved. Disabled fake
+controls were removed and the main Settings screen now contains one compact
+Pro card after the functional Free settings.
+
+However, this deeper review found three new release blockers:
+
+1. The 1.6.0 ZIP includes the obsolete internal 1.5.1 review report, which
+   states that the plugin is not ready and describes already-fixed problems.
+2. Cached searches served by the MU cache-bypass plugin ignore the new
+   administrator-configured rate limit and always use 60 requests/minute.
+3. The MU cache-bypass plugin prefers an installed Pro directory even when Pro
+   is inactive, which can execute inactive Pro code and diverge from the active
+   Free plugin's behavior.
+
+Additional medium-severity findings:
+
+- The translation POT file is stale and incomplete.
+- The manual data-reset action flushes the entire WordPress object cache.
+- Network activation/deactivation/uninstall only processes 1,000 sites.
+- WooCommerce compatibility metadata is substantially behind the currently
+  published WooCommerce release and needs a tested update.
+
+
+======================================================================
+2. REVIEW SCOPE
+======================================================================
+
+Reviewed source and artifact:
+
+- Source repository: wp_search-free
+- Branch: main
+- Reviewed commit: a6686e0
+- Git tag: v1.6.0
+- Plugin version: 1.6.0
+- Release artifact:
+  dist/turbo-search-for-woocommerce-1.6.0.zip
+
+Areas reviewed:
+
+- WordPress.org Guidelines 5 and 11.
+- Free/Pro code and feature separation.
+- Every remaining visible Pro upsell.
+- REST and AJAX authorization boundaries.
+- Input sanitization and output escaping.
+- SQL construction and direct database access.
+- Rate limiting and MU cache-bypass parity.
+- Filesystem writes and MU-plugin lifecycle.
+- Activation, deactivation, uninstall, cron, and multisite behavior.
+- Remote HTTP behavior and external-service disclosure.
+- Plugin/readme metadata and translation catalog.
+- Package contents and source/package hashes.
+- PHPCS, PHP syntax, PHPUnit, coverage, and dependency audit.
+
+This review was read-only except for creating this report.
+
+
+======================================================================
+3. PREVIOUS 1.5.1 BLOCKERS — CURRENT STATUS
+======================================================================
+
+3.1 100-product indexing quota
+Status: FIXED
+
+- Indexer::FREE_PRODUCT_CAP was removed.
+- Batch indexing no longer stops based on previously processed count.
+- Live product updates are no longer blocked after 100 indexed rows.
+- The partial-catalog warning and quota-linked upgrade text were removed.
+- readme.txt no longer advertises payment as the way to remove an indexing
+  quota.
+- Tests cover a 150-product batch and completion beyond 100 products.
+
+Relevant tests:
+
+- tests/phpunit/tests/IndexerBulkTest.php:134 onward
+- tests/phpunit/tests/InitAndBatchLifecycleTest.php:192 onward
+
+
+3.2 PHPCS failures
+Status: FIXED
+
+- The query-normalizer arrays now follow the configured WordPress coding
+  standard.
+- The stale-rate-limit-row DELETE uses a %i table identifier placeholder.
+- composer lint passes with zero findings.
+
+
+3.3 Oversized readme
+Status: FIXED
+
+- Current readme.txt size: 6,104 bytes.
+- Older release history moved to changelog.txt.
+- Current Stable tag: 1.6.0.
+- Main PHP Version header: 1.6.0.
+
+
+3.4 Excessive/disabled upsells
+Status: FIXED
+
+Removed from the Free Settings/App Data UI:
+
+- Search Merchandising disabled textarea.
+- Quick Add to Cart disabled checkbox.
+- Search Synonyms disabled textarea.
+- Ranking Weights standalone promotional row.
+- Export/Import Settings disabled card.
+- Large top-of-page Pro comparison card.
+- Product-quota upgrade warning.
+
+One compact Pro card remains below the complete Free settings form.
+
+
+======================================================================
+4. RELEASE-BLOCKING FINDINGS
+======================================================================
+
+BLOCKER 1 — INTERNAL REVIEW REPORT SHIPS IN THE RELEASE ZIP
+Severity: RELEASE BLOCKER
+
+Artifact evidence:
+
+dist/turbo-search-for-woocommerce-1.6.0.zip contains:
+
+turbo-search-for-woocommerce/WORDPRESS_ORG_REVIEW_1.5.1.txt
+
+Why this blocks submission:
+
+- It is an internal development document, not a runtime or user-facing plugin
+  asset.
+- Its executive summary says "NOT READY FOR WORDPRESS.ORG SUBMISSION."
+- It documents obsolete blockers that 1.6.0 has already fixed.
+- A human reviewer may reasonably treat its statements as the developer's own
+  current admission of noncompliance.
+- It exposes internal engineering discussion and unnecessarily increases the
+  public package.
+
+Required remediation:
+
+- Exclude WORDPRESS_ORG_REVIEW_*.txt and WORDPRESS_ORG_DEEP_REVIEW_*.txt from
+  build.sh and hooks/post-commit.
+- Exclude this new report as well as the historical 1.5.1 report.
+- Prefer a positive package allowlist where practical. At minimum, assert that
+  the only allowed root-level .txt files are readme.txt and changelog.txt.
+- Rebuild the ZIP.
+- Add a package-contract assertion that fails on unexpected root files.
+
+Acceptance criteria:
+
+- Neither review report appears in unzip -Z1 output.
+- Runtime source, readme.txt, and changelog.txt still match the source tree.
+- ZIP integrity passes.
+
+
+BLOCKER 2 — MU FAST PATH IGNORES CONFIGURED RATE LIMITS
+Severity: HIGH / RELEASE BLOCKER
+
+Normal REST behavior:
+
+includes/class-search-handler.php:69-70 reads:
+
+- wcs_rate_limit_requests
+- wcs_rate_limit_window
+
+The Settings UI allows administrators to configure these values.
+
+MU fast-path behavior:
+
+mu-plugin/wcs-cache-bypass.php calls Rate_Limiter::allow() with hardcoded
+values:
+
+- maximum requests: 60
+- window: MINUTE_IN_SECONDS
+
+Impact:
+
+- If an administrator configures 10 requests/minute, uncached requests are
+  limited at 10 but cached requests continue until 60.
+- If an administrator configures 200 requests/minute, cached requests are
+  rejected after 60 while uncached requests remain allowed.
+- The effective limit changes depending on cache state.
+- The documented setting does not control all search traffic.
+- A bot can favor warmed queries to bypass a stricter merchant-configured
+  limit.
+
+Existing test gap:
+
+CacheKeyParityTest verifies that the MU path uses the same counter key and that
+calls increment it. It tests only the old/default 60-per-minute behavior and
+does not assert parity with non-default administrator settings.
+
+Required remediation:
+
+- Read wcs_rate_limit_requests and wcs_rate_limit_window in the MU path.
+- Apply the same lower bounds used in Search_Handler::check_permissions().
+- Ideally centralize option resolution in code shared by both paths so they
+  cannot drift again.
+- Preserve the identical wcs_rl_<md5(ip)> counter key.
+
+Required tests:
+
+- A configured maximum of 1 or 5 rejects the next cached request at the same
+  point as the normal REST route.
+- A configured maximum above 60 does not reject the 61st cached request.
+- A non-default window reaches Rate_Limiter::allow() unchanged.
+- Default behavior remains 60 requests per 60 seconds.
+
+
+BLOCKER 3 — MU PATH CAN EXECUTE AN INACTIVE PRO EDITION
+Severity: HIGH / RELEASE BLOCKER
+
+Location:
+
+mu-plugin/wcs-cache-bypass.php:53 onward
+
+Current behavior:
+
+The MU plugin searches these directories in this order:
+
+1. turbo-search-for-woocommerce-pro
+2. turbo-search-for-woocommerce
+
+It selects the first directory whose class-query-normalizer.php file exists.
+It then determines Pro status by checking whether class-license.php exists.
+
+It does not check whether the selected edition is active.
+
+Failure scenario:
+
+1. A site has both Free and Pro directories installed.
+2. Pro is deactivated, while Free is active.
+3. The Pro directory remains on disk, which is normal WordPress behavior.
+4. The MU intercept selects Pro because Pro is checked first.
+5. It loads Pro's Query_Normalizer and Rate_Limiter from an inactive plugin.
+6. It marks the request as Pro and enables Pro currency cache-key behavior.
+7. The active Free REST handler still uses Free behavior and the default
+   currency cache key.
+
+Potential consequences:
+
+- Cache-key mismatch and systematic cache misses.
+- Execution of code belonging to an inactive plugin.
+- Version-skew failures if inactive Pro is older or newer than active Free.
+- Class-definition conflicts later in the request.
+- Pro-only currency behavior leaking into the Free fast path.
+- Fatal errors if the inactive edition's expected companion files or APIs are
+  incompatible.
+
+Why existing checks do not cover this:
+
+- Free/Pro mutual exclusion only prevents both editions being active.
+- It does not remove the inactive edition's directory.
+- Current CacheKeyParityTest executes the Free repository's MU source in an
+  isolated test setup and does not model two installed directories with only
+  Free active.
+
+Required remediation:
+
+- Select the edition from WordPress's active plugin state, including network
+  activation on multisite.
+- Never infer activation from directory/file existence.
+- Load code only from the active edition.
+- If active-edition state cannot be resolved safely, skip the MU fast path and
+  allow WordPress to dispatch the normal REST route.
+- Retain a safe fallback for custom folder names without scanning and
+  preferring inactive known folders.
+
+Required tests:
+
+- Free active, Pro installed but inactive: Free normalizer selected.
+- Pro active, Free installed but inactive: Pro normalizer selected.
+- Both directories present, neither active: fast path skipped.
+- Network-active edition on multisite: correct edition selected.
+- Selected edition missing required file: fast path skipped without fatal.
+- Different Free/Pro versions installed: inactive edition is never loaded.
+
+
+======================================================================
+5. MEDIUM-SEVERITY FINDINGS
+======================================================================
+
+FINDING 4 — TRANSLATION TEMPLATE IS STALE
+Severity: MEDIUM
+
+File:
+languages/turbo-search-for-woocommerce.pot
+
+Evidence:
+
+- Project-Id-Version still says 1.3.0.
+- POT-Creation-Date is 2026-06-24.
+- Report-Msgid-Bugs-To points to the obsolete slug:
+  https://wordpress.org/support/plugin/wp_search
+- The template lacks newer strings including:
+  - Rate Limiting
+  - Recent Searches
+  - Turbo Search Pro
+  - Learn more about Turbo Search Pro
+
+Impact:
+
+- Translators cannot translate current UI strings from the shipped catalog.
+- Version/support metadata is misleading.
+- WordPress.org language packs generated from incomplete source metadata may
+  lag behind current functionality.
+
+Required remediation:
+
+- Regenerate the POT from the complete 1.6.0 source.
+- Confirm Text Domain remains turbo-search-for-woocommerce.
+- Confirm every current translatable string appears.
+- Correct the support/plugin slug metadata.
+- Add a release check that regenerates or validates the POT after strings
+  change.
+
+
+FINDING 5 — MANUAL DATA RESET FLUSHES THE ENTIRE OBJECT CACHE
+Severity: MEDIUM
+
+Location:
+includes/class-admin-settings.php:482
+
+Current behavior:
+
+ajax_delete_all_data() calls wp_cache_flush(). This clears the complete shared
+WordPress object cache, not only Turbo Search entries.
+
+Impact:
+
+- WooCommerce and unrelated plugins lose their cached objects.
+- A large production store may experience a cache stampede and database load
+  spike immediately after the operation.
+- The action exceeds the scope suggested by "Delete All Plugin Data."
+
+Positive controls:
+
+- The operation requires a valid nonce.
+- The operation requires manage_options.
+- It is explicitly initiated by an administrator.
+
+Recommended remediation:
+
+- Delete/invalidate only known Turbo Search option and transient cache keys.
+- Increment the plugin cache version to invalidate search-result keys.
+- Avoid a global cache flush.
+- Add a test asserting ajax_delete_all_data() does not invoke
+  wp_cache_flush().
+
+
+FINDING 6 — MULTISITE LIFECYCLE STOPS AFTER 1,000 SITES
+Severity: MEDIUM
+
+Locations:
+
+- includes/class-activator.php:95
+- includes/class-activator.php:140
+- uninstall.php:78
+
+Current behavior:
+
+Network activation, deactivation, and uninstall select at most 1,000 blog IDs.
+
+Impact on networks above 1,000 sites:
+
+- Later sites may not receive tables/options during network activation.
+- Later sites may retain scheduled events during network deactivation.
+- Later sites may retain plugin tables and options after opted-in uninstall.
+
+Documentation mismatch:
+
+readme.txt answers Multisite support with an unqualified "Yes." The code only
+fully manages networks up to 1,000 existing sites, although newly created sites
+are handled separately.
+
+Recommended remediation:
+
+- Iterate sites in bounded pages using get_sites() fields => ids.
+- Restore blog context after every iteration, including failure paths.
+- Add tests around pagination or document the 1,000-site operational limit.
+
+
+FINDING 7 — WOOCOMMERCE TESTED-UP-TO METADATA IS STALE
+Severity: MEDIUM / REQUIRES TESTING
+
+Plugin header:
+
+- WC requires at least: 8.0
+- WC tested up to: 9.4
+
+At review time, the official WooCommerce SVN trunk reported WooCommerce
+11.1.0 and Tested up to WordPress 7.1.
+
+Official source checked:
+https://plugins.svn.wordpress.org/woocommerce/trunk/woocommerce.php
+
+Do not change the header blindly. First run the plugin's functional and browser
+tests against the current supported WooCommerce release, then update
+WC tested up to to the highest version actually tested.
+
+
+======================================================================
+6. LOW-SEVERITY / MAINTENANCE FINDINGS
+======================================================================
+
+FINDING 8 — MU COMPANION HEADER STILL SAYS VERSION 1.5.0
+Severity: LOW
+
+File:
+mu-plugin/wcs-cache-bypass.php:6
+
+The parent plugin is 1.6.0, while the companion file's comment header remains
+1.5.0. The file intentionally has no Plugin Name header, so WordPress does not
+list it separately. Runtime synchronization uses content hashes and the
+wcs_mu_version option, not this comment, so this is not currently a functional
+versioning defect.
+
+Recommendation:
+
+- Keep the companion header synchronized when its contents change.
+- Add a package test if the version is intended to mirror WCS_VERSION.
+
+
+FINDING 9 — REMOTE PROMO REMAINS A HUMAN-REVIEW RISK
+Severity: LOW / POLICY RISK
+
+Positive controls now present:
+
+- Only shown on the plugin's own settings screen.
+- Dismissible per administrator.
+- Message sanitized through wp_kses_post().
+- Link escaped.
+- HTTPS required.
+- Link host restricted to ozulabs.com or ozupay.com.
+- Common tracking/referral parameters rejected.
+- External request disclosed in readme.txt.
+- Static edition identifier is the only explicit query payload.
+
+Residual concern:
+
+The promotional message and destination change remotely without a plugin
+release. A WordPress.org reviewer cannot fully assess future content from the
+submitted code. The HTTP request also exposes ordinary connection metadata to
+the service host.
+
+Safest option:
+
+- Remove remote promotions from the WordPress.org edition.
+
+Acceptable risk-controlled option:
+
+- Keep the first-party allowlist and tracking rejection.
+- Never serve third-party advertisements.
+- Never add site/user/product/search data to the request.
+- Keep every notice dismissible and plugin-screen-only.
+- Keep the readme disclosure synchronized with behavior.
+
+
+======================================================================
+7. PRO UPSELL AND TRIALWARE REVIEW
+======================================================================
+
+Verdict: PASS, WITH THE REMOTE-PROMO CAUTION ABOVE
+
+Current static upsell:
+
+- One compact card at the bottom of the Settings tab.
+- Heading: Turbo Search Pro.
+- One paragraph listing separate paid capabilities.
+- One "Learn more" button.
+- Link points to the dedicated first-party product page:
+  https://ozulabs.com/plugins/turbo-search/
+
+This is materially improved over 1.5.1:
+
+- No disabled controls.
+- No paid placeholders inside the functional settings table.
+- No paid card on the App Data tab.
+- No paid quota warning.
+- No upgrade advertisement before the actual Free settings.
+
+Free/Pro implementation separation:
+
+The following Pro-only source files are absent from Free:
+
+- class-analytics-insights.php
+- class-analytics-table.php
+- class-features.php
+- class-license-cache.php
+- class-license.php
+- class-metrics-buffer.php
+- class-settings-export.php
+- class-telemetry-reporter.php
+- class-updater.php
+- views/tab-analytics.php
+- views/tab-appearance.php
+- views/tab-license.php
+
+Feature-boundary checks:
+
+- Free indexes the complete catalog; no payment-linked quota remains.
+- Synonym expansion is inert/absent in Free.
+- Typo correction is absent from the Free request path.
+- Analytics implementation and UI are absent.
+- License activation and self-updater are absent.
+- Settings import/export implementation is absent.
+- Telemetry reporter is absent.
+- Multi-currency conversion is absent; Free consistently uses store currency.
+- Built-in ranking weights remain because they are required for core search;
+  paid configurability is absent.
+
+Official policy basis:
+
+WordPress.org permits reasonable paid-product upsells when they comply with
+the admin-experience rule, but prohibits restricting included functionality
+until payment or after a quota. The current static Free/Pro split is consistent
+with that distinction.
+
+Official guidelines:
+https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/
+
+
+======================================================================
+8. SECURITY REVIEW RESULTS
+======================================================================
+
+AJAX handlers
+-------------
+
+Administrative handlers reviewed:
+
+- wcs_dismiss_notice
+- wcs_rebuild_index
+- wcs_get_index_status
+- wcs_delete_all_data
+
+Each uses a specific nonce and requires manage_options before performing its
+operation. No authorization bypass was found.
+
+The public wcs_refresh_nonce handler intentionally has no incoming nonce or
+capability requirement because it only creates a public guest REST nonce. It
+is rate-limited per IP. This is not an authorization boundary; the REST search
+serves public catalog data.
+
+
+REST endpoint
+-------------
+
+- Namespace/route: wcs/v1/search
+- Method: GET
+- Query is sanitized with sanitize_text_field().
+- The wp_rest nonce is verified.
+- The normal route uses a per-IP rate limiter.
+- Product results are public catalog data.
+
+No direct state-changing public REST operation exists.
+
+
+Input handling
+--------------
+
+Reviewed uses of GET, POST, SERVER, and COOKIE data. Inputs are unslashed and
+sanitized before use. The read-only settings-tab query parameter is sanitized
+and safelisted. No unsafe file-upload or deserialization path exists.
+
+
+Output escaping
+---------------
+
+Reviewed PHP-rendered output in all view templates and admin notices. Dynamic
+text, attributes, URLs, and remote promo content use the appropriate escaping
+or allowed-HTML functions. No confirmed XSS finding was identified.
+
+
+SQL
+---
+
+Direct queries generally use $wpdb->prepare(), including %i identifier
+placeholders for table names. Dynamic search SQL is prepared by its callers
+before reaching the small get_rows() execution helper. No confirmed SQL
+injection finding was identified.
+
+
+Filesystem
+----------
+
+MU-plugin installation/removal uses the WordPress filesystem API with the
+direct method only, avoiding credential prompts and raw copy/unlink calls.
+No user-controlled filesystem path was found.
+
+
+External requests
+-----------------
+
+One outbound application request exists: the disclosed first-party promo
+fetch. It uses wp_remote_get(), a five-second timeout, response/error checks,
+sanitization, and transient caching.
+
+
+======================================================================
+9. AUTOMATED VERIFICATION RESULTS
+======================================================================
+
+PHPCS
+-----
+
+Command:
+composer lint --no-interaction
+
+Result:
+PASS — 8 of 8 files, no findings.
+
+
+PHPUnit
+-------
+
+Command:
+./vendor/bin/phpunit --colors=never
+
+Result:
+PASS — 233 tests, 723 assertions.
+
+
+Coverage
+--------
+
+Command:
+composer coverage --no-interaction
+
+Result:
+PASS — 90.32% line coverage (1,587/1,757 statements).
+Required threshold: 85%.
+
+
+PHP syntax
+----------
+
+All PHP files passed php -l.
+
+
+Dependency audit
+----------------
+
+Command:
+composer audit --no-interaction --locked
+
+Result:
+PASS — no known security vulnerability advisories.
+
+
+Asset sizes
+-----------
+
+- assets/js/admin.js: 6,239 bytes
+- assets/js/search.js: 30,938 bytes
+- assets/css/admin.css: 1,663 bytes
+- assets/css/search.css: 8,316 bytes
+- Total: 47,156 bytes
+
+No bundled framework or large offloaded asset was identified.
+
+
+======================================================================
+10. PACKAGE REVIEW
+======================================================================
+
+Artifact:
+dist/turbo-search-for-woocommerce-1.6.0.zip
+
+Passed:
+
+- ZIP integrity test.
+- Correct top-level folder name.
+- Version/Stable tag agreement at 1.6.0.
+- readme.txt source/package hash equality.
+- changelog.txt source/package hash equality.
+- Main PHP source/package hash equality.
+- Previously excluded development directories remain absent:
+  vendor, tests, hooks, dist, releasenotes, .kiro, .phpunit.cache,
+  .playwright-mcp.
+- Composer and PHPCS development files are absent.
+
+Failed:
+
+- WORDPRESS_ORG_REVIEW_1.5.1.txt is present and must be removed.
+- This new WORDPRESS_ORG_DEEP_REVIEW_1.6.0.txt must also be excluded from the
+  next build.
+
+
+======================================================================
+11. REQUIRED REMEDIATION ORDER
+======================================================================
+
+1. Fix MU active-edition selection; never load an inactive edition.
+2. Make MU rate-limit option handling identical to the REST route.
+3. Add tests for edition selection and non-default rate-limit parity.
+4. Exclude all internal review reports from the public package.
+5. Add an unexpected-root-file package-contract gate.
+6. Regenerate the POT and correct its version/support metadata.
+7. Replace global wp_cache_flush() with targeted invalidation.
+8. Paginate multisite lifecycle processing or document the 1,000-site limit.
+9. Test against the current WooCommerce release and update WC tested up to.
+10. Rebuild the exact release ZIP.
+11. Rerun PHPCS, PHPUnit, coverage, PHP syntax, package integrity, and hashes.
+12. Run official WordPress Plugin Check against the exact final ZIP.
+13. Run the WordPress.org Readme Validator.
+14. Perform a live WordPress/WooCommerce smoke test with WP_DEBUG enabled.
+
+
+======================================================================
+12. FINAL ACCEPTANCE CHECKLIST
+======================================================================
+
+[ ] MU path selects only the active Free or Pro edition.
+[ ] Inactive Pro installed alongside active Free is never loaded.
+[ ] MU cached-search rate limit honors administrator request/window settings.
+[ ] MU and REST rate-limit parity tests cover non-default settings.
+[ ] Internal review reports are absent from the release ZIP.
+[ ] Package root contains only explicitly allowed public files.
+[ ] Translation POT is regenerated for 1.6.0 and includes current strings.
+[ ] POT support URL uses the intended WordPress.org slug.
+[ ] Delete All Plugin Data does not flush unrelated global object caches.
+[ ] Multisite lifecycle behavior is paginated or accurately documented.
+[ ] WC tested up to reflects a WooCommerce version actually tested.
+[ ] Static Pro upsell remains one restrained card below functional settings.
+[ ] No product-count or time-based paid quota is introduced.
+[ ] readme.txt remains below 10 KB.
+[ ] Plugin Version, WCS_VERSION, and Stable tag agree.
+[ ] PHPCS passes.
+[ ] PHP syntax passes.
+[ ] PHPUnit passes.
+[ ] Coverage stays at or above 85%.
+[ ] Composer audit reports no known advisory.
+[ ] ZIP integrity passes.
+[ ] Source/package hashes match.
+[ ] Official Plugin Check passes against the exact upload ZIP.
+[ ] WordPress.org Readme Validator passes.
+[ ] Live WP_DEBUG smoke test passes.
+
+
+======================================================================
+13. FINAL VERDICT
+======================================================================
+
+Version 1.6.0 is substantially closer to WordPress.org readiness than 1.5.1.
+Its Free/Pro boundary and static upsell presentation are now appropriate, and
+the previous trialware concern is resolved.
+
+It should not yet be submitted because the MU fast path can ignore configured
+rate limits and load an inactive Pro installation, and because an obsolete
+internal noncompliance report is included in the public ZIP. Resolve those
+three blockers, complete the medium-priority release hygiene work, then run
+Plugin Check against the exact rebuilt artifact.

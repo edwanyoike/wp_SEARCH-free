@@ -474,12 +474,19 @@ class Admin_Settings {
 			as_unschedule_all_actions( null, array(), 'turbo-search-for-woocommerce' );
 		}
 
-		// Flush the external object cache (Redis/Memcached) so that stale wcs_ option
-		// values don't linger after the direct SQL DELETE above. Without this flush,
-		// update_option('wcs_db_version') silently fails on every subsequent page load
-		// because the cache claims the old value still exists, causing create_tables()
-		// to run on every request and blocking PHP-FPM workers.
-		wp_cache_flush();
+		// A global wp_cache_flush() previously ran here to guard against a stale
+		// wcs_db_version option value surviving in a persistent object cache
+		// (Redis/Memcached) after the direct SQL DELETE above, which bypasses
+		// the options API's own cache invalidation for anything it touches.
+		// That flush cleared every plugin's cached objects on this site, not
+		// just this plugin's — WooCommerce and any other active plugin lost
+		// their cache too, risking a stampede on a large store. The options
+		// this handler itself deletes above already go through delete_option(),
+		// which invalidates its own object-cache entry correctly; the specific
+		// residual risk (wcs_db_version reappearing stale) is independently
+		// guarded in Activator::init(), which writes it back with
+		// delete_option()+add_option() rather than update_option() for exactly
+		// this reason — see that method's own comment. No global flush needed.
 
 		// Invalidate OPcache entries for this plugin's files only — not the whole
 		// server — so stale bytecode doesn't outlive the data reset.

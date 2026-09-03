@@ -31,6 +31,25 @@ if ( ! defined( 'ABSPATH' ) ) {
 class Rate_Limiter {
 
 	/**
+	 * Resolve the administrator-configured search rate-limit bounds.
+	 *
+	 * Single source of truth for the option names, defaults, and the
+	 * max(1, ...) clamp — used by both the REST route
+	 * (Search_Handler::check_permissions()) and the MU cache-bypass fast
+	 * path, so the two can never drift onto different effective limits for
+	 * the same configured setting the way they once did (the MU path used to
+	 * hardcode 60/minute regardless of this option).
+	 *
+	 * @return array{0: int, 1: int} [max_requests, window_seconds].
+	 */
+	public static function resolved_search_limit(): array {
+		return array(
+			max( 1, (int) get_option( 'wcs_rate_limit_requests', 60 ) ),
+			max( 1, (int) get_option( 'wcs_rate_limit_window', MINUTE_IN_SECONDS ) ),
+		);
+	}
+
+	/**
 	 * Record one hit against $key and report whether it is within the limit.
 	 *
 	 * Fixed window: bucketed to wall-clock time (floor(time()/window) *

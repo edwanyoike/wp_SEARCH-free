@@ -74,6 +74,15 @@ sed -i "s/^\( \* Version:\s*\)${OLD_VERSION}/\1${VERSION}/" \
     "$REPO_DIR/turbo-search-for-woocommerce.php"
 sed -i "s/^Stable tag:\s*${OLD_VERSION}/Stable tag:        ${VERSION}/" \
     "$REPO_DIR/readme.txt"
+# The MU companion file's header comment has no functional role (it carries
+# no Plugin Name header, so WordPress never lists or version-checks it — the
+# real install/update sync uses a content hash and the wcs_mu_version option,
+# both handled by Activator::install_mu_plugin()), but a stale comment here
+# has previously been flagged as confusing during release review. Matched
+# generically, not against $OLD_VERSION, since this comment can drift stale
+# across more than one release between edits.
+sed -i "s/^\( \* Version:\s*\)[0-9][0-9.]*/\1${VERSION}/" \
+    "$REPO_DIR/mu-plugin/wcs-cache-bypass.php"
 
 ZIP_NAME="${PLUGIN_SLUG}-${VERSION}.zip"
 
@@ -98,6 +107,26 @@ if [ -x "$REPO_DIR/vendor/bin/phpunit" ]; then
   fi
 else
   echo "==> Step 0: PHPUnit not installed (run 'composer install') — skipping tests."
+fi
+
+# ── Step 0b: Regenerate the translation template ───────────────────────────────
+# Keeps languages/*.pot from silently drifting stale (wrong Project-Id-Version,
+# missing strings for anything added since the last regeneration) the way it
+# once did for several releases in a row. Requires the wp-cli i18n command;
+# skips gracefully when unavailable rather than failing the build over it.
+if command -v wp >/dev/null 2>&1; then
+  echo "==> Step 0b: Regenerating translation template..."
+  wp i18n make-pot "$REPO_DIR" "$REPO_DIR/languages/${PLUGIN_SLUG}.pot" \
+    --slug="${PLUGIN_SLUG}" \
+    --domain="${PLUGIN_SLUG}" \
+    --exclude=tests,vendor,dist,hooks,releasenotes,.kiro,.phpunit.cache,.playwright-mcp \
+    --headers="{\"Report-Msgid-Bugs-To\":\"https://wordpress.org/support/plugin/${PLUGIN_SLUG}\"}" \
+    --quiet || {
+      echo "Error: POT regeneration failed — aborting build." >&2
+      exit 1
+    }
+else
+  echo "==> Step 0b: wp-cli not installed — skipping POT regeneration (languages/*.pot may be stale)."
 fi
 
 # ── Step 1: Commit ─────────────────────────────────────────────────────────────
@@ -151,6 +180,7 @@ rsync -a \
   --exclude='/icon-*'          \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
+  --exclude='/WORDPRESS_ORG_*.txt' \
   "$REPO_DIR/" "$TMP_DIR/"
 
 # Regression guard: these paths are development tooling or repository
@@ -172,6 +202,20 @@ for forbidden_path in \
 	.playwright-mcp; do
 	if [ -e "$TMP_DIR/$forbidden_path" ]; then
 		echo "Error: development-only path was staged: $forbidden_path" >&2
+		exit 1
+	fi
+done
+
+# Positive allowlist for root-level .txt files: only readme.txt and
+# changelog.txt are ever meant to ship. This catches any future internal
+# report/notes file by shape rather than by name — a WORDPRESS_ORG_REVIEW_*.txt
+# internal audit once shipped in a real release ZIP because nothing asserted
+# the root file list, only excluded specific known names.
+for txt_file in "$TMP_DIR"/*.txt; do
+	[ -f "$txt_file" ] || continue
+	base="$(basename "$txt_file")"
+	if [ "$base" != "readme.txt" ] && [ "$base" != "changelog.txt" ]; then
+		echo "Error: unexpected root-level .txt file staged: $base" >&2
 		exit 1
 	fi
 done

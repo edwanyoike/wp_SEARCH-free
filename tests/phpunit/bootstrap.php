@@ -136,6 +136,13 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_objects_in_term']     = array();
 	$GLOBALS['wcs_test_usleeps']             = array();
 	$GLOBALS['wcs_test_http_response']       = null;
+	$GLOBALS['wcs_test_cache_flush_calls']   = 0;
+	$GLOBALS['wcs_test_is_multisite']        = false;
+	$GLOBALS['wcs_test_site_options']        = array();
+	$GLOBALS['wcs_test_all_site_ids']        = array();
+	$GLOBALS['wcs_test_switched_blogs']      = array();
+	$GLOBALS['wcs_test_current_blog_stack']  = array();
+	$GLOBALS['wcs_test_restored_blogs_count'] = 0;
 	// Unset (not merely reset) so dynamic_batch_size() falls through to the
 	// real system functions by default; tests opt in explicitly.
 	unset( $GLOBALS['wcs_test_loadavg'], $GLOBALS['wcs_test_memory_usage'], $GLOBALS['wcs_test_memory_limit'] );
@@ -167,6 +174,14 @@ wcs_tests_reset();
 
 // ── Options / transients ───────────────────────────────────────────────────
 function get_option( string $name, $default = false ) {
+	// 'active_plugins' is backed by the same $GLOBALS['wcs_test_active_plugins']
+	// the is_plugin_active() stub below reads, so any code path that reads the
+	// option directly (e.g. the MU plugin, which avoids loading
+	// wp-admin/includes/plugin.php) agrees with is_plugin_active() on what's
+	// active in a given test.
+	if ( 'active_plugins' === $name ) {
+		return $GLOBALS['wcs_test_active_plugins'] ?? array();
+	}
 	return array_key_exists( $name, $GLOBALS['wcs_test_options'] ) ? $GLOBALS['wcs_test_options'][ $name ] : $default;
 }
 function update_option( string $name, $value, $autoload = null ): bool {
@@ -355,6 +370,7 @@ function wp_cache_delete( $key, $group = '' ): bool {
 	return true;
 }
 function wp_cache_flush(): bool {
+	$GLOBALS['wcs_test_cache_flush_calls'] = ( $GLOBALS['wcs_test_cache_flush_calls'] ?? 0 ) + 1;
 	return true;
 }
 function rest_ensure_response( $response ) {
@@ -685,7 +701,36 @@ function is_admin(): bool {
 	return ! empty( $GLOBALS['wcs_test_is_admin'] );
 }
 function is_multisite(): bool {
-	return false;
+	return ! empty( $GLOBALS['wcs_test_is_multisite'] );
+}
+function get_site_option( string $name, $default = false ) {
+	return array_key_exists( $name, $GLOBALS['wcs_test_site_options'] ?? array() ) ? $GLOBALS['wcs_test_site_options'][ $name ] : $default;
+}
+/**
+ * Minimal get_sites( ['fields' => 'ids', 'number' => ..., 'offset' => ...] )
+ * stand-in — pages through $GLOBALS['wcs_test_all_site_ids'] the same way
+ * WordPress core's own get_sites() pages through wp_blogs, so
+ * Activator::each_network_site()'s pagination loop can be tested without a
+ * real multisite install.
+ */
+function get_sites( array $args = array() ): array {
+	$all    = $GLOBALS['wcs_test_all_site_ids'] ?? array();
+	$number = $args['number'] ?? count( $all );
+	$offset = $args['offset'] ?? 0;
+	return array_slice( $all, $offset, $number );
+}
+function switch_to_blog( int $site_id ): bool {
+	$GLOBALS['wcs_test_current_blog_stack'][] = $site_id;
+	$GLOBALS['wcs_test_switched_blogs'][]     = $site_id;
+	return true;
+}
+function restore_current_blog(): bool {
+	if ( ! isset( $GLOBALS['wcs_test_current_blog_stack'] ) ) {
+		$GLOBALS['wcs_test_current_blog_stack'] = array();
+	}
+	array_pop( $GLOBALS['wcs_test_current_blog_stack'] );
+	$GLOBALS['wcs_test_restored_blogs_count'] = ( $GLOBALS['wcs_test_restored_blogs_count'] ?? 0 ) + 1;
+	return true;
 }
 function dbDelta( $queries ): array {
 	$GLOBALS['wcs_test_dbdelta'][] = $queries;
