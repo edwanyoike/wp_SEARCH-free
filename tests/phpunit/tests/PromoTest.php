@@ -76,4 +76,61 @@ final class PromoTest extends TestCase {
 		) );
 		$this->assertNull( Promo::get() );
 	}
+
+	public function test_link_url_outside_allowed_hosts_is_dropped_not_the_whole_promo(): void {
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => 'https://evil.example.com/phish',
+			'link_text'  => 'Click me',
+		) );
+
+		$promo = Promo::get();
+
+		$this->assertNotNull( $promo, 'an untrusted link_url must not sink the whole promo' );
+		$this->assertSame( '', $promo['link_url'] );
+	}
+
+	public function test_link_url_with_tracking_param_is_dropped(): void {
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => 'https://ozulabs.com/plugins/turbo-search/?utm_source=promo',
+			'link_text'  => 'Click me',
+		) );
+
+		$promo = Promo::get();
+
+		$this->assertSame( '', $promo['link_url'] );
+	}
+
+	public function test_non_https_link_url_is_dropped(): void {
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => 'http://ozulabs.com',
+			'link_text'  => 'Click me',
+		) );
+
+		$promo = Promo::get();
+
+		$this->assertSame( '', $promo['link_url'] );
+	}
+
+	public function test_allowed_host_link_url_is_kept(): void {
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => 'https://ozulabs.com/plugins/turbo-search/',
+			'link_text'  => 'Click me',
+		) );
+
+		$promo = Promo::get();
+
+		$this->assertSame( 'https://ozulabs.com/plugins/turbo-search/', $promo['link_url'] );
+	}
 }

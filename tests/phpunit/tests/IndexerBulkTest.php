@@ -130,6 +130,27 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) ) );
 	}
 
+	public function test_bulk_indexes_more_than_a_hundred_products_in_one_call(): void {
+		// Regression coverage for the removed FREE_PRODUCT_CAP: this edition
+		// must index a catalog well past the old 100-product ceiling with no
+		// special-casing at any count.
+		$ids         = range( 1, 150 );
+		$lookup_rows = array();
+		foreach ( $ids as $id ) {
+			$this->post( $id, "Product $id" );
+			$lookup_rows[ $id ] = $this->lookupRow( $id, "SKU-$id" );
+		}
+		$this->lookupHandler( $lookup_rows );
+
+		$this->bulk( $ids );
+
+		$replace = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_starts_with( $q, 'REPLACE INTO' ) ) );
+		$this->assertCount( 1, $replace, 'a single call indexes every product in one REPLACE, regardless of count' );
+		$this->assertStringContainsString( 'Product 1', $replace[0] );
+		$this->assertStringContainsString( 'Product 101', $replace[0] );
+		$this->assertStringContainsString( 'Product 150', $replace[0] );
+	}
+
 	public function test_bulk_appends_variation_skus_to_content(): void {
 		$this->post( 1, 'Variable Lamp' );
 		$this->lookupHandler(

@@ -9,7 +9,6 @@
  * @var string $last_rebuild_error Non-empty error code when idle after a failed rebuild.
  * @var int    $total              Published product count.
  * @var int    $processed          Products processed in the current/last rebuild.
- * @var int    $product_cap        Maximum products this edition indexes (Indexer::FREE_PRODUCT_CAP).
  *
  * @package WP_Fast_Search
  */
@@ -18,37 +17,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 ?>
-<?php if ( $total > $product_cap ) : ?>
-<div style="margin-top: 20px; padding: 12px 16px; background: #fef8ee; border-left: 4px solid #d97706; border-radius: 0 4px 4px 0; font-size: 13px; line-height: 1.6;">
-	<strong><?php esc_html_e( 'Only part of your catalog is searchable.', 'turbo-search-for-woocommerce' ); ?></strong>
-	<?php
-	printf(
-		/* translators: 1: number of products indexed, 2: total published products */
-		esc_html__( 'The free edition indexes up to %1$d products — your store has %2$d published products, so the rest do not appear in search results.', 'turbo-search-for-woocommerce' ),
-		(int) $product_cap,
-		(int) $total
-	);
-	?>
-	<?php esc_html_e( 'Upgrade to Turbo Search Pro for unlimited indexed products — see', 'turbo-search-for-woocommerce' ); ?>
-	<a href="https://ozulabs.com" target="_blank" rel="noopener">ozulabs.com</a>.
-</div>
-<?php endif; ?>
-
-<div class="card" style="max-width: 600px; margin-top: 20px; border-left: 4px solid #2E7D32;">
-	<h2 style="margin-top:0;"><?php esc_html_e( 'Unlock More With Turbo Search Pro', 'turbo-search-for-woocommerce' ); ?></h2>
-	<ul style="margin:0 0 12px 20px; list-style:disc;">
-		<li><?php esc_html_e( 'Typo tolerance — misspelled searches are auto-corrected against your catalog', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Search synonyms — teach the search box your customers\' own words', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Category & brand suggestions in the dropdown', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Ranking-weight tuning and sales-weighted ranking', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Zero-result search analytics dashboard', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Multi-currency price support (CURCY, WOOCS, WooCommerce Multilingual)', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Unlimited indexed products (this edition indexes up to 100)', 'turbo-search-for-woocommerce' ); ?></li>
-		<li><?php esc_html_e( 'Export/Import Settings — move configuration between sites as a JSON file', 'turbo-search-for-woocommerce' ); ?></li>
-	</ul>
-	<a href="https://ozulabs.com" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e( 'Upgrade to Pro', 'turbo-search-for-woocommerce' ); ?></a>
-</div>
-
 <div class="card" style="max-width: 600px; margin-top: 20px;">
 	<h2><?php esc_html_e( 'Index Status', 'turbo-search-for-woocommerce' ); ?></h2>
 	<p id="wcs-status-wrapper">
@@ -126,23 +94,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
-			<th scope="row"><?php esc_html_e( 'Search Merchandising', 'turbo-search-for-woocommerce' ); ?></th>
-			<td>
-				<textarea class="large-text code" rows="4" disabled placeholder="desk lamp | pin | 123,456"></textarea>
-				<p class="description">
-				<?php
-				echo wp_kses( sprintf( /* translators: %s: Pro product page URL */ __( 'Pin, bury, exclude, redirect, and behavioral ranking are available in <a href="%s" target="_blank" rel="noopener">Turbo Search Pro</a>.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
-					'a' => array(
-						'href'   => array(),
-						'target' => array(),
-						'rel'    => array(),
-					),
-				) );
-				?>
-				</p>
-			</td>
-		</tr>
-		<tr>
 			<th scope="row">
 				<label for="wcs_min_chars"><?php esc_html_e( 'Minimum Characters', 'turbo-search-for-woocommerce' ); ?></label>
 				<div class="wcs-tooltip">
@@ -203,25 +154,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
-			<th scope="row"><?php esc_html_e( 'Quick Add to Cart', 'turbo-search-for-woocommerce' ); ?></th>
-			<td>
-				<fieldset disabled>
-					<label><input type="checkbox" /> <?php esc_html_e( 'Show a quantity selector and Add to Cart button on each result.', 'turbo-search-for-woocommerce' ); ?></label>
-				</fieldset>
-				<p class="description">
-				<?php
-				echo wp_kses( sprintf( /* translators: %s: Pro product page URL */ __( 'Quick Add to Cart is available in <a href="%s" target="_blank" rel="noopener">Turbo Search Pro</a>.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
-					'a' => array(
-						'href'   => array(),
-						'target' => array(),
-						'rel'    => array(),
-					),
-				) );
-				?>
-				</p>
-			</td>
-		</tr>
-		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Out of Stock Products', 'turbo-search-for-woocommerce' ); ?>
 				<div class="wcs-tooltip">
@@ -275,51 +207,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 				</fieldset>
 			</td>
 		</tr>
-		<tr>
-			<th scope="row">
-				<label for="wcs_synonyms"><?php esc_html_e( 'Search Synonyms', 'turbo-search-for-woocommerce' ); ?></label>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'One group per line, words separated by commas. Every word in a group matches products containing any other word in that group. Example: "sofa, couch, settee" makes a search for sofa also find couches.', 'turbo-search-for-woocommerce' ); ?></span>
-				</div>
-			</th>
-			<td>
-				<textarea class="large-text code" rows="5" disabled placeholder="sofa, couch, settee&#10;tee, t shirt, tshirt"></textarea>
-				<p class="description">
-				<?php
-				echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Search synonyms is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
-					'a' => array(
-						'href'   => array(),
-						'target' => array(),
-						'rel'    => array(),
-					),
-				) );
-				?>
-				</p>
-			</td>
-		</tr>
-		<tr>
-			<th scope="row">
-				<?php esc_html_e( 'Ranking Weights', 'turbo-search-for-woocommerce' ); ?>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'Tune how strongly each signal influences result order — title match, exact SKU, stock status, sales, and more.', 'turbo-search-for-woocommerce' ); ?></span>
-				</div>
-			</th>
-			<td>
-				<p class="description">
-				<?php
-				echo wp_kses( sprintf( /* translators: %s: link to ozulabs.com */ __( 'Ranking weight tuning is a Pro feature. <a href="%s" target="_blank" rel="noopener">Upgrade to Pro</a> to enable it.', 'turbo-search-for-woocommerce' ), esc_url( 'https://ozulabs.com' ) ), array(
-					'a' => array(
-						'href'   => array(),
-						'target' => array(),
-						'rel'    => array(),
-					),
-				) );
-				?>
-				</p>
-			</td>
-		</tr>
 	</table>
 	<?php submit_button(); ?>
 </form>
+
+<div class="card" style="max-width: 600px; margin-top: 20px; border-left: 4px solid #2E7D32;">
+	<h2 style="margin-top:0;"><?php esc_html_e( 'Turbo Search Pro', 'turbo-search-for-woocommerce' ); ?></h2>
+	<p><?php esc_html_e( 'Adds typo tolerance, search synonyms, category/brand suggestions, search merchandising (pin/bury/exclude/redirect), ranking-weight tuning, zero-result analytics, Quick Add to Cart, multi-currency pricing, and settings export/import — for stores that need more than the core search this edition already provides.', 'turbo-search-for-woocommerce' ); ?></p>
+	<a href="https://ozulabs.com/plugins/turbo-search/" target="_blank" rel="noopener" class="button button-primary"><?php esc_html_e( 'Learn more about Turbo Search Pro', 'turbo-search-for-woocommerce' ); ?></a>
+</div>

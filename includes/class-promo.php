@@ -30,6 +30,57 @@ class Promo {
 	const PLUGIN_SLUG = 'turbo_search_free';
 
 	/**
+	 * Hostnames the remote promo's link_url is allowed to point at. The
+	 * message/link content is server-controlled, so this bounds it to
+	 * OzuLabs' own properties rather than trusting the endpoint to never be
+	 * compromised or repurposed for third-party advertising.
+	 */
+	const ALLOWED_LINK_HOSTS = array( 'ozulabs.com', 'ozupay.com' );
+
+	/**
+	 * Query-string keys that mark a URL as carrying referral/affiliate/click
+	 * tracking rather than a plain page link.
+	 */
+	const TRACKING_PARAM_PREFIXES = array( 'utm_', 'ref', 'affiliate', 'click_id', 'fbclid', 'gclid' );
+
+	/**
+	 * Validate a remotely-supplied link_url against the first-party
+	 * hostname allow-list and reject any tracking query parameters.
+	 *
+	 * @param string $url Raw link_url from the promo payload.
+	 * @return string The URL if it passes, or '' if it doesn't (never linked).
+	 */
+	private static function sanitize_link_url( string $url ): string {
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$parts = wp_parse_url( $url );
+		if ( empty( $parts['host'] ) || empty( $parts['scheme'] ) || 'https' !== $parts['scheme'] ) {
+			return '';
+		}
+
+		$host = strtolower( $parts['host'] );
+		if ( ! in_array( $host, self::ALLOWED_LINK_HOSTS, true ) ) {
+			return '';
+		}
+
+		if ( ! empty( $parts['query'] ) ) {
+			parse_str( $parts['query'], $query_args );
+			foreach ( array_keys( $query_args ) as $key ) {
+				$key = strtolower( $key );
+				foreach ( self::TRACKING_PARAM_PREFIXES as $prefix ) {
+					if ( str_starts_with( $key, $prefix ) ) {
+						return '';
+					}
+				}
+			}
+		}
+
+		return esc_url_raw( $url );
+	}
+
+	/**
 	 * Current promo payload, or null if none is active. Cached in a
 	 * transient; fetches at most once per CACHE_TTL (or FAIL_TTL after a
 	 * failure) regardless of how many admin pages are viewed in between.
@@ -66,7 +117,7 @@ class Promo {
 				'active'     => true,
 				'dismiss_id' => sanitize_key( (string) ( $body['dismiss_id'] ?? '' ) ),
 				'message'    => (string) ( $body['message'] ?? '' ),
-				'link_url'   => (string) ( $body['link_url'] ?? '' ),
+				'link_url'   => self::sanitize_link_url( (string) ( $body['link_url'] ?? '' ) ),
 				'link_text'  => (string) ( $body['link_text'] ?? '' ),
 			);
 

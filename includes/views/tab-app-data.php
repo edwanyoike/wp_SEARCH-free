@@ -12,12 +12,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 ?>
-<div class="card" style="max-width: 600px; margin-top: 20px; opacity: 0.6;">
-	<h2><?php esc_html_e( 'Export / Import Settings', 'turbo-search-for-woocommerce' ); ?> <span style="font-weight:normal; font-size: 13px;">(<?php esc_html_e( 'Pro', 'turbo-search-for-woocommerce' ); ?>)</span></h2>
-	<p><?php esc_html_e( 'Move settings, search-button appearance, and ranking-weight tuning between sites (e.g. staging to production) as a JSON file. Your license key and search index are never included.', 'turbo-search-for-woocommerce' ); ?></p>
-	<a href="https://ozulabs.com" target="_blank" rel="noopener" class="button" disabled="disabled" style="pointer-events: none;"><?php esc_html_e( 'Export Settings', 'turbo-search-for-woocommerce' ); ?></a>
-	<a href="https://ozulabs.com" target="_blank" rel="noopener" class="button button-primary" style="margin-left: 8px;"><?php esc_html_e( 'Upgrade to Pro', 'turbo-search-for-woocommerce' ); ?></a>
-</div>
 <form method="post" action="options.php" style="margin-top: 20px;">
 	<?php settings_fields( 'wcs_data_settings_group' ); ?>
 	<table class="form-table" role="presentation">

@@ -353,18 +353,24 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertStringContainsString( 'settings_fields:wcs_settings_group', $html );
 	}
 
-	public function test_settings_tab_shows_pro_upsell_and_disabled_feature_stubs(): void {
+	public function test_settings_tab_shows_a_single_compact_pro_card_below_the_form(): void {
 		ob_start();
 		Admin_Settings::render_settings_page();
 		$html = ob_get_clean();
 
-		$this->assertStringContainsString( 'Unlock More With Turbo Search Pro', $html );
-		$this->assertStringContainsString( 'https://ozulabs.com', $html );
-		$this->assertStringContainsString( 'Search synonyms is a Pro feature', $html );
-		$this->assertStringContainsString( 'Ranking weight tuning is a Pro feature', $html );
-		// The synonyms textarea must be disabled and unnamed so it can never submit —
-		// Free has no wcs_synonyms option to receive it.
-		$this->assertMatchesRegularExpression( '/<textarea[^>]*\bdisabled\b[^>]*>/', $html );
+		$this->assertStringContainsString( 'Turbo Search Pro', $html );
+		$this->assertStringContainsString( 'https://ozulabs.com/plugins/turbo-search/', $html );
+		// Only one Pro promotion on the whole page — the compact comparison
+		// card — and it renders after the working Free settings form closes,
+		// not above it.
+		$this->assertSame( 1, substr_count( $html, 'class="card" style="max-width: 600px; margin-top: 20px; border-left: 4px solid #2E7D32;"' ) );
+		$this->assertGreaterThan( strpos( $html, '</form>' ), strpos( $html, 'Turbo Search Pro' ), 'the Pro card must render after the Free settings form' );
+		// No disabled placeholder controls advertising absent Pro functionality —
+		// mentioning a Pro feature once in the comparison card's own copy is
+		// fine, a fake disabled form control standing in for it is not.
+		$this->assertDoesNotMatchRegularExpression( '/<textarea[^>]*\bdisabled\b[^>]*>/', $html );
+		$this->assertDoesNotMatchRegularExpression( '/<fieldset\s+disabled\b[^>]*>/', $html );
+		$this->assertStringNotContainsString( 'th scope="row">Search Merchandising', $html );
 	}
 
 	public function test_data_tab_renders_uninstall_form_and_danger_zone(): void {

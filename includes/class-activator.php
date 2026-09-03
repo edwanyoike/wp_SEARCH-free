@@ -58,7 +58,6 @@ class Activator {
 		'wcs_search_content',
 		'wcs_search_taxonomy',
 		'wcs_delete_data_on_uninstall',
-		'wcs_free_cap_reached',
 		'wcs_rate_limit_requests',
 		'wcs_rate_limit_window',
 		'wcs_fallback_rate_limit_requests',

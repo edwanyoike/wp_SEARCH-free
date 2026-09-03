@@ -1,0 +1,513 @@
+Turbo Search for WooCommerce (Free)
+WordPress.org Submission Review — Version 1.5.1
+Review date: 2026-09-03
+
+======================================================================
+1. EXECUTIVE SUMMARY
+======================================================================
+
+Submission verdict: NOT READY FOR WORDPRESS.ORG SUBMISSION
+
+The current Free plugin is functional and its automated PHP tests pass, but
+three submission blockers remain:
+
+1. The Free edition stops indexing after 100 products and explicitly offers
+   payment/upgrade to remove that quota. This closely matches WordPress.org
+   Guideline 5's prohibited trialware pattern.
+2. The PHPCS coding-standards gate fails with 36 errors.
+3. readme.txt is 13,868 bytes, above the approximately 10 KB WordPress.org
+   guidance and the repository's own documented release threshold.
+
+The Pro feature implementation is generally separated correctly: the Free
+package does not contain the Pro license, updater, telemetry, analytics,
+settings-export, feature-management, or Pro-only admin-tab classes. However,
+the Free settings interface contains many separate Pro advertisements and
+disabled placeholder controls. WordPress.org permits reasonable upsells on a
+plugin's own settings screen, but requires upgrade prompts to be limited in
+scope and used sparingly. The current density creates avoidable Guideline 11
+review risk.
+
+The existing WORDPRESS_ORG_COMPLIANCE.md assessment that the 100-product cap
+is acceptable should not be relied upon. The current official Guideline 5
+wording expressly prohibits functionality being disabled after a quota is
+met, even when the quota does not expire by time.
+
+Official guideline reference:
+https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/
+
+
+======================================================================
+2. REVIEW SCOPE AND METHOD
+======================================================================
+
+The review covered:
+
+- Current wp_search-free source at version 1.5.1.
+- The built artifact:
+  dist/turbo-search-for-woocommerce-1.5.1.zip
+- Plugin and readme version metadata.
+- Every visible Free-to-Pro promotion found by source search.
+- Presence or absence of the corresponding Pro implementation in Free.
+- License, updater, telemetry, analytics, and feature-gating code.
+- Remote promotional-banner behavior.
+- WordPress.org Guidelines 5 and 11.
+- PHPCS and PHPUnit gates.
+- ZIP integrity, package hygiene, and source/package hashes.
+- readme.txt size and historical changelog growth.
+
+The review did not modify the plugin's runtime behavior. This document records
+findings and recommended remediation only.
+
+
+======================================================================
+3. BLOCKING FINDINGS
+======================================================================
+
+BLOCKER 1 — 100-PRODUCT QUOTA / GUIDELINE 5 TRIALWARE RISK
+Severity: BLOCKING
+
+Evidence:
+
+- includes/class-indexer.php:52
+  Defines Indexer::FREE_PRODUCT_CAP as 100.
+
+- includes/class-indexer.php:383 and later indexing paths
+  Apply the cap to the products selected for indexing.
+
+- includes/views/tab-settings.php:21-34
+  Warns that only part of the catalog is searchable and tells the user that
+  upgrading to Pro provides unlimited indexed products.
+
+- readme.txt:18-21
+  Describes Free as indexing up to 100 products and Pro as removing the limit.
+
+- readme.txt:58-64
+  States that products beyond the 100th are not searchable until the user
+  upgrades.
+
+Why this is a blocker:
+
+Official Guideline 5 states that plugins may not contain functionality that is
+restricted or locked only to be made available by payment or upgrade, and that
+functionality may not be disabled after a trial period or quota is met. The
+Free package contains a working local indexer and deliberately stops that
+indexer at a payment-linked quota. This is materially different from excluding
+a separate Pro-only feature such as analytics or synonym expansion.
+
+The fact that the quota is permanent rather than time-limited does not remove
+the risk: the official rule explicitly mentions quotas.
+
+Required remediation:
+
+- Remove FREE_PRODUCT_CAP from the Free indexing path.
+- Allow Free to index the complete published-product catalog.
+- Remove the partial-catalog warning and every statement that payment removes
+  the indexing quota.
+- Keep the paid edition differentiated through genuinely separate features:
+  typo correction, synonyms, analytics, merchandising, ranking controls,
+  category/brand suggestions, Quick Add to Cart, multi-currency conversion,
+  import/export, and similar functionality whose implementation does not ship
+  in Free.
+- Add tests proving Free indexes more than 100 published products.
+
+
+BLOCKER 2 — PHPCS GATE FAILS
+Severity: BLOCKING
+
+Command executed:
+
+composer lint --no-interaction
+
+Result: failed with 36 errors.
+
+Finding A — 35 auto-fixable array-layout errors
+
+- File: includes/class-query-normalizer.php
+- Lines: 61-64
+- Sniff: WordPress.Arrays.ArrayDeclarationSpacing.ArrayItemNoNewLine
+- Cause: several items are placed on the same line inside a multi-line array.
+
+Required remediation:
+
+- Format each multi-line array item on its own line.
+- PHPCBF reports that all 35 findings are automatically fixable.
+- Review the resulting diff rather than accepting a broad unrelated reformat.
+
+Finding B — interpolated SQL identifier
+
+- File: includes/class-indexer.php
+- Line: 1364
+- Sniff: WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+- Current shape:
+  DELETE FROM {$rl_table} WHERE window_start < %d
+
+Required remediation:
+
+- Pass the table name through the $wpdb->prepare() %i identifier placeholder.
+- Retain the timestamp as a %d placeholder.
+- Keep any PHPCS/Plugin Check suppressions limited to the completed prepared
+  statement and explain only the direct-query/no-cache behavior; do not
+  suppress unprepared interpolation.
+- Add or update a unit/package-contract assertion for this query if practical.
+
+Acceptance criterion:
+
+composer lint --no-interaction
+
+must finish with zero errors and zero warnings.
+
+
+BLOCKER 3 — README EXCEEDS SIZE GUIDANCE
+Severity: BLOCKING FOR RELEASE PROCESS
+
+Measured size:
+
+13,868 bytes
+
+The repository's compliance standard follows WordPress.org guidance that
+readme files above approximately 10 KB may cause errors. The historical
+changelog has continued growing and the previously non-blocking suggestion is
+now an actual release issue.
+
+Required remediation:
+
+- Create changelog.txt for historical release notes.
+- Keep only version 1.5.1, or at most the current and immediately previous
+  relevant release, under readme.txt's Changelog section.
+- Recheck that the resulting readme is below 10 KB.
+- Run the WordPress.org Readme Validator against the final readme.
+- Ensure Stable tag remains synchronized with the main PHP Version header.
+
+
+======================================================================
+4. PRO UPSELL REVIEW
+======================================================================
+
+Overall assessment:
+
+- It is acceptable to mention a separately distributed paid add-on/edition.
+- The Free package generally excludes the actual Pro implementations.
+- The number and placement of promotions are excessive and create a human
+  review risk under Guideline 11.
+- Disabled controls visually imitate functionality that the user cannot use.
+  They are safer than shipping license-locked executable code, but they make
+  the settings screen harder to use and reinforce a "locked features" design.
+
+
+UPSELL 1 — Partial-catalog/product-cap warning
+
+Location:
+includes/views/tab-settings.php:21-34
+
+Assessment:
+BLOCKING because it advertises payment as the way to remove a quota applied to
+the Free plugin's included indexing functionality. This must be removed with
+the product cap.
+
+
+UPSELL 2 — Large "Unlock More With Turbo Search Pro" card
+
+Location:
+includes/views/tab-settings.php:37-50
+
+Behavior:
+Appears near the top of the primary Settings tab, before Index Status and the
+actual configuration form. It lists eight paid benefits and includes a primary
+upgrade button.
+
+Assessment:
+Not independently prohibited, because it is confined to the plugin's own
+settings screen. However, its top-of-page placement competes with the plugin's
+actual controls and contributes strongly to Guideline 11 risk.
+
+Recommendation:
+
+- Retain at most one compact comparison/upgrade card.
+- Move it below all functional Free settings.
+- Avoid making the paid promotion the first persistent card on the main tab.
+- Link to a dedicated Turbo Search product page rather than the generic
+  ozulabs.com homepage.
+
+
+UPSELL 3 — Search Merchandising disabled textarea
+
+Location:
+includes/views/tab-settings.php:128-144
+
+Assessment:
+The actual merchandising implementation is absent from Free, which is good.
+The disabled textarea is only an advertisement masquerading as a setting.
+
+Recommendation:
+Remove the disabled textarea and its table row. If the feature needs mention,
+include it once in the compact Pro comparison card.
+
+
+UPSELL 4 — Quick Add to Cart disabled checkbox
+
+Location:
+includes/views/tab-settings.php:205-220
+
+Assessment:
+The working Pro feature is absent from Free. The disabled checkbox still adds a
+non-functional control to the Free settings form solely for promotion.
+
+Recommendation:
+Remove the disabled control and its table row. Mention the feature in the
+single Pro comparison card instead.
+
+
+UPSELL 5 — Search Synonyms disabled textarea
+
+Location:
+includes/views/tab-settings.php:278-300
+
+Related implementation:
+includes/class-query-normalizer.php:248-258
+
+Assessment:
+The Free synonym_map() implementation always returns an empty array and the
+Pro settings option is not registered, so working synonym functionality is not
+license-locked in Free. That separation is compliant. The disabled textarea is
+still unnecessary promotional UI.
+
+Recommendation:
+Remove the disabled textarea/row and retain the absent/inert implementation
+boundary. Mention synonyms in the single comparison card.
+
+
+UPSELL 6 — Ranking Weights promotion
+
+Location:
+includes/views/tab-settings.php:301-320
+
+Related implementation:
+includes/class-search-handler.php:293 onward
+
+Assessment:
+Free uses fixed built-in ranking defaults and does not expose Pro tuning. There
+is no disabled input, so this is less misleading than the other rows. It is
+still another standalone promotion inside the settings table.
+
+Recommendation:
+Remove the promotional row and list ranking customization in the compact Pro
+comparison card.
+
+
+UPSELL 7 — Export/Import Settings disabled card
+
+Location:
+includes/views/tab-app-data.php:15-20
+
+Assessment:
+The working Pro class, class-settings-export.php, is absent from Free. This is
+proper code separation. However, the App Data tab opens with an opaque card and
+a disabled button whose sole purpose is advertising.
+
+The sentence "Your license key and search index are never included" is also
+confusing in Free because this edition has no license key or license settings.
+
+Recommendation:
+Remove the entire disabled card from Free. The feature can be listed in the
+single Pro comparison card or on the product website.
+
+
+UPSELL 8 — Readme Pro comparisons
+
+Locations:
+readme.txt:18-21, 54-64 and historical changelog entries
+
+Assessment:
+A concise paid-edition comparison is acceptable. The current product-cap text
+must be removed because the quota itself is the Guideline 5 problem. The FAQ
+and opening description repeat the Pro pitch, while multiple historical
+changelog entries document the addition of disabled upsell controls.
+
+Recommendation:
+
+- Remove all 100-product quota language.
+- Keep one short "What does Pro add?" FAQ entry if desired.
+- Keep the main Description focused on Free functionality.
+- Move historical changelog entries to changelog.txt.
+
+
+UPSELL 9 — Remotely configured promotional notice
+
+Locations:
+includes/class-promo.php
+includes/class-admin-settings.php:66-94
+
+Positive controls:
+
+- Notice is limited to the plugin's own settings screen.
+- Notice is dismissible and dismissal is stored per administrator.
+- HTML is sanitized with wp_kses_post().
+- Link URL is escaped with esc_url().
+- The external request is disclosed in readme.txt.
+- The request sends a static plugin-edition identifier rather than site or
+  product data.
+
+Remaining risks:
+
+- Content and destination URL are remotely controlled.
+- link_url is not restricted to an OzuLabs/OzuPay first-party hostname.
+- Tracking query parameters are not rejected.
+- The service request itself necessarily exposes normal connection metadata,
+  such as the requesting server IP, to the endpoint even though the plugin
+  does not explicitly include it in the query payload.
+- A remotely changing ad is harder for a WordPress.org reviewer to assess than
+  static, versioned plugin copy.
+
+Recommendation:
+
+Safest option:
+- Remove the remote promo mechanism from the WordPress.org Free edition.
+
+Minimum-risk alternative:
+- Restrict links to an explicit first-party hostname allow-list.
+- Reject referral/affiliate/tracking parameters.
+- Ensure the endpoint serves only Turbo Search/OzuLabs product announcements,
+  never third-party advertising.
+- Keep the notice dismissible and confined to the plugin screen.
+- Update the External Services disclosure if request behavior changes.
+
+
+======================================================================
+5. PRO/FREE CODE-SEPARATION FINDINGS
+======================================================================
+
+The following Pro-only files exist in wp_search but are absent from
+wp_search-free:
+
+- includes/class-analytics-insights.php
+- includes/class-analytics-table.php
+- includes/class-features.php
+- includes/class-license-cache.php
+- includes/class-license.php
+- includes/class-metrics-buffer.php
+- includes/class-settings-export.php
+- includes/class-telemetry-reporter.php
+- includes/class-updater.php
+- includes/views/tab-analytics.php
+- includes/views/tab-appearance.php
+- includes/views/tab-license.php
+
+This is the correct freemium architecture: premium implementations are kept in
+the separately distributed Pro edition instead of being shipped and unlocked
+inside the WordPress.org package.
+
+Free contains references/comments needed for compatibility with the Pro
+edition, including active-plugin conflict detection and MU cache-key parity.
+Those references do not constitute license gating.
+
+Specific feature checks:
+
+- Search synonyms: executable expansion absent/inert in Free.
+- Typo correction: correction code absent from the Free request path.
+- Search analytics: classes/table UI absent from Free.
+- Settings import/export: implementation class absent from Free.
+- License activation and updater: absent from Free.
+- Telemetry reporter: absent from Free.
+- Ranking customization: no configurable Pro weights in Free; defaults remain
+  necessary for Free search behavior.
+- Multi-currency conversion: Free consistently uses the store currency; paid
+  conversion implementation is absent.
+- Search merchandising and Quick Add to Cart: advertised placeholders exist,
+  but their working implementations are absent.
+
+Conclusion:
+Most Pro features are separated correctly. The 100-product limit is the major
+exception because it restricts the included Free indexer rather than excluding
+a separate paid implementation.
+
+
+======================================================================
+6. OTHER REVIEW RESULTS
+======================================================================
+
+PHPUnit
+-------
+
+Command:
+./vendor/bin/phpunit --colors=never
+
+Result:
+PASS — 230 tests, 711 assertions.
+
+
+Release ZIP
+-----------
+
+Artifact:
+dist/turbo-search-for-woocommerce-1.5.1.zip
+
+Results:
+
+- ZIP integrity test passed.
+- Main PHP file in the ZIP matches the source SHA-256 hash.
+- readme.txt in the ZIP matches the source SHA-256 hash.
+- Previously removed development-only paths were not found.
+- Version header and Stable tag are both 1.5.1.
+
+
+Working tree
+------------
+
+The working tree was clean at the beginning of the review. This report is the
+only file added by the review itself.
+
+
+======================================================================
+7. REQUIRED REMEDIATION ORDER
+======================================================================
+
+1. Remove the 100-product indexing cap and all payment-linked quota copy.
+2. Add tests demonstrating indexing beyond 100 products in Free.
+3. Fix all 36 PHPCS errors and rerun composer lint.
+4. Move historical changelog entries to changelog.txt and reduce readme.txt
+   below 10 KB.
+5. Consolidate the many Pro promotions into one compact card below the Free
+   settings; remove disabled fake controls/cards.
+6. Remove the remote promo mechanism, or constrain it to safe first-party,
+   non-tracking content and links.
+7. Rebuild the release ZIP without changing its package hygiene rules.
+8. Confirm source/package hashes and ZIP integrity again.
+9. Run the official WordPress Plugin Check tool against the exact final ZIP.
+10. Run the WordPress.org Readme Validator against the final readme.
+11. Perform a live WordPress/WooCommerce smoke test with WP_DEBUG enabled.
+
+
+======================================================================
+8. FINAL ACCEPTANCE CHECKLIST
+======================================================================
+
+[ ] Free indexes more than 100 products with no payment-linked quota.
+[ ] No product-cap warning or quota claim remains in PHP/readme/languages.
+[ ] Pro functionality remains physically absent from the Free package.
+[ ] Disabled Pro placeholder controls have been removed or reduced to one
+    restrained comparison block.
+[ ] Remote promotional behavior has been removed or safely constrained.
+[ ] composer lint passes with zero findings.
+[ ] PHPUnit passes.
+[ ] readme.txt is below 10 KB.
+[ ] Version header, version constant, and Stable tag agree.
+[ ] External Services disclosure matches actual runtime network behavior.
+[ ] Release ZIP contains runtime files only.
+[ ] Release ZIP passes integrity testing.
+[ ] Packaged main PHP/readme files match source.
+[ ] Official Plugin Check passes against the exact upload ZIP.
+[ ] WordPress.org Readme Validator passes.
+[ ] Live WP_DEBUG smoke test produces no plugin warnings/notices/fatals.
+
+
+======================================================================
+9. FINAL VERDICT
+======================================================================
+
+Version 1.5.1 should not be submitted in its current state.
+
+The most important correction is removing the 100-product quota. The rest of
+the Pro feature implementation is largely separated correctly, but the Free
+admin experience should be simplified so it presents working Free settings
+first and treats the paid edition as a restrained, secondary option. PHPCS and
+readme-size failures must also be resolved before the final Plugin Check run.

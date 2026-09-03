@@ -418,14 +418,10 @@ class Admin_Settings {
 		}
 		$processed = min( (int) get_option( 'wcs_reindex_processed', 0 ), max( 1, $total ) );
 
-		// Product cap — this edition indexes at most Indexer::FREE_PRODUCT_CAP
-		// products; the rest are simply invisible to search until upgrading.
-		$product_cap = Indexer::FREE_PRODUCT_CAP;
-
 		// Markup lives in view templates; behaviour in assets/js/admin.js
 		// (enqueued by enqueue_admin_assets). $active_tab, $is_indexing,
-		// $last_indexed, $last_rebuild_error, $total, $processed,
-		// $product_cap are consumed by the views.
+		// $last_indexed, $last_rebuild_error, $total, $processed
+		// are consumed by the views.
 		include WCS_PLUGIN_DIR . 'includes/views/settings-page.php';
 	}
 

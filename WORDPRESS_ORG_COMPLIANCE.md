@@ -237,6 +237,13 @@ No un-prefixed custom hook found.
   names the endpoint, trigger, static plugin-edition parameter, cache periods, data not sent, and
   the provider's website/privacy policy. This replaces the original audit's changelog-only
   disclosure gap.
+- **`link_url` hardened 2026-09-03** (`Promo::sanitize_link_url()`, `class-promo.php`): the promo
+  payload's `message`/`link_text` are still remote-controlled content rendered via
+  `wp_kses_post()`/`esc_html()`, but `link_url` is now validated against an explicit hostname
+  allow-list (`ozulabs.com`, `ozupay.com`), rejected outright if not `https`, and rejected if its
+  query string carries any tracking-parameter prefix (`utm_`, `ref`, `affiliate`, `click_id`,
+  `fbclid`, `gclid`). A rejected `link_url` degrades to no link rather than sinking the whole promo
+  (the message still renders) — see `PromoTest.php`'s allow-list/tracking-param/non-https tests.
 
 ---
 
@@ -382,18 +389,24 @@ No un-prefixed custom hook found.
 4. **No obfuscation** — confirmed: all PHP and JS is human-readable, real variable/function names,
    no packers or minified-without-source files shipped (checked `assets/js/` and `assets/css/` —
    both are the actual hand-authored source, not a minified build).
-5. **No trialware** — checked specifically and carefully, since this is the exact guideline the
-   OzuPay Free review actually cited against a sibling product. Every Pro-only feature in this
-   plugin's UI is a genuinely **absent** capability, not a working feature gated by a license
-   check: the Search Synonyms field is a `disabled` `<textarea>` with no backing logic
-   (`tab-settings.php:225`); the Ranking Weights field has no input at all, just explanatory copy;
-   `Query_Normalizer::word_variants()` and `synonym_map()` are hardcoded to return empty arrays
-   with an in-code comment stating this is intentional, not a feature flag
-   (`class-query-normalizer.php:127-135,176-186`); the 100-product cap
-   (`Indexer::FREE_PRODUCT_CAP`) is a real, permanent architectural limit of this edition's
-   indexing loop, not a countdown or a trial window. This is the clean "freemium: a genuinely
-   separate, functional free plugin plus a separate paid upgrade" pattern the handbook explicitly
-   allows, not the "ships the paid feature's code but license-locks it" pattern it forbids.
+5. **No trialware** — **corrected 2026-09-03.** This section previously argued the 100-product
+   `Indexer::FREE_PRODUCT_CAP` was an acceptable permanent architectural limit because it never
+   expired by time. A dedicated review (`WORDPRESS_ORG_REVIEW_1.5.1.txt`) found that reasoning
+   unreliable: the current official Guideline 5 text prohibits functionality being disabled after
+   a quota is met regardless of whether the quota is time-limited, and a working local indexer
+   that deliberately stops at a payment-linked number is exactly the pattern it targets — unlike
+   excluding a genuinely separate Pro-only feature. `FREE_PRODUCT_CAP` and every quota-reached flag,
+   admin-notice, and readme claim built on it have been removed entirely; this edition now indexes
+   its full published catalog with no product-count limit of any kind (see
+   `tests/phpunit/tests/IndexerBulkTest.php::test_bulk_indexes_more_than_a_hundred_products_in_one_call`
+   and the "Free edition indexes the full catalog, no product cap" tests in
+   `InitAndBatchLifecycleTest.php`). Every remaining Pro-only feature in this plugin's UI is still a
+   genuinely **absent** capability, not a working feature gated by a license check:
+   `Query_Normalizer::word_variants()` and `synonym_map()` are hardcoded to return empty arrays with
+   an in-code comment stating this is intentional, not a feature flag
+   (`class-query-normalizer.php:127-135,176-186`). This is the clean "freemium: a genuinely separate,
+   functional free plugin plus a separate paid upgrade" pattern the handbook explicitly allows, not
+   the "ships the paid feature's code but license-locks it" pattern it forbids.
 6. **SaaS** — N/A; no SaaS functionality of any kind, paid or free.
 7. **No unauthorized tracking** — confirmed no telemetry exists at all (§13).
 8. **No third-party code execution** — the promo banner (`Promo::get()`) renders only
@@ -506,11 +519,12 @@ release gate.
 
 ## §17 readme.txt structure
 
-- **File size:** `wc -c readme.txt` → **6,025 bytes** — comfortably under the ~10KB threshold, with
-  headroom for several more releases' changelog entries before this needs trimming (unlike
-  OzuPay's readme, which has repeatedly grown back past the threshold — worth watching for the same
-  drift here as more `== Changelog ==` entries accumulate, per the handbook's explicit "recurring
-  gap, not one-time" warning).
+- **File size:** `wc -c readme.txt` → **6,082 bytes** (2026-09-03; was 13,868 bytes at the top of
+  that day, over the ~10KB threshold, before the changelog split below) — comfortably under the
+  ~10KB threshold, with headroom for several more releases' changelog entries before this needs
+  trimming again (unlike OzuPay's readme, which has repeatedly grown back past the threshold —
+  worth watching for the same drift here as more `== Changelog ==` entries accumulate, per the
+  handbook's explicit "recurring gap, not one-time" warning).
 - **Header fields, checked against the mechanics in the shared handbook, not just presence:**
   - `Stable tag: 1.1.2` (readme) matches `Version: 1.1.2` (plugin header, `turbo-search-for-woocommerce.php:8`)
     and `WCS_VERSION` (`define( 'WCS_VERSION', '1.1.2' )`, line 74) — all three in sync. This
@@ -539,12 +553,11 @@ release gate.
 - **One-line description** (under the `=== Plugin Name ===` header block): "Instant live product
   search for WooCommerce using native MySQL FULLTEXT indexing." — well under the ~150-char cap, no
   markup.
-- **Changelog:** only the full history exists inline in `readme.txt`'s own `== Changelog ==`
-  section (currently 7 version entries back to 1.0.0) — there is **no separate `changelog.txt`**
-  file. At the current 6,025-byte total this isn't urgent, but the handbook's explicit guidance is
-  to split historical changelog out to its own file and keep only the current release in
-  `readme.txt` — worth doing proactively rather than waiting until the file grows toward the 10KB
-  mark the way OzuPay's repeatedly has.
+- **Changelog:** **fixed 2026-09-03.** Historical entries (1.4.1 down to 1.0.0) now live in a
+  separate `changelog.txt` at the repo root (not excluded by `build.sh`'s rsync rules, so it ships
+  in the release zip); `readme.txt`'s own `== Changelog ==` section keeps only the current release
+  (1.5.1) and the immediately previous one (1.5.0), with a pointer to `changelog.txt` for older
+  entries, matching the handbook's explicit guidance.
 - **`Plugin URI` — confirmed collision, fixed.** Both editions previously declared the identical
   `Plugin URI: https://ozulabs.com` — confirmed by direct comparison against
   `wp_search/turbo-search-for-woocommerce.php`'s header, the exact duplicate-URI problem the
@@ -704,3 +717,21 @@ compliance doc states: code changes, but this audit does not automatically follo
 audit — re-read the changed files, re-run the grep sweeps, and re-check anything the code change
 touches — before the next WordPress.org submission of this edition, rather than trusting this
 2026-09-01 snapshot to still hold.
+
+**Remediation pass, 2026-09-03** (per `WORDPRESS_ORG_REVIEW_1.5.1.txt`, which superseded this
+document's earlier acceptance of the product cap — see §14.5 above): removed
+`Indexer::FREE_PRODUCT_CAP` and every quota-reached flag/admin-notice/readme claim built on it —
+this edition indexes its whole published catalog with no cap now, with regression tests added
+(`IndexerBulkTest.php`, `InitAndBatchLifecycleTest.php`); fixed the 36-error PHPCS gate to zero
+(35 auto-fixed array-formatting errors in `class-query-normalizer.php`, one hand-fixed unprepared
+SQL identifier in `class-indexer.php`'s rate-limit GC using `%i`); split `readme.txt`'s changelog
+into `changelog.txt`, bringing `readme.txt` from 13,868 back down to 6,082 bytes; consolidated the
+Settings tab's several separate Pro upsells (the partial-catalog warning, the top-of-page card, and
+four disabled placeholder controls — Search Merchandising, Quick Add to Cart, Search Synonyms,
+Ranking Weights) plus the App Data tab's disabled Export card into one compact comparison card
+rendered after the real settings form, linking to `https://ozulabs.com/plugins/turbo-search/`
+instead of the bare homepage; and hardened the remote promo's `link_url` per §7 above. `composer
+lint` and the full PHPUnit suite (233 tests) both pass clean as of this remediation. Not yet done:
+an actual WordPress.org Plugin Check tool run and Readme Validator pass against the rebuilt zip
+(§16, §17, §22) — still open from the 2026-09-01 snapshot, and this remediation makes that run more
+urgent to actually perform rather than defer again.
