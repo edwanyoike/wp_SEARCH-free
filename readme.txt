@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.3.1 =
+* Improvement: the divider line between result rows is a bit more visible.
+
 = 1.3.0 =
 * Improvement: Recent Searches (the last few searches offered again on an empty search box) is now configurable on the Settings tab — turn it off entirely, or change how many are remembered (1–10, default 5, same as before). Previously always on with a fixed count of 5.
 
