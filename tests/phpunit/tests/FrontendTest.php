@@ -32,6 +32,21 @@ final class FrontendTest extends TestCase {
 		$this->assertNotEmpty( $config['nonce'] );
 	}
 
+	public function test_recent_searches_config_defaults_and_is_configurable(): void {
+		Frontend::enqueue_assets();
+		$config = json_decode( substr( $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0], strlen( 'const wcs_config = ' ), -1 ), true );
+		$this->assertTrue( $config['recent_searches']['enabled'], 'on by default, matching existing behavior before this was configurable' );
+		$this->assertSame( 5, $config['recent_searches']['count'] );
+
+		wcs_tests_reset();
+		update_option( 'wcs_enable_recent_searches', false );
+		update_option( 'wcs_recent_searches_count', 3 );
+		Frontend::enqueue_assets();
+		$config = json_decode( substr( $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0], strlen( 'const wcs_config = ' ), -1 ), true );
+		$this->assertFalse( $config['recent_searches']['enabled'] );
+		$this->assertSame( 3, $config['recent_searches']['count'] );
+	}
+
 	public function test_i18n_strings_are_not_html_escaped(): void {
 		// Regression: these strings are JSON-encoded and rendered via
 		// .textContent in search.js, which does not decode HTML entities.

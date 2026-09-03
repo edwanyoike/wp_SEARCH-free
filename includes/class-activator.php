@@ -50,6 +50,8 @@ class Activator {
 		'wcs_last_rebuild_error',
 		'wcs_result_count',
 		'wcs_min_chars',
+		'wcs_enable_recent_searches',
+		'wcs_recent_searches_count',
 		'wcs_show_out_of_stock',
 		'wcs_search_title',
 		'wcs_search_sku',

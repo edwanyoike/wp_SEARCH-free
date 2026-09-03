@@ -48,6 +48,10 @@ class Frontend {
 			'nonce_refresh_url' => esc_url_raw( admin_url( 'admin-ajax.php?action=wcs_refresh_nonce' ) ),
 			'version'           => WCS_VERSION,
 			'min_chars'         => (int) get_option( 'wcs_min_chars', 2 ),
+			'recent_searches'   => array(
+				'enabled' => (bool) get_option( 'wcs_enable_recent_searches', true ),
+				'count'   => min( 10, max( 1, (int) get_option( 'wcs_recent_searches_count', 5 ) ) ),
+			),
 			// Plain __(), not esc_html__(): these strings are JSON-encoded into
 			// a JS object and rendered via .textContent (search.js), which does
 			// not decode HTML entities. esc_html__() would leave literal

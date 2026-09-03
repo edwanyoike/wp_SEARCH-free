@@ -258,6 +258,20 @@ class Admin_Settings {
 			},
 			'default'           => 2,
 		) );
+		register_setting( 'wcs_settings_group', 'wcs_enable_recent_searches', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => true,
+		) );
+		register_setting( 'wcs_settings_group', 'wcs_recent_searches_count', array(
+			'type'              => 'integer',
+			'sanitize_callback' => static function ( $value ): int {
+				// Same clamp-not-absint reasoning as wcs_min_chars above — a
+				// blank/missing submission must not silently save as 0.
+				return min( 10, max( 1, absint( $value ) ) );
+			},
+			'default'           => 5,
+		) );
 		register_setting( 'wcs_settings_group', 'wcs_search_title', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',

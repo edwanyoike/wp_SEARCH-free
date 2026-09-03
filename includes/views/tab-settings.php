@@ -156,6 +156,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 			</td>
 		</tr>
 		<tr>
+			<th scope="row">
+				<?php esc_html_e( 'Recent Searches', 'turbo-search-for-woocommerce' ); ?>
+				<div class="wcs-tooltip">
+					<span class="wcs-tooltip-icon">?</span>
+					<span class="wcs-tooltip-text"><?php esc_html_e( 'Remembers each shopper\'s own past searches in their browser (not shared between shoppers, and not sent to your server) and offers them again when the search box is focused empty.', 'turbo-search-for-woocommerce' ); ?></span>
+				</div>
+			</th>
+			<td>
+				<fieldset>
+					<label for="wcs_enable_recent_searches">
+						<input name="wcs_enable_recent_searches" type="checkbox" id="wcs_enable_recent_searches" value="1" <?php checked( 1, (int) get_option( 'wcs_enable_recent_searches', 1 ), true ); ?> />
+						<?php esc_html_e( 'Show a shopper\'s recent searches when they focus an empty search box.', 'turbo-search-for-woocommerce' ); ?>
+					</label>
+				</fieldset>
+				<p style="margin-top:8px;">
+					<label for="wcs_recent_searches_count" style="display:inline-block; min-width: 150px;"><?php esc_html_e( 'Number to remember', 'turbo-search-for-woocommerce' ); ?></label>
+					<input name="wcs_recent_searches_count" type="number" id="wcs_recent_searches_count" value="<?php echo esc_attr( (string) get_option( 'wcs_recent_searches_count', 5 ) ); ?>" class="small-text" min="1" max="10" />
+				</p>
+			</td>
+		</tr>
+		<tr>
 			<th scope="row"><?php esc_html_e( 'Quick Add to Cart', 'turbo-search-for-woocommerce' ); ?></th>
 			<td>
 				<fieldset disabled>

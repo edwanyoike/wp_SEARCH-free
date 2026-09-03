@@ -472,19 +472,23 @@
 	}
 
 	function getRecentSearches() {
+		if (wcs_config.recent_searches && wcs_config.recent_searches.enabled === false) return [];
+		const count = (wcs_config.recent_searches && wcs_config.recent_searches.count) || 5;
 		try {
 			const stored = JSON.parse(window.localStorage.getItem('wcs_recent_searches') || '[]');
-			return Array.isArray(stored) ? stored.filter(item => typeof item === 'string').slice(0, 5) : [];
+			return Array.isArray(stored) ? stored.filter(item => typeof item === 'string').slice(0, count) : [];
 		} catch (_) {
 			return [];
 		}
 	}
 
 	function saveRecentSearch(query) {
+		if (wcs_config.recent_searches && wcs_config.recent_searches.enabled === false) return;
+		const count = (wcs_config.recent_searches && wcs_config.recent_searches.count) || 5;
 		try {
 			const recent = getRecentSearches().filter(item => item.toLowerCase() !== query.toLowerCase());
 			recent.unshift(query);
-			window.localStorage.setItem('wcs_recent_searches', JSON.stringify(recent.slice(0, 5)));
+			window.localStorage.setItem('wcs_recent_searches', JSON.stringify(recent.slice(0, count)));
 		} catch (_) {}
 	}
 
