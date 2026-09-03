@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.2.2 =
+* Fix: result titles in the dropdown were forced onto a single line and cut off with "…" as soon as they ran out of room — on a narrow mobile screen this could leave a title reading as just its first word or two, hard to scan and easy to mistake for a shorter, differently-named product. Titles now wrap onto 2 lines.
+
 = 1.2.1 =
 * Fix: the "title starts with query" ranking boost matched on raw characters, not whole words — so searching "dog" could rank an unrelated product like "Dogo African Choker Necklace" above genuine dog collars, since "Dogo" also starts with the letters "d-o-g". The boost now requires the match end at a word boundary (the query alone, or the query followed by a space), so a short word that happens to prefix a longer, different word no longer gets an unearned edge over products that actually contain that word.
 
