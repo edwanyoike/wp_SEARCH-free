@@ -90,6 +90,12 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.4.0 =
+* Fix: a search containing an ordinary connecting word returned nothing at all. Every word in a query has to match, so "for", "with", "the" and the like had to appear in a product's own title or SKU — confirmed live on a real store, where "bacon" found a product and "bacon for", "bacon with" and "the bacon" each found none. Those words are now dropped from a multi-word search (short, genuinely selective terms like "LG", "HP" or "3M" are kept, and a search made up entirely of such words still searches for them).
+* Fix: a search whose FULLTEXT pass found only one or two products stopped there instead of filling the rest of the dropdown. Prefix matches now top up a partial result set the way the substring pass already did, so a search asking for 6 results no longer shows 1 when 5 more genuinely matched. The stronger FULLTEXT matches keep their positions at the top.
+* Improvement: searches that skip the FULLTEXT index (queries made up of short words, like "lg tv") previously had no relevance ranking at all — they were ordered by total sales, then alphabetically. Each word now scores against the product title, so a product matching more of what was typed ranks above one matching less, with popularity only breaking the ties that remain.
+* Improvement: a multi-word search where one word matches nothing in the catalog no longer comes back empty. As a last resort — and only when the alternative is an empty dropdown — the search re-runs allowing any of the words to match, ranked so that products matching more of the query come first.
+
 = 1.3.1 =
 * Improvement: the divider line between result rows is a bit more visible.
 
