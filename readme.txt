@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.2.4 =
+* Change: the Settings tab now shows a disabled Quick Add to Cart field with an upsell to Turbo Search Pro, matching the existing pattern for other Pro-only fields.
+
 = 1.2.3 =
 * Fix: the 1.2.1 title-prefix fix wasn't enough on its own — confirmed live on a real store. The "title contains query as a phrase" boost had the identical raw-character flaw (searching "dog" still credited "Dogo African Choker Necklace" via a plain '%dog%' substring match), which was enough to tie it with genuine "... dog ..." titles and hand the win to an unrelated total_sales/alphabetical tiebreak. The phrase boost now requires "dog" to appear as a genuine whole word too, the same as the prefix boost already did.
 * Fix: the result dropdown's width was set to exactly match the search box it's attached to, with no minimum — a theme with a compact header search box (a couple hundred px) forced an equally cramped, hard-to-read dropdown. Now has a sensible minimum width, capped so it can never overflow past the edge of the screen.
