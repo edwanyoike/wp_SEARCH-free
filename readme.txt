@@ -90,6 +90,9 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.2.1 =
+* Fix: the "title starts with query" ranking boost matched on raw characters, not whole words — so searching "dog" could rank an unrelated product like "Dogo African Choker Necklace" above genuine dog collars, since "Dogo" also starts with the letters "d-o-g". The boost now requires the match end at a word boundary (the query alone, or the query followed by a space), so a short word that happens to prefix a longer, different word no longer gets an unearned edge over products that actually contain that word.
+
 = 1.2.0 =
 * Feature: recent searches — the last 5 searches are remembered per browser and offered again when the search box is focused, with a one-click "Clear."
 * Improvement: exact title/SKU matches and title-prefix matches now get a stronger built-in ranking boost.
