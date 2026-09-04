@@ -75,7 +75,7 @@ class Frontend {
 				'recent_searches'   => __( 'Recent searches', 'turbo-search-for-woocommerce' ),
 				'clear_recent'      => __( 'Clear', 'turbo-search-for-woocommerce' ),
 				'out_of_stock'      => __( 'Out of Stock', 'turbo-search-for-woocommerce' ),
-				'index_building'    => __( 'Search is being set up — please try again in a minute.', 'turbo-search-for-woocommerce' ),
+				'index_building'    => __( 'Search is temporarily unavailable.', 'turbo-search-for-woocommerce' ),
 				'category'          => __( 'Category', 'turbo-search-for-woocommerce' ),
 				'brand'             => __( 'Brand', 'turbo-search-for-woocommerce' ),
 				/* translators: %d: number of products in the category/brand */

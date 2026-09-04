@@ -148,6 +148,83 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( 10, $r->payload['processed'] );
 	}
 
+	// ── drive_one_rebuild_batch() ────────────────────────────────────────────
+	//
+	// Newly added: previously this status endpoint only observed the rebuild's
+	// state, never advanced it — relying entirely on WP-Cron or Action
+	// Scheduler's own background dispatch. Confirmed live in the Pro edition
+	// that the analogous unbounded \ActionScheduler_QueueRunner::run() call
+	// (which claims up to 25 actions and keeps looping for up to 30 seconds)
+	// can drain an ENTIRE 2000-product rebuild's queue in one call, so a
+	// progress bar driven that way sits at 0% and then jumps straight to
+	// 100%. Every test below proves the bounded replacement claims exactly
+	// one action, scoped to this plugin's own hook, and never falls back to
+	// that unbounded loop.
+
+	public function test_status_poll_processes_exactly_one_due_batch(): void {
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_epoch', 1234 );
+		update_option( 'wcs_rebuild_phase', 'batching' );
+		// Keep a batch "pending" so the stuck-rebuild self-heal does not also
+		// fire and confound the assertions.
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'var' === $type ? 1 : null;
+		$GLOBALS['wcs_test_as_due_actions'] = array( 501, 502, 503 );
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertCount( 1, $GLOBALS['wcs_test_as_processed_actions'], 'exactly one due action should be processed per poll' );
+		$this->assertSame( 501, $GLOBALS['wcs_test_as_processed_actions'][0]['id'] );
+		$this->assertSame( array( 501 ), $GLOBALS['wcs_test_release_claim_calls'][0] ?? null, 'the claim must be released after processing' );
+	}
+
+	public function test_status_poll_claims_are_scoped_to_the_rebuild_hook(): void {
+		// Never touches another plugin's unrelated pending Action Scheduler jobs.
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_epoch', 1234 );
+		update_option( 'wcs_rebuild_phase', 'batching' );
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'var' === $type ? 1 : null;
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertCount( 1, $GLOBALS['wcs_test_stake_claim_calls'] );
+		$call = $GLOBALS['wcs_test_stake_claim_calls'][0];
+		$this->assertSame( 1, $call['max_actions'], 'must claim at most one action per poll' );
+		$this->assertSame( array( 'wcs_rebuild_index_batch' ), $call['hooks'] );
+	}
+
+	public function test_status_poll_never_uses_the_unbounded_queue_runner_loop(): void {
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_epoch', 1234 );
+		update_option( 'wcs_rebuild_phase', 'batching' );
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'var' === $type ? 1 : null;
+		$GLOBALS['wcs_test_as_due_actions'] = array( 501 );
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_queuerunner_run_calls'], 'the unbounded run() must never be called' );
+	}
+
+	public function test_status_poll_releases_the_claim_even_when_nothing_is_due(): void {
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_epoch', 1234 );
+		update_option( 'wcs_rebuild_phase', 'batching' );
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'var' === $type ? 1 : null;
+		$GLOBALS['wcs_test_as_due_actions'] = array(); // nothing due yet
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_processed_actions'] );
+		$this->assertSame( array( array() ), $GLOBALS['wcs_test_release_claim_calls'], 'an empty claim must still be released, never left staked' );
+	}
+
+	public function test_status_poll_does_not_drive_the_batch_when_not_indexing(): void {
+		update_option( 'wcs_is_indexing', 0 );
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_stake_claim_calls'], 'idle status polls must never touch Action Scheduler at all' );
+	}
+
 	public function test_status_clears_stuck_flag_when_no_batch_is_pending(): void {
 		update_option( 'wcs_is_indexing', 1 );
 		// Handler: no in-progress row, no pending/in-progress rows at all.

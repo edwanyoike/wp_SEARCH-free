@@ -550,6 +550,45 @@ class Admin_Settings {
 	/**
 	 * AJAX handler for getting index status.
 	 */
+	/**
+	 * Process exactly one due rebuild batch, so this status poll advances the
+	 * rebuild by a single, visible step instead of draining the whole queue.
+	 *
+	 * This exists so a rebuild keeps moving even on a host where WP-Cron is
+	 * slow or unreliable — as long as an admin has the status page open, each
+	 * poll nudges the rebuild forward. Deliberately bounded to exactly one
+	 * action, not \ActionScheduler_QueueRunner::instance()->run() (Action
+	 * Scheduler's own queue runner, which claims up to 25 actions at a time
+	 * and keeps looping for up to 30 seconds by default): confirmed live in
+	 * the Pro edition that for this plugin's typically-fast batches, a single
+	 * such call can process an entire 2000-product rebuild's full queue
+	 * before returning, so the progress bar sat at 0% for a while and then
+	 * jumped straight to 100% instead of advancing with each poll the way an
+	 * admin watching it would expect. Claiming exactly one action here makes
+	 * visible progress track the polling cadence.
+	 *
+	 * Scoped to this plugin's own hook — it never touches another plugin's
+	 * unrelated pending Action Scheduler jobs, which just happened to also be
+	 * due at the same moment.
+	 */
+	private static function drive_one_rebuild_batch(): void {
+		try {
+			$store = \ActionScheduler::store();
+			$claim = $store->stake_claim( 1, null, array( 'wcs_rebuild_index_batch' ) );
+			$action_ids = $claim->get_actions();
+			if ( $action_ids ) {
+				$runner = \ActionScheduler_QueueRunner::instance();
+				foreach ( $action_ids as $action_id ) {
+					$runner->process_action( $action_id, 'WCS Status Poll' );
+				}
+			}
+			$store->release_claim( $claim );
+		} catch ( \Throwable $e ) {
+			// Non-fatal fallback — the rebuild still advances via WP-Cron or
+			// the next poll.
+		}
+	}
+
 	public static function ajax_get_index_status(): void {
 		check_ajax_referer( 'wcs_status' );
 		if ( ! current_user_can( 'manage_options' ) ) {
@@ -557,6 +596,11 @@ class Admin_Settings {
 		}
 
 		$is_indexing = (bool) get_option( 'wcs_is_indexing', false );
+
+		if ( $is_indexing && class_exists( 'ActionScheduler_QueueRunner' ) ) {
+			self::drive_one_rebuild_batch();
+			$is_indexing = (bool) get_option( 'wcs_is_indexing', false );
+		}
 
 		$recovering = false;
 		$stall_secs = 0;

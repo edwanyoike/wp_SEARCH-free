@@ -120,6 +120,11 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_cache_add']     = true;
 	$GLOBALS['wcs_test_search_excluded_ids'] = array();
 	$GLOBALS['wcs_test_marked_failed'] = array();
+	$GLOBALS['wcs_test_as_due_actions']         = array();
+	$GLOBALS['wcs_test_stake_claim_calls']      = array();
+	$GLOBALS['wcs_test_release_claim_calls']    = array();
+	$GLOBALS['wcs_test_queuerunner_run_calls']  = array();
+	$GLOBALS['wcs_test_as_processed_actions']   = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
 	$GLOBALS['wcs_test_active_plugins']       = array();
@@ -765,6 +770,12 @@ class ActionScheduler_Action {
 		return $this->args;
 	}
 }
+class ActionScheduler_ActionClaim {
+	public function __construct( private array $action_ids ) {}
+	public function get_actions(): array {
+		return $this->action_ids;
+	}
+}
 class ActionScheduler {
 	public static function store(): object {
 		return new class() {
@@ -777,7 +788,39 @@ class ActionScheduler {
 			public function fetch_action( int $action_id ): ?ActionScheduler_Action {
 				return $GLOBALS['wcs_test_as_actions'][ $action_id ] ?? null;
 			}
+			// Scriptable via $GLOBALS['wcs_test_as_due_actions'] (array of action IDs
+			// considered due). Records every call for drive_one_rebuild_batch()'s
+			// assertions — in particular that it claims exactly ONE action, scoped
+			// to its own hook, not the unbounded run() this replaced.
+			public function stake_claim( $max_actions = 10, $before_date = null, $hooks = array(), $group = '' ): ActionScheduler_ActionClaim {
+				$GLOBALS['wcs_test_stake_claim_calls'][] = array(
+					'max_actions' => $max_actions,
+					'hooks'       => $hooks,
+					'group'       => $group,
+				);
+				$due = $GLOBALS['wcs_test_as_due_actions'] ?? array();
+				return new ActionScheduler_ActionClaim( array_slice( $due, 0, $max_actions ) );
+			}
+			public function release_claim( ActionScheduler_ActionClaim $claim ): void {
+				$GLOBALS['wcs_test_release_claim_calls'][] = $claim->get_actions();
+			}
 		};
+	}
+}
+class ActionScheduler_QueueRunner {
+	private static ?self $instance = null;
+	public static function instance(): self {
+		return self::$instance ??= new self();
+	}
+	// Kept distinct from stake_claim/process_action below so a test can prove
+	// drive_one_rebuild_batch() never falls back to the unbounded loop this
+	// replaced (see its docblock in class-admin-settings.php).
+	public function run( string $context = '' ): int {
+		$GLOBALS['wcs_test_queuerunner_run_calls'][] = $context;
+		return 0;
+	}
+	public function process_action( $action_id, string $context = '' ): void {
+		$GLOBALS['wcs_test_as_processed_actions'][] = array( 'id' => $action_id, 'context' => $context );
 	}
 }
 
