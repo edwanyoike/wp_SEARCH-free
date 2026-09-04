@@ -89,12 +89,18 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
-= 1.5.1 =
-* Fix: 1.5.0's new rate-limit table wasn't actually created on an in-place upgrade (only on a brand-new install) — the schema-version marker that triggers table creation on update wasn't bumped alongside it. Caught before it caused any visible problem (the plugin fails open — allows every request — when this table is missing, exactly to avoid blocking search traffic over an internal gap like this), but the atomic rate limiting from 1.5.0 wasn't actually active on any site that upgraded rather than installed fresh until now.
+= 1.6.1 =
+* Fix: the MU cache-bypass fast path (which serves a cached search result before WordPress finishes booting) ignored the Rate Limiting settings on the Settings tab and always enforced a fixed 60 requests/minute, so a cached and an uncached search from the same visitor were governed by two different effective limits. Both paths now read the same configured value.
+* Fix: on a site with both editions installed and only one actually active, the same fast path could pick whichever edition merely had a folder present (favoring Pro) instead of the one WordPress had active — for example, running Pro's currency-conversion logic against a request the active Free edition would have served in the store's default currency. It now checks WordPress's own active-plugin state and serves the real REST route instead whenever that can't be resolved to exactly one edition.
+* Fix: "Delete All Plugin Data Now" no longer flushes the entire WordPress object cache — that could drop WooCommerce's and other plugins' cached data too on a large store. It now relies on this plugin's own option cleanup, which already invalidates its own cache entries correctly.
+* Fix: activating, deactivating, or uninstalling network-wide on a Multisite install stopped processing after the first 1,000 sites. It now pages through every site regardless of network size.
+* Housekeeping: the bundled translation template (languages/turbo-search-for-woocommerce.pot) was regenerated — it had been stale since 1.3.0 and was missing several newer strings.
 
-= 1.5.0 =
-* Improvement: search abuse protection is now self-contained instead of leaning on your server's configuration. Previously, the per-visitor request limit was only exact on a host with the APCu extension — without it, two requests arriving at the same instant could both slip through the check before either was recorded, letting roughly double the intended rate through under real concurrent load (confirmed directly: 15 genuinely simultaneous requests with no coordination at all). It's now enforced exactly either way, with no extension or external cache required.
-* Feature: a second, much stricter limit specifically for searches that find nothing and fall through every fallback the plugin tries (broadened matching) — the most expensive kind of request, and the shape a scripted flood of random search terms would use to run up load without ever repeating a query the result cache could serve cheaply. A normal shopper never notices it; it only engages once a search would already have come back empty.
-* Improvement: both limits — the general one and the new stricter one — are configurable on the Settings tab (New: Rate Limiting), rather than fixed in code.
+= 1.6.0 =
+* Change: removed the free edition's 100-product indexing limit — it now indexes the entire published catalog, with no cap. Existing per-store data is unaffected; the removed cap only stopped new products beyond the 100th from ever being indexed.
+* Fix: the coding-standards lint gate (composer lint) failed with 36 findings — an array-formatting issue and one SQL query that built a table name by string interpolation instead of a prepared placeholder. Both are fixed; no query behavior changed.
+* Change: the Settings and App Data tabs no longer show several separate disabled Pro-only fields (Search Merchandising, Quick Add to Cart, Search Synonyms, Ranking Weights, Export/Import Settings) or a large promotional card above the working settings. A single compact "Turbo Search Pro" card now appears once, below the complete set of free settings.
+* Change: the optional promotional notice's link is now restricted to OzuLabs' own domains and rejects tracking parameters, so a compromised or repurposed endpoint could not point shoppers anywhere else.
+* Housekeeping: moved older changelog history out of readme.txt into a separate changelog.txt file.
 
 See changelog.txt for older releases.
