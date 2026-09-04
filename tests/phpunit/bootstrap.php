@@ -125,6 +125,8 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_release_claim_calls']    = array();
 	$GLOBALS['wcs_test_queuerunner_run_calls']  = array();
 	$GLOBALS['wcs_test_as_processed_actions']   = array();
+	$GLOBALS['wcs_test_as_process_action_throws'] = false;
+	$GLOBALS['wcs_test_shortcode_atts_tags']      = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
 	$GLOBALS['wcs_test_active_plugins']       = array();
@@ -472,6 +474,7 @@ function shortcode_exists( string $tag ): bool {
 	return isset( $GLOBALS['wcs_test_shortcodes'][ $tag ] );
 }
 function shortcode_atts( array $defaults, $atts, string $shortcode = '' ): array {
+	$GLOBALS['wcs_test_shortcode_atts_tags'][] = $shortcode;
 	$atts = is_array( $atts ) ? $atts : array();
 	return array_merge( $defaults, array_intersect_key( $atts, $defaults ) );
 }
@@ -820,6 +823,9 @@ class ActionScheduler_QueueRunner {
 		return 0;
 	}
 	public function process_action( $action_id, string $context = '' ): void {
+		if ( ! empty( $GLOBALS['wcs_test_as_process_action_throws'] ) ) {
+			throw new RuntimeException( 'processing failed' );
+		}
 		$GLOBALS['wcs_test_as_processed_actions'][] = array( 'id' => $action_id, 'context' => $context );
 	}
 }

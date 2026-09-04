@@ -122,6 +122,12 @@ final class FrontendTest extends TestCase {
 		$this->assertStringContainsString( 'class="wcs-form-wrap"', $html );
 	}
 
+	public function test_shortcode_alias_uses_its_own_attribute_filter_context(): void {
+		Frontend::render_shortcode( array(), '', 'turbo_search_button' );
+
+		$this->assertSame( array( 'turbo_search_button' ), $GLOBALS['wcs_test_shortcode_atts_tags'] );
+	}
+
 	public function test_shortcode_attributes_are_applied_and_escaped(): void {
 		$html = Frontend::render_shortcode( array(
 			'placeholder' => 'Find "it"…',

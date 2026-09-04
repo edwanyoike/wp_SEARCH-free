@@ -136,18 +136,21 @@ class Frontend {
 	 * when JavaScript is disabled. When JS is active, the live dropdown intercepts
 	 * keystrokes exactly as it does for theme search bars.
 	 *
-	 * @param array $atts Shortcode attributes.
+	 * @param array  $atts    Shortcode attributes.
+	 * @param string $content Enclosed shortcode content, if any.
+	 * @param string $tag     Shortcode tag used for this invocation.
 	 * @return string HTML output.
 	 */
-	public static function render_shortcode( $atts ): string {
-		$atts = shortcode_atts(
+	public static function render_shortcode( $atts, $content = '', $tag = 'turbo_search' ): string {
+		$shortcode = 'turbo_search_button' === $tag ? $tag : 'turbo_search';
+		$atts      = shortcode_atts(
 			array(
 				'placeholder' => esc_attr__( 'Search products…', 'turbo-search-for-woocommerce' ),
 				'button'      => esc_attr__( 'Search', 'turbo-search-for-woocommerce' ),
 				'class'       => '',
 			),
 			$atts,
-			'turbo_search'
+			$shortcode
 		);
 
 		// Ensure assets are on the page even if the shortcode is used on a page

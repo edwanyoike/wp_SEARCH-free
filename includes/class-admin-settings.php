@@ -548,9 +548,6 @@ class Admin_Settings {
 	}
 
 	/**
-	 * AJAX handler for getting index status.
-	 */
-	/**
 	 * Process exactly one due rebuild batch, so this status poll advances the
 	 * rebuild by a single, visible step instead of draining the whole queue.
 	 *
@@ -572,9 +569,12 @@ class Admin_Settings {
 	 * due at the same moment.
 	 */
 	private static function drive_one_rebuild_batch(): void {
+		$store = null;
+		$claim = null;
+
 		try {
-			$store = \ActionScheduler::store();
-			$claim = $store->stake_claim( 1, null, array( 'wcs_rebuild_index_batch' ) );
+			$store      = \ActionScheduler::store();
+			$claim      = $store->stake_claim( 1, null, array( 'wcs_rebuild_index_batch' ) );
 			$action_ids = $claim->get_actions();
 			if ( $action_ids ) {
 				$runner = \ActionScheduler_QueueRunner::instance();
@@ -582,13 +582,19 @@ class Admin_Settings {
 					$runner->process_action( $action_id, 'WCS Status Poll' );
 				}
 			}
-			$store->release_claim( $claim );
 		} catch ( \Throwable $e ) {
 			// Non-fatal fallback — the rebuild still advances via WP-Cron or
 			// the next poll.
+		} finally {
+			if ( $store && $claim ) {
+				$store->release_claim( $claim );
+			}
 		}
 	}
 
+	/**
+	 * AJAX handler for getting index status.
+	 */
 	public static function ajax_get_index_status(): void {
 		check_ajax_referer( 'wcs_status' );
 		if ( ! current_user_can( 'manage_options' ) ) {

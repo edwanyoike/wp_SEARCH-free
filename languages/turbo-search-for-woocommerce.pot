@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: Turbo Search for WooCommerce 1.8.0\n"
+"Project-Id-Version: Turbo Search for WooCommerce 1.8.1\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/turbo-search-for-woocommerce\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-04T09:03:34+00:00\n"
+"POT-Creation-Date: 2026-09-04T09:47:43+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: turbo-search-for-woocommerce\n"
@@ -249,18 +249,18 @@ msgstr ""
 msgid "Showing results for \"%s\""
 msgstr ""
 
-#: includes/class-frontend.php:145
+#: includes/class-frontend.php:148
 #: includes/views/tab-docs.php:44
 msgid "Search products…"
 msgstr ""
 
-#: includes/class-frontend.php:146
-#: includes/class-frontend.php:180
+#: includes/class-frontend.php:149
+#: includes/class-frontend.php:183
 #: includes/views/tab-docs.php:49
 msgid "Search"
 msgstr ""
 
-#: includes/class-frontend.php:179
+#: includes/class-frontend.php:182
 msgid "Search products"
 msgstr ""
 

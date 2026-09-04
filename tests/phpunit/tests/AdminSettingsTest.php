@@ -217,6 +217,19 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( array( array() ), $GLOBALS['wcs_test_release_claim_calls'], 'an empty claim must still be released, never left staked' );
 	}
 
+	public function test_status_poll_releases_the_claim_when_processing_throws(): void {
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_epoch', 1234 );
+		update_option( 'wcs_rebuild_phase', 'batching' );
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'var' === $type ? 1 : null;
+		$GLOBALS['wcs_test_as_due_actions']          = array( 501 );
+		$GLOBALS['wcs_test_as_process_action_throws'] = true;
+
+		$this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame( array( array( 501 ) ), $GLOBALS['wcs_test_release_claim_calls'], 'a processing failure must not leave the action claimed' );
+	}
+
 	public function test_status_poll_does_not_drive_the_batch_when_not_indexing(): void {
 		update_option( 'wcs_is_indexing', 0 );
 
