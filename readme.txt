@@ -89,6 +89,10 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.8.1 =
+* Fix: 1.8.0's one-batch-per-check rebuild driver released the batch it claimed only on the success path — if processing that batch failed for any reason, the claim was never released, leaving it stuck until Action Scheduler's own timeout (several minutes) eventually force-released it. It's now always released, success or failure.
+* Fix: `[turbo_search_button]` (1.7.0's alias for `[turbo_search]`) always reported itself to WordPress as `turbo_search` for the purpose of the `shortcode_atts_{tag}` customization filter, regardless of which tag a shopper's page actually used — so a site trying to hook `shortcode_atts_turbo_search_button` specifically to customize the alias was silently never called. Each tag now reports itself correctly.
+
 = 1.8.0 =
 * Feature: the index rebuild status check now advances the rebuild itself, one step at a time, instead of only watching it — so a rebuild keeps moving even on a host where background scheduling (WP-Cron) is slow to pick up new work. Bounded to exactly one step per check: confirmed live in the Pro edition that an unbounded version of this (processing everything due, not just one step) could drain an entire 2000-product rebuild in a single check, making the progress bar sit at 0% and then jump straight to 100% instead of climbing smoothly.
 
