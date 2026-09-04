@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Plugin Name:          Turbo Search for WooCommerce
  * Plugin URI:           https://ozulabs.com/plugins/turbo-search/
  * Description:          A high-performance, zero-dependency WooCommerce search engine using native FULLTEXT indexing.
- * Version:              1.6.3
+ * Version:              1.6.4
  * Author:               Ozulabs
  * Author URI:           https://ozulabs.com
  * License:              GPLv2 or later
@@ -49,6 +49,28 @@ if ( ! defined( 'ABSPATH' ) ) {
 // constants defined below, since those are exactly the ones Pro may have
 // already declared this request (redefining an existing constant is a
 // silent no-op, not a fatal).
+//
+// This top-level guard alone left admins with a silent failure, confirmed
+// live: activating Free while Pro is active reports "Plugin ... activated."
+// (even from `wp plugin activate`) and the plugin then simply shows
+// "Inactive" again on the very next page load, with no explanation ever
+// shown. The admin_notices callback registered below IS real, but it can
+// never render on the activation request itself — WordPress redirects
+// immediately after processing an activation, before any admin_notices
+// action fires on that request — and by the following page load Free has
+// already been deactivated (by the 'shutdown' callback below), so its file
+// is not included again to register the notice a second time either.
+// wcs_deny_activation_if_pro_active() below closes that gap for the
+// activation moment specifically, using a real register_activation_hook()
+// callback instead: those run via do_action( "activate_{$plugin}" ), which
+// core's activate_plugin() fires strictly *after* it has already written
+// 'active_plugins' — so deactivate_plugins() there is immediately correct
+// with no stale-array race to defer around, and wp_die() reliably
+// interrupts the redirect with a real, visible message. This top-level
+// guard (and its 'shutdown'-deferred deactivation) still matters for the
+// separate case that isn't an activation request at all — e.g. Pro gets
+// activated later while Free is already running — where admin_notices
+// fires normally on that ordinary page load.
 if ( ! function_exists( 'is_plugin_active' ) ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
@@ -70,8 +92,31 @@ if ( is_plugin_active( $wcs_pro_edition_basename ) ) {
 	} );
 }
 
+/**
+ * Activation-time half of the mutual-exclusion guard — see the comment
+ * above for why the top-level guard's own admin_notices never actually
+ * renders during Free's own activation request. function_exists()-wrapped
+ * for the same compile-time-binding reason as wcs_search_init() below.
+ */
+if ( ! function_exists( 'wcs_deny_activation_if_pro_active' ) ) {
+	function wcs_deny_activation_if_pro_active(): void {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+		if ( ! is_plugin_active( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' ) ) {
+			return;
+		}
+		deactivate_plugins( plugin_basename( __FILE__ ) );
+		wp_die(
+			esc_html__( 'Turbo Search for WooCommerce (Free) was not activated because Turbo Search for WooCommerce Pro is already active on this site — Pro already includes everything Free does. Deactivate Pro first if you need to switch to Free.', 'turbo-search-for-woocommerce' ),
+			esc_html__( 'Plugin activation blocked', 'turbo-search-for-woocommerce' ),
+			array( 'back_link' => true )
+		);
+	}
+}
+
 // Define core constants.
-define( 'WCS_VERSION', '1.6.3' );
+define( 'WCS_VERSION', '1.6.4' );
 define( 'WCS_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WCS_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'WCS_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );
@@ -161,6 +206,10 @@ if ( ! function_exists( 'wcs_woocommerce_missing_notice' ) ) {
 	}
 }
 
-// Register activation hooks. We map these to static methods in the Activator class.
+// Register activation hooks. wcs_deny_activation_if_pro_active() is
+// registered first so it runs first (do_action() calls same-priority
+// callbacks in registration order) — if it wp_die()s, Activator::activate()
+// never runs, so no tables/schedules get created for a blocked activation.
+register_activation_hook( __FILE__, 'wcs_deny_activation_if_pro_active' );
 register_activation_hook( __FILE__, array( '\\WCS\\Search\\Activator', 'activate' ) );
 register_deactivation_hook( __FILE__, array( '\\WCS\\Search\\Activator', 'deactivate' ) );

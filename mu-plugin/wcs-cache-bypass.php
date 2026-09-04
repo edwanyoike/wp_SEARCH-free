@@ -3,7 +3,7 @@
  * Turbo Search for WooCommerce Cache Bypass
  *
  * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
- * Version:     1.6.3
+ * Version:     1.6.4
  * Author:      Ozulabs
  * Author URI:  https://ozulabs.com
  * License:     GPLv2 or later

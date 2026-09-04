@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.6.3
+Stable tag:        1.6.4
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,10 +89,10 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.6.4 =
+* Fix: activating this Free edition while Pro was already active silently failed with no explanation — WordPress (including `wp plugin activate`) reported the activation as successful, and the plugin then simply showed as inactive again on the next page load. Confirmed live: the warning notice for this case was real code, but could never actually render, because WordPress redirects immediately after processing an activation request, before any admin notice is ever painted on that request — and by the following page load Free had already been deactivated, so its own code wasn't loaded again to show the notice a second time either. Activating now fails immediately with a clear, visible message explaining that Pro is already active.
+
 = 1.6.3 =
 * Change: raised the tested-compatible WooCommerce version from 9.4 to 10.8, the version actually verified live (installed, activated, indexed a real catalog, and passed WordPress's official Plugin Check tool with zero findings) rather than bumped on assumption.
-
-= 1.6.2 =
-* Housekeeping: the 1.6.1 release commit that was actually tagged and published was missing its own changelog entries for 1.6.0 and 1.6.1 (a lineage mismatch between the published tag and the corrected source — fixed here by publishing the correction as its own version rather than altering the already-published 1.6.1 tag). No runtime behavior changed since 1.6.1.
 
 See changelog.txt for older releases.
