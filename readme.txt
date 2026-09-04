@@ -89,6 +89,12 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.8.0 =
+* Feature: the index rebuild status check now advances the rebuild itself, one step at a time, instead of only watching it — so a rebuild keeps moving even on a host where background scheduling (WP-Cron) is slow to pick up new work. Bounded to exactly one step per check: confirmed live in the Pro edition that an unbounded version of this (processing everything due, not just one step) could drain an entire 2000-product rebuild in a single check, making the progress bar sit at 0% and then jump straight to 100% instead of climbing smoothly.
+
+= 1.7.0 =
+* Improvement: `[turbo_search_button]` — the Pro edition's shortcode tag — now also works here, rendering the same search widget as this edition's own `[turbo_search]`. A site's shortcode keeps working either way if it ever switches between editions.
+
 = 1.6.4 =
 * Fix: activating this Free edition while Pro was already active silently failed with no explanation — WordPress (including `wp plugin activate`) reported the activation as successful, and the plugin then simply showed as inactive again on the next page load. Confirmed live: the warning notice for this case was real code, but could never actually render, because WordPress redirects immediately after processing an activation request, before any admin notice is ever painted on that request — and by the following page load Free had already been deactivated, so its own code wasn't loaded again to show the notice a second time either. Activating now fails immediately with a clear, visible message explaining that Pro is already active.
 
