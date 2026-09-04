@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.6.2
+Stable tag:        1.6.3
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -89,14 +89,10 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.6.3 =
+* Change: raised the tested-compatible WooCommerce version from 9.4 to 10.8, the version actually verified live (installed, activated, indexed a real catalog, and passed WordPress's official Plugin Check tool with zero findings) rather than bumped on assumption.
+
 = 1.6.2 =
 * Housekeeping: the 1.6.1 release commit that was actually tagged and published was missing its own changelog entries for 1.6.0 and 1.6.1 (a lineage mismatch between the published tag and the corrected source — fixed here by publishing the correction as its own version rather than altering the already-published 1.6.1 tag). No runtime behavior changed since 1.6.1.
-
-= 1.6.1 =
-* Fix: the MU cache-bypass fast path (which serves a cached search result before WordPress finishes booting) ignored the Rate Limiting settings on the Settings tab and always enforced a fixed 60 requests/minute, so a cached and an uncached search from the same visitor were governed by two different effective limits. Both paths now read the same configured value.
-* Fix: on a site with both editions installed and only one actually active, the same fast path could pick whichever edition merely had a folder present (favoring Pro) instead of the one WordPress had active — for example, running Pro's currency-conversion logic against a request the active Free edition would have served in the store's default currency. It now checks WordPress's own active-plugin state and serves the real REST route instead whenever that can't be resolved to exactly one edition.
-* Fix: "Delete All Plugin Data Now" no longer flushes the entire WordPress object cache — that could drop WooCommerce's and other plugins' cached data too on a large store. It now relies on this plugin's own option cleanup, which already invalidates its own cache entries correctly.
-* Fix: activating, deactivating, or uninstalling network-wide on a Multisite install stopped processing after the first 1,000 sites. It now pages through every site regardless of network size.
-* Housekeeping: the bundled translation template (languages/turbo-search-for-woocommerce.pot) was regenerated — it had been stale since 1.3.0 and was missing several newer strings.
 
 See changelog.txt for older releases.
