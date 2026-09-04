@@ -460,7 +460,12 @@ function wp_script_is( string $handle, string $status = 'enqueued' ): bool {
 	}
 	return (bool) $GLOBALS['wcs_test_script_done'];
 }
-function add_shortcode( string $tag, callable $cb ): void {}
+function add_shortcode( string $tag, callable $cb ): void {
+	$GLOBALS['wcs_test_shortcodes'][ $tag ] = $cb;
+}
+function shortcode_exists( string $tag ): bool {
+	return isset( $GLOBALS['wcs_test_shortcodes'][ $tag ] );
+}
 function shortcode_atts( array $defaults, $atts, string $shortcode = '' ): array {
 	$atts = is_array( $atts ) ? $atts : array();
 	return array_merge( $defaults, array_intersect_key( $atts, $defaults ) );

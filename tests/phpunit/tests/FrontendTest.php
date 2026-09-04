@@ -103,6 +103,16 @@ final class FrontendTest extends TestCase {
 
 	// ── [turbo_search] shortcode ─────────────────────────────────────────────
 
+	public function test_turbo_search_button_is_registered_as_an_alias(): void {
+		Frontend::init();
+		$this->assertTrue( shortcode_exists( 'turbo_search' ) );
+		$this->assertTrue( shortcode_exists( 'turbo_search_button' ) );
+		$this->assertSame(
+			$GLOBALS['wcs_test_shortcodes']['turbo_search'],
+			$GLOBALS['wcs_test_shortcodes']['turbo_search_button']
+		);
+	}
+
 	public function test_shortcode_renders_product_search_form(): void {
 		$html = Frontend::render_shortcode( array() );
 

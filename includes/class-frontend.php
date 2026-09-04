@@ -23,7 +23,13 @@ class Frontend {
 		add_action( 'wp_footer', array( __CLASS__, 'inject_dropdown_container' ) );
 		add_action( 'wp_ajax_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
 		add_action( 'wp_ajax_nopriv_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
+		// [turbo_search_button] is Pro's shortcode tag; registering it here
+		// too (as an alias rendering this edition's plain form) means a
+		// site's shortcode keeps working either way if it ever switches
+		// between Free and Pro — see the matching alias in wp_search's
+		// Frontend::init().
 		add_shortcode( 'turbo_search', array( __CLASS__, 'render_shortcode' ) );
+		add_shortcode( 'turbo_search_button', array( __CLASS__, 'render_shortcode' ) );
 	}
 
 	/**
@@ -120,6 +126,11 @@ class Frontend {
 	 *
 	 * Usage: [turbo_search]
 	 *        [turbo_search placeholder="Find a product…" button="Go" class="my-wrap"]
+	 *
+	 * [turbo_search_button] is also registered as an alias of this same
+	 * method (see Frontend::init()) so that a site's shortcode still renders
+	 * something — this plain form, without Pro's styling options — if it
+	 * switches from Pro down to this Free edition.
 	 *
 	 * The form submits to the native WooCommerce search results page as a fallback
 	 * when JavaScript is disabled. When JS is active, the live dropdown intercepts
