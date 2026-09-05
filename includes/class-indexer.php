@@ -106,6 +106,9 @@ class Indexer {
 		// Reset the indexing flag when AS marks a rebuild batch as permanently failed
 		// so the UI never stays stuck in "Indexing..." with no running job behind it.
 		add_action( 'action_scheduler_failed_action', array( __CLASS__, 'on_batch_action_failed' ), 10, 1 );
+		// WP-Cron fallback for when the *initial* rebuild batch never made it
+		// into Action Scheduler at all — see enqueue_first_batch()'s docblock.
+		add_action( 'wcs_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 1 );
 
 		// ── Product taxonomy changes ──────────────────────────────────────────
 		// Renaming a category or tag makes the stored term name stale in every
@@ -1159,13 +1162,99 @@ class Indexer {
 		update_option( 'wcs_reindex_processed', 0, false );
 		delete_option( 'wcs_last_rebuild_error' );
 		self::log( sprintf( 'NEW REBUILD epoch=%d', $epoch ) );
+		self::enqueue_first_batch( $epoch );
+	}
+
+	/**
+	 * Enqueue the first rebuild batch for $epoch, verifying it actually
+	 * landed rather than assuming success.
+	 *
+	 * as_enqueue_async_action() returns 0 (not an error/exception) when it
+	 * fails, and it CAN fail here specifically: this method's only caller
+	 * that runs during plugins_loaded is Activator::init()'s migration path
+	 * (schedule_jobs()/start_rebuild() are also plugins_loaded-time, via
+	 * activate_single_site()), and Action Scheduler initializes its own data
+	 * store on a hook too — under some bootstrap orderings this plugin's
+	 * migration code can run first. Confirmed live: a WP-CLI command
+	 * (`wp cache flush`) run immediately after a schema-migrating upgrade
+	 * logged "as_enqueue_async_action() was called before the Action
+	 * Scheduler data store was initialized" and silently dropped the call —
+	 * no action row, no error option, wcs_is_indexing stuck at 1 forever
+	 * with nothing driving it and no signal anywhere that anything was
+	 * wrong. The only thing that previously noticed was the admin-page AJAX
+	 * status poll's own resume logic — which never runs at all if no one
+	 * happens to open the Settings page after an upgrade.
+	 *
+	 * WP-Cron doesn't share that race: it's core WordPress, always
+	 * available, and a retry dispatched through it runs on its own later
+	 * request, by which point Action Scheduler will have had a normal
+	 * bootstrap. Capped at 5 attempts (~2.5 minutes) so a fundamentally
+	 * broken/absent Action Scheduler surfaces as a recorded error instead of
+	 * retrying forever.
+	 *
+	 * @param int $epoch Rebuild epoch this batch belongs to.
+	 */
+	private static function enqueue_first_batch( int $epoch ): void {
 		// $unique=false, $priority=10 — see the retry-enqueue in
 		// do_process_batch() for why (the previous (0, true) cast true to
 		// priority 1 instead of the intended 10).
-		as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
 			'last_id' => 0,
 			'epoch'   => $epoch,
 		), 'turbo-search-for-woocommerce', false, 10 );
+
+		if ( $action_id ) {
+			return;
+		}
+
+		self::log( sprintf( 'Initial batch enqueue failed (epoch=%d) — falling back to WP-Cron retry', $epoch ) );
+		if ( ! wp_next_scheduled( 'wcs_retry_rebuild_scheduling', array( $epoch ) ) ) {
+			wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch ) );
+		}
+	}
+
+	/**
+	 * WP-Cron callback: retry enqueueing the first rebuild batch after the
+	 * enqueue in enqueue_first_batch() failed. See that method's docblock
+	 * for why this can happen and why WP-Cron (not another Action Scheduler
+	 * call) is the retry mechanism.
+	 *
+	 * @param int $epoch Rebuild epoch to retry. Ignored if a newer rebuild
+	 *                   has already superseded it.
+	 */
+	public static function retry_rebuild_scheduling( int $epoch ): void {
+		if ( (int) get_option( 'wcs_rebuild_epoch', 0 ) !== $epoch ) {
+			return; // Superseded by a newer rebuild — this retry is stale.
+		}
+		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
+			return;
+		}
+
+		$attempts_key = 'wcs_schedule_retry_' . $epoch;
+		$attempts     = (int) get_transient( $attempts_key );
+
+		if ( $attempts >= 5 ) {
+			Logger::log( sprintf( 'Rebuild scheduling retries exhausted (epoch=%d) — halting', $epoch ), 'warning' );
+			update_option( 'wcs_last_rebuild_error', 'schedule_enqueue_failed', false );
+			update_option( 'wcs_is_indexing', 0, false );
+			delete_transient( $attempts_key );
+			return;
+		}
+
+		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+			'last_id' => 0,
+			'epoch'   => $epoch,
+		), 'turbo-search-for-woocommerce', false, 10 );
+
+		if ( $action_id ) {
+			delete_transient( $attempts_key );
+			self::log( sprintf( 'Retry enqueue succeeded (epoch=%d, attempt %d)', $epoch, $attempts + 1 ) );
+			return;
+		}
+
+		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
+		wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch ) );
+		Logger::log( sprintf( 'Retry enqueue failed again (epoch=%d, attempt %d/5)', $epoch, $attempts + 1 ), 'warning' );
 	}
 
 	/**

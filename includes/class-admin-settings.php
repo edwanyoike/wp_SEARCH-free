@@ -390,6 +390,7 @@ class Admin_Settings {
 		return array(
 			'stuck_no_batch_dispatched' => __( 'The last rebuild could not start — this usually means the server ran out of memory partway through. Click "Rebuild Index" to try again; consider lowering the batch size via the wcs_batch_size filter if this keeps happening.', 'turbo-search-for-woocommerce' ),
 			'staging_empty'             => __( 'The last rebuild produced no data and was discarded — your existing search index was kept. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
+			'schedule_enqueue_failed'   => __( 'The last rebuild could not be scheduled — the background job queue was not ready yet when this ran (this can happen right after an update). It was retried automatically several times without success. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
 		);
 	}
 

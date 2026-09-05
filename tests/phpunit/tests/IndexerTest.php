@@ -30,6 +30,79 @@ final class IndexerTest extends TestCase {
 		$this->assertNotEmpty( preg_grep( '/stale/i', $messages ) );
 	}
 
+	// ── Initial rebuild enqueue failure → WP-Cron fallback ────────────────────
+	// Regression coverage: Action Scheduler's as_enqueue_async_action()
+	// returns 0 (not an exception) when it can't enqueue — confirmed live,
+	// this happens when a schema-migrating upgrade's rebuild trigger runs
+	// during plugins_loaded before Action Scheduler's own data store has
+	// initialized. The call silently no-oped, leaving wcs_is_indexing stuck
+	// at 1 forever with nothing driving it and no admin-visible signal.
+
+	public function test_enqueue_failure_falls_back_to_wp_cron_retry(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::start_rebuild();
+
+		$epoch = (int) get_option( 'wcs_rebuild_epoch' );
+		$this->assertNotSame( 0, $epoch );
+		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'still marked indexing — the fallback, not a hard failure, owns recovery' );
+		$scheduled = array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] );
+		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the initial enqueue fails' );
+		$this->assertSame( array( $epoch ), array_values( $scheduled )[0]['args'] );
+	}
+
+	public function test_enqueue_success_does_not_schedule_a_retry(): void {
+		Indexer::start_rebuild(); // default stub: as_enqueue_async_action succeeds
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'] );
+	}
+
+	public function test_retry_rebuild_scheduling_succeeds_on_a_later_attempt(): void {
+		update_option( 'wcs_rebuild_epoch', 555 );
+		update_option( 'wcs_is_indexing', 1 );
+
+		Indexer::retry_rebuild_scheduling( 555 );
+
+		$enqueued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === ( $c['hook'] ?? '' ) );
+		$this->assertNotEmpty( $enqueued, 'a retry must attempt the enqueue again' );
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'a successful retry must not schedule another one' );
+	}
+
+	public function test_retry_rebuild_scheduling_reschedules_itself_on_repeated_failure(): void {
+		update_option( 'wcs_rebuild_epoch', 555 );
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::retry_rebuild_scheduling( 555 );
+
+		$scheduled = array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] );
+		$this->assertNotEmpty( $scheduled, 'a still-failing retry must reschedule itself' );
+		$this->assertNull( get_option( 'wcs_last_rebuild_error', null ), 'not exhausted yet — no error should be recorded' );
+	}
+
+	public function test_retry_rebuild_scheduling_gives_up_after_five_attempts(): void {
+		update_option( 'wcs_rebuild_epoch', 555 );
+		update_option( 'wcs_is_indexing', 1 );
+		set_transient( 'wcs_schedule_retry_555', 5 );
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::retry_rebuild_scheduling( 555 );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'exhausted retries must not attempt the enqueue again' );
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
+		$this->assertSame( 0, get_option( 'wcs_is_indexing' ), 'must stop showing "Indexing..." once retries are exhausted' );
+	}
+
+	public function test_retry_rebuild_scheduling_ignores_a_superseded_epoch(): void {
+		update_option( 'wcs_rebuild_epoch', 999 ); // a newer rebuild already started
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::retry_rebuild_scheduling( 555 ); // stale epoch from an earlier rebuild
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'] );
+	}
+
 	public function test_missing_staging_table_halts_the_chain_and_clears_the_flag(): void {
 		update_option( 'wcs_rebuild_epoch', 100 );
 		update_option( 'wcs_is_indexing', 1 );

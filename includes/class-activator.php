@@ -76,6 +76,7 @@ class Activator {
 		'wcs_rl_',         // search rate limiter
 		'wcs_nr_',         // nonce-refresh rate limiter
 		'wcs_batch_retry_', // per-cursor rebuild retry flags
+		'wcs_schedule_retry_', // per-epoch initial-enqueue retry counters
 	);
 
 	/**

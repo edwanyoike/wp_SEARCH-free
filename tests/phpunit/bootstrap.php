@@ -129,6 +129,8 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_shortcode_atts_tags']      = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
+	$GLOBALS['wcs_test_single_events'] = array();
+	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
 	$GLOBALS['wcs_test_active_plugins']       = array();
 	$GLOBALS['wcs_test_deactivated_plugins']  = array();
 	$GLOBALS['wcs_test_primed']        = array();
@@ -263,8 +265,17 @@ function do_action( string $tag, ...$args ): void {
 // unique=false/priority=1 (functionally fine, if not the intended priority
 // 10), but under this wrong-order stub the test suite was never actually
 // exercising the real unique/priority semantics at all.
+// Scriptable via $GLOBALS['wcs_test_as_enqueue_fails'] (bool or a callable
+// receiving $hook) — simulates Action Scheduler's own real behavior of
+// returning 0 (not throwing) when it can't enqueue, e.g. its data store not
+// being initialized yet under some bootstrap orderings. The call is still
+// recorded so a test can assert an attempt was made even though it failed.
 function as_enqueue_async_action( string $hook, array $args = array(), string $group = '', bool $unique = false, int $priority = 10 ): int {
 	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'enqueue_async', 'hook' => $hook, 'args' => $args, 'group' => $group, 'unique' => $unique );
+	$fails = $GLOBALS['wcs_test_as_enqueue_fails'] ?? false;
+	if ( is_callable( $fails ) ? $fails( $hook ) : $fails ) {
+		return 0;
+	}
 	return count( $GLOBALS['wcs_test_as_calls'] );
 }
 function as_schedule_single_action( int $timestamp, string $hook, array $args = array(), string $group = '' ): int {
@@ -701,6 +712,11 @@ class Fake_Product {
 // ── Cron / scheduling / admin context ──────────────────────────────────────
 function wp_next_scheduled( string $hook ) {
 	return $GLOBALS['wcs_test_cron'][ $hook ] ?? false;
+}
+function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ): bool {
+	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
+	$GLOBALS['wcs_test_single_events'][] = array( 'hook' => $hook, 'timestamp' => $timestamp, 'args' => $args );
+	return true;
 }
 function wp_schedule_event( int $timestamp, string $recurrence, string $hook ): bool {
 	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
