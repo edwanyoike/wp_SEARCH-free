@@ -20,15 +20,15 @@ class Activator {
 	 * existing installs receive the new schema via the plugins_loaded check
 	 * in init() — WordPress does not re-run activation hooks on plugin updates.
 	 */
-	private const DB_VERSION = '1.9.1';
+	private const DB_VERSION = '1.10.0';
 
 	/**
 	 * Upgrading installs whose stored version is below this need one full
 	 * rebuild: the index rows lack columns/data added since (total_sales,
 	 * sku_normalized, sales_30d, variation SKUs, vocabulary terms, excerpt,
-	 * title_padded).
+	 * title_padded, title_normalized).
 	 */
-	private const REBUILD_REQUIRED_BELOW = '1.9.1';
+	private const REBUILD_REQUIRED_BELOW = '1.10.0';
 
 	/**
 	 * Every option this plugin creates. Used by the Danger Zone reset and
@@ -315,6 +315,7 @@ class Activator {
 			$sql = "CREATE TABLE {$table_name} (
 				product_id bigint(20) unsigned NOT NULL,
 				title text NOT NULL,
+				title_normalized text NOT NULL,
 				title_padded text NOT NULL,
 				sku varchar(100) NOT NULL DEFAULT '',
 				sku_normalized varchar(100) NOT NULL DEFAULT '',

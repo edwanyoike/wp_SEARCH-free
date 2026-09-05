@@ -501,7 +501,7 @@ class Search_Handler {
 		$word_score_params = array();
 		foreach ( $words as $word ) {
 			$escaped             = $wpdb->esc_like( $word );
-			$word_score_sql     .= ' + IF(title_padded LIKE %s, 8, 0) + IF(title LIKE %s, 4, 0)';
+			$word_score_sql     .= ' + IF(title_padded LIKE %s, 8, 0) + IF(title_normalized LIKE %s, 4, 0)';
 			$word_score_params[] = '% ' . $escaped . ' %';
 			$word_score_params[] = $escaped . '%';
 		}
@@ -543,7 +543,7 @@ class Search_Handler {
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 20, 0){$word_score_sql} DESC,
+				 ORDER BY IF(title_normalized = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title_normalized = %s OR title_normalized LIKE %s, 20, 0){$word_score_sql} DESC,
 				 total_sales DESC, title ASC
 				 LIMIT %d",
 				// title-prefix boost requires a word boundary — see Tier 1's
@@ -610,7 +610,7 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
+					 ORDER BY IF(title_normalized = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title_normalized = %s OR title_normalized LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
 					 total_sales DESC, title ASC
 					 LIMIT %d",
 					// Both boosts require a word boundary — see Tier 1's comment
@@ -741,7 +741,7 @@ class Search_Handler {
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
+				 ORDER BY IF(title_normalized = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title_normalized = %s OR title_normalized LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
 				 total_sales DESC, title ASC
 				 LIMIT %d",
 				...array_merge(
@@ -884,9 +884,9 @@ class Search_Handler {
 			 ORDER BY (
 				   %f * MATCH(t.title) AGAINST (%s IN BOOLEAN MODE)
 				 + %f * MATCH(t.title, t.sku, t.content) AGAINST (%s IN BOOLEAN MODE)
-				 + IF(t.title = %s, %f, 0)
+				 + IF(t.title_normalized = %s, %f, 0)
 				 + IF(t.sku = %s, %f, 0)
-				 + IF(t.title = %s OR t.title LIKE %s, %f, 0)
+				 + IF(t.title_normalized = %s OR t.title_normalized LIKE %s, %f, 0)
 				 + IF(t.title_padded LIKE %s, %f, 0)
 				 + IF(t.stock_status = 'instock', %f, 0)
 				 + %f * LEAST(LOG(1 + t.total_sales), 3)

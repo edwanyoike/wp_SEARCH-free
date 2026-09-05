@@ -142,20 +142,61 @@ class Query_Normalizer {
 	 * @return string Lowercased, punctuation-split, whitespace-collapsed, length-capped query.
 	 */
 	public static function normalize( string $query ): string {
-		$query = str_replace(
-			array( '*', '+', '-', '<', '>', '~', '@', '(', ')', '"', "'", ',', '.', ':', ';', '/', '\\', '&', '!', '?' ),
-			' ',
-			$query
-		);
-		$query = (string) preg_replace( '/\s+/u', ' ', $query );
-		$query = trim( $query );
-		$query = mb_strtolower( $query, 'UTF-8' );
+		$query = self::strip_punctuation( $query );
 
 		if ( mb_strlen( $query, 'UTF-8' ) > self::MAX_LENGTH ) {
 			$query = mb_substr( $query, 0, self::MAX_LENGTH, 'UTF-8' );
 		}
 
 		return $query;
+	}
+
+	/**
+	 * Normalize a product title the same way a query is normalized, but
+	 * without the MAX_LENGTH cap — that cap exists to bound query/cache-key
+	 * cost, not stored index content, and truncating a long title here would
+	 * silently corrupt exact/prefix/phrase matching for it.
+	 *
+	 * Indexed titles otherwise keep their original punctuation (FULLTEXT
+	 * indexing and display both need it — see Indexer::apply_row_filter_and_
+	 * sanitize()), while a search query has its punctuation replaced with
+	 * spaces before ranking. Comparing the normalized query directly against
+	 * an un-normalized title made a punctuated product name — "T-Shirt",
+	 * "Men's Jacket" — fail the exact-title, title-prefix, and phrase boosts
+	 * even for a shopper query that is, in every sense that matters, an exact
+	 * match: "t shirt" is not string-equal to, or a literal substring of,
+	 * "T-Shirt". The FULLTEXT tier still finds the product regardless (MySQL's
+	 * own parser tokenizes hyphens the same way), so this is a ranking-
+	 * precision fix, not a recall one — this normalized field is used only in
+	 * the deterministic boost comparisons in Search_Handler, never as a
+	 * replacement for the raw `title` column's FULLTEXT indexing or its
+	 * verbatim use for display.
+	 *
+	 * @param string $title Raw product title.
+	 * @return string Lowercased, punctuation-split, whitespace-collapsed title.
+	 */
+	public static function normalize_title( string $title ): string {
+		return self::strip_punctuation( $title );
+	}
+
+	/**
+	 * Shared core of normalize()/normalize_title(): replace FULLTEXT
+	 * operators and punctuation with spaces, collapse whitespace, lowercase.
+	 * See normalize()'s docblock for why punctuation is replaced rather than
+	 * deleted.
+	 *
+	 * @param string $text Raw text.
+	 * @return string
+	 */
+	private static function strip_punctuation( string $text ): string {
+		$text = str_replace(
+			array( '*', '+', '-', '<', '>', '~', '@', '(', ')', '"', "'", ',', '.', ':', ';', '/', '\\', '&', '!', '?' ),
+			' ',
+			$text
+		);
+		$text = (string) preg_replace( '/\s+/u', ' ', $text );
+		$text = trim( $text );
+		return mb_strtolower( $text, 'UTF-8' );
 	}
 
 	/**

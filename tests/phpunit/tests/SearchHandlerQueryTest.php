@@ -187,7 +187,7 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$sql = $this->wpdb->queries[0];
 		$this->assertStringContainsString( 'MATCH(t.title) AGAINST', $sql );
-		$this->assertStringContainsString( "IF(t.title = 'hazina', 10, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.title_normalized = 'hazina', 10, 0)", $sql );
 		$this->assertStringContainsString( "IF(t.sku = 'hazina', 20, 0)", $sql );
 		$this->assertStringContainsString( "IF(t.stock_status = 'instock', 0.5, 0)", $sql );
 		$this->assertStringContainsString( 'LEAST(LOG(1 + t.total_sales), 3)', $sql );
@@ -208,9 +208,9 @@ final class SearchHandlerQueryTest extends TestCase {
 	public function test_like_tiers_prioritize_exact_and_prefix_intent_before_popularity(): void {
 		$this->search( 'ab' );
 
-		$this->assertStringContainsString( "ORDER BY IF(title = 'ab', 100, 0)", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "ORDER BY IF(title_normalized = 'ab', 100, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( "IF(sku = 'ab', 120, 0)", $this->wpdb->queries[0] );
-		$this->assertStringContainsString( "IF(title = 'ab' OR title LIKE 'ab %', 20, 0)", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(title_normalized = 'ab' OR title_normalized LIKE 'ab %', 20, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( 'total_sales DESC, title ASC', $this->wpdb->queries[0] );
 	}
 
@@ -343,7 +343,7 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->search( 'hazina' );
 
 		$sql = $this->wpdb->queries[0];
-		$this->assertStringContainsString( "IF(t.title = 'hazina' OR t.title LIKE 'hazina %', 3, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.title_normalized = 'hazina' OR t.title_normalized LIKE 'hazina %', 3, 0)", $sql );
 		$this->assertStringContainsString( "IF(t.title_padded LIKE '% hazina %', 4, 0)", $sql );
 	}
 
@@ -364,8 +364,8 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->search( 'dog' );
 
 		$sql = $this->wpdb->queries[0];
-		$this->assertStringContainsString( "IF(title = 'dog' OR title LIKE 'dog %', 20, 0)", $sql );
-		$this->assertStringNotContainsString( "IF(title LIKE 'dog%', 20, 0)", $sql );
+		$this->assertStringContainsString( "IF(title_normalized = 'dog' OR title_normalized LIKE 'dog %', 20, 0)", $sql );
+		$this->assertStringNotContainsString( "IF(title_normalized LIKE 'dog%', 20, 0)", $sql );
 	}
 
 	/**
@@ -516,9 +516,9 @@ final class SearchHandlerQueryTest extends TestCase {
 		$sql = $this->wpdb->queries[0];
 		// A whole-word title hit outranks a mere title-prefix hit, per word.
 		$this->assertStringContainsString( "IF(title_padded LIKE '% lg %', 8, 0)", $sql );
-		$this->assertStringContainsString( "IF(title LIKE 'lg%', 4, 0)", $sql );
+		$this->assertStringContainsString( "IF(title_normalized LIKE 'lg%', 4, 0)", $sql );
 		$this->assertStringContainsString( "IF(title_padded LIKE '% tv %', 8, 0)", $sql );
-		$this->assertStringContainsString( "IF(title LIKE 'tv%', 4, 0)", $sql );
+		$this->assertStringContainsString( "IF(title_normalized LIKE 'tv%', 4, 0)", $sql );
 		// Popularity still only breaks ties left over after relevance.
 		$this->assertStringContainsString( 'DESC,', $sql );
 		$this->assertStringContainsString( 'total_sales DESC, title ASC', $sql );

@@ -55,6 +55,35 @@ final class QueryNormalizerTest extends TestCase {
 		$this->assertSame( '', Query_Normalizer::normalize( '+-*"' ) );
 	}
 
+	// ── normalize_title() ───────────────────────────────────────────────────
+	// Same punctuation/whitespace/case rules as normalize() (indexed titles
+	// must match how a query normalizes to make the exact-title/title-prefix/
+	// phrase boosts in Search_Handler work — see class-indexer.php's
+	// title_normalized/title_padded columns), but MAX_LENGTH must NOT apply:
+	// that cap bounds query/cache-key cost, not stored index content.
+
+	public function test_normalize_title_matches_normalize_for_ordinary_input(): void {
+		$this->assertSame( Query_Normalizer::normalize( 'ABC-123' ), Query_Normalizer::normalize_title( 'ABC-123' ) );
+		$this->assertSame( Query_Normalizer::normalize( "Men's  T-Shirt" ), Query_Normalizer::normalize_title( "Men's  T-Shirt" ) );
+	}
+
+	public function test_normalize_title_splits_hyphens_apostrophes_and_slashes(): void {
+		$this->assertSame( 't shirt', Query_Normalizer::normalize_title( 'T-Shirt' ) );
+		$this->assertSame( 'men s jacket', Query_Normalizer::normalize_title( "Men's Jacket" ) );
+		$this->assertSame( 'model a b', Query_Normalizer::normalize_title( 'Model A/B' ) );
+	}
+
+	public function test_normalize_title_collapses_repeated_whitespace(): void {
+		$this->assertSame( 'wide gap lamp', Query_Normalizer::normalize_title( "Wide   Gap\tLamp" ) );
+	}
+
+	public function test_normalize_title_is_not_length_capped(): void {
+		$long = str_repeat( 'a ', 100 ) . 'end'; // 300 chars, well past MAX_LENGTH
+		$normalized = Query_Normalizer::normalize_title( $long );
+		$this->assertGreaterThan( Query_Normalizer::MAX_LENGTH, mb_strlen( $normalized ) );
+		$this->assertStringEndsWith( 'end', $normalized );
+	}
+
 	// ── tokenize() ──────────────────────────────────────────────────────────
 
 	public function test_tokenize_splits_and_drops_empties(): void {
