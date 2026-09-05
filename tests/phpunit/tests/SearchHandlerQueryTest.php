@@ -287,13 +287,13 @@ final class SearchHandlerQueryTest extends TestCase {
 	public function test_substring_boost_requires_a_word_boundary(): void {
 		// Empty prefix pass forces the fall-through to Tier 3.
 		$this->wpdb->handler = fn( string $sql, string $type ) =>
-			'results' === $type ? ( str_contains( $sql, "CONCAT(' ', title, ' ')" ) ? array( $this->fakeRow( 1 ) ) : array() ) : null;
+			'results' === $type ? ( str_contains( $sql, 'title_padded' ) ? array( $this->fakeRow( 1 ) ) : array() ) : null;
 
 		$this->search( 'dog' );
 
 		$this->assertCount( 2, $this->wpdb->queries );
 		$fill = $this->wpdb->queries[1];
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% dog %', 6, 0)", $fill );
+		$this->assertStringContainsString( "IF(title_padded LIKE '% dog %', 6, 0)", $fill );
 		$this->assertStringNotContainsString( "IF(title LIKE '%dog%', 6, 0)", $fill );
 	}
 
@@ -422,9 +422,9 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$sql = $this->wpdb->queries[0];
 		// A whole-word title hit outranks a mere title-prefix hit, per word.
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% lg %', 8, 0)", $sql );
+		$this->assertStringContainsString( "IF(title_padded LIKE '% lg %', 8, 0)", $sql );
 		$this->assertStringContainsString( "IF(title LIKE 'lg%', 4, 0)", $sql );
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% tv %', 8, 0)", $sql );
+		$this->assertStringContainsString( "IF(title_padded LIKE '% tv %', 8, 0)", $sql );
 		$this->assertStringContainsString( "IF(title LIKE 'tv%', 4, 0)", $sql );
 		// Popularity still only breaks ties left over after relevance.
 		$this->assertStringContainsString( 'DESC,', $sql );
@@ -519,8 +519,8 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertNotEmpty( $relaxed );
 		$this->assertStringNotContainsString( 'MATCH', $relaxed[0], 'this is the LIKE-tier fallback, not FULLTEXT' );
 		// Same per-word scoring as tiers 2/3, so a fuller match still outranks a partial one.
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% ab %', 8, 0)", $relaxed[0] );
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% cd %', 8, 0)", $relaxed[0] );
+		$this->assertStringContainsString( "IF(title_padded LIKE '% ab %', 8, 0)", $relaxed[0] );
+		$this->assertStringContainsString( "IF(title_padded LIKE '% cd %', 8, 0)", $relaxed[0] );
 	}
 
 	public function test_like_relaxation_is_skipped_when_an_earlier_tier_found_anything(): void {

@@ -475,7 +475,7 @@ class Search_Handler {
 		$word_score_params = array();
 		foreach ( $words as $word ) {
 			$escaped             = $wpdb->esc_like( $word );
-			$word_score_sql     .= " + IF(CONCAT(' ', title, ' ') LIKE %s, 8, 0) + IF(title LIKE %s, 4, 0)";
+			$word_score_sql     .= ' + IF(title_padded LIKE %s, 8, 0) + IF(title LIKE %s, 4, 0)';
 			$word_score_params[] = '% ' . $escaped . ' %';
 			$word_score_params[] = $escaped . '%';
 		}
@@ -584,7 +584,7 @@ class Search_Handler {
 					"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 					 FROM %i
 					 WHERE {$where_sql}
-					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0){$word_score_sql} DESC,
+					 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
 					 total_sales DESC, title ASC
 					 LIMIT %d",
 					// Both boosts require a word boundary — see Tier 1's comment
@@ -715,7 +715,7 @@ class Search_Handler {
 				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
 				 FROM %i
 				 WHERE {$where_sql}
-				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(CONCAT(' ', title, ' ') LIKE %s, 6, 0){$word_score_sql} DESC,
+				 ORDER BY IF(title = %s, 100, 0) + IF(sku = %s, 120, 0) + IF(title = %s OR title LIKE %s, 12, 0) + IF(title_padded LIKE %s, 6, 0){$word_score_sql} DESC,
 				 total_sales DESC, title ASC
 				 LIMIT %d",
 				...array_merge(

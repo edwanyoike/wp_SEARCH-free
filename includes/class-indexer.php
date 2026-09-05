@@ -650,7 +650,7 @@ class Indexer {
 		);
 
 		$data    = self::apply_row_filter_and_sanitize( $data, $product_id );
-		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%d', '%s', '%s', '%s' );
+		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%d', '%s', '%s', '%s' );
 
 		if ( empty( $table_name ) ) {
 			$table_name = $wpdb->prefix . 'wcs_search_index';
@@ -792,9 +792,15 @@ class Indexer {
 		// or markup into the search index via this filter. Rebuilt in canonical
 		// column order: wpdb->replace() applies $formats positionally, so a
 		// filter callback that unset a key must not be able to shift alignment.
+		$title = wp_strip_all_tags( (string) ( $data['title'] ?? '' ) );
 		return array(
 			'product_id'     => (int) ( $data['product_id'] ?? $product_id ),
-			'title'          => wp_strip_all_tags( (string) ( $data['title'] ?? '' ) ),
+			'title'          => $title,
+			// Word-boundary padding, precomputed at index time so the query layer
+			// can match `title_padded LIKE '% word %'` directly instead of
+			// evaluating CONCAT(' ', title, ' ') fresh on every candidate row for
+			// every query word (Search_Handler's phrase/word-score boosts).
+			'title_padded'   => ' ' . $title . ' ',
 			'sku'            => (string) ( $data['sku'] ?? '' ),
 			'sku_normalized' => Query_Normalizer::normalize_sku( (string) ( $data['sku_normalized'] ?? $data['sku'] ?? '' ) ),
 			'content'        => wp_strip_all_tags( (string) ( $data['content'] ?? '' ) ),
@@ -947,8 +953,8 @@ class Indexer {
 		}
 
 		// Single multi-row REPLACE for the whole chunk.
-		$columns      = array( 'product_id', 'title', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' );
-		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%f,%f,%s,%d,%d,%s,%s,%s)';
+		$columns      = array( 'product_id', 'title', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' );
+		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%s,%f,%f,%s,%d,%d,%s,%s,%s)';
 		$placeholders = implode( ',', array_fill( 0, count( $rows ), $row_pattern ) );
 
 		$values = array();

@@ -90,7 +90,7 @@ final class IndexerTest extends TestCase {
 		$row = $this->sanitizeRow( $this->validRow() );
 
 		$this->assertSame(
-			array( 'product_id', 'title', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' ),
+			array( 'product_id', 'title', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' ),
 			array_keys( $row )
 		);
 	}
