@@ -89,6 +89,13 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.10.1 =
+* Fix: a temporary database error while a background rebuild was reading the product list could look identical to "finished reading the whole catalog", causing the rebuild to finish early and publish an index missing every product after that point. The read is now verified and retried the same way other rebuild steps already were.
+* Fix: if the database failed to prepare a clean staging area before a rebuild started, or failed the final switch to the newly built index, the rebuild could silently proceed (in the first case) or report success while still serving the old index (in the second). Both are now verified, retried, and — if they keep failing — reported with a specific, actionable error instead of a false success or a silent skip.
+* Fix: a product removed, hidden, or password-protected on your store could occasionally remain findable through search if the database briefly failed to remove it from the index. Removal is now retried automatically.
+* Fix: a handful of narrower background-job scheduling gaps (a rejected retry-of-a-retry during a rebuild, a single product's update occasionally not reaching the index, a cache-refresh signal occasionally not going out) are now verified and retried the same way the main rebuild scheduling already was.
+* Fix: on a temporary search error, the live search dropdown could keep showing that same incomplete result to a shopper for the rest of their visit instead of trying again, because the browser's own short-term cache didn't know the result was incomplete.
+
 = 1.10.0 =
 * Improvement: exact-title, "starts with", and "contains as a phrase" ranking boosts now recognize a product title as a match even when it contains punctuation the search box normalizes away — for example searching "t shirt" now gets full ranking credit against a product titled "T-Shirt", the same credit it already got against a title with no punctuation. Triggers a one-time background rebuild.
 * Fix: a product with variations (size, color, etc.) could show stale variation SKUs, price range, or stock status in search results after editing a variation directly — WooCommerce fires separate events for variation changes that this plugin wasn't listening for. Creating, editing, changing stock on, deleting, or restoring a variation now refreshes its parent product's search entry.

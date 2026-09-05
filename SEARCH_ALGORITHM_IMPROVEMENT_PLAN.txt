@@ -4,9 +4,10 @@ SEARCH ALGORITHM PERFORMANCE IMPROVEMENT PLAN
 
 Document status: Living review document
 Created: 2026-09-04
-Last updated: 2026-09-05 (second high-impact review added rebuild integrity,
-  variation freshness, query-failure handling, and normalized-title findings)
-Plugin version reviewed: 1.9.1 (DB schema at Activator::DB_VERSION 1.9.1)
+Last updated: 2026-09-05 (Findings D-H implemented and released as 1.10.0,
+  two rounds of reviewer follow-up audit addressed, deployed and live-
+  verified on thogotodeli.com)
+Plugin version reviewed: 1.10.0 (DB schema at Activator::DB_VERSION 1.10.0)
 Scope: Search latency, database efficiency, throughput, and cache effectiveness
 
 
@@ -1589,3 +1590,352 @@ evidence, per the prior response's own stated bar for revisiting it.
 
 Verification: 302 PHPUnit tests / 872 assertions passing (up from 301/871);
 PHPCS clean.
+
+
+2026-09-05 / Findings D-H committed, released as 1.10.0, deployed and
+live-verified on thogotodeli.com
+
+- Split into 5 commits: docs (findings + disposition), Finding H
+  (title-normalized ranking), Finding F (query-failure caching), a combined
+  Finding D+E+G commit (rebuild reliability + variation freshness — kept
+  together because they share do_process_batch()/do_index_single_product()
+  throughout class-indexer.php, and two attempts at splitting that file's
+  hunks by finding via `git add -p` produced miscounted, incorrectly-staged
+  diffs; recombining them was safer than risking a wrong commit), and a
+  final docs commit responding to both reviewer follow-up audits.
+- Released as 1.10.0 (Minor, per VERSION_MANAGEMENT.md — a schema change
+  requiring a rebuild) via build.sh: full suite gate passed (302 tests / 872
+  assertions), coverage 91.86% against the 85% threshold, tagged v1.10.0,
+  pushed to origin/main.
+- Deployed to thogotodeli.com: installed, ownership fixed, `wp cache flush`
+  triggered the schema migration and queued the new rebuild epoch. Its
+  first batch was scheduled for ~1 minute out by Action Scheduler's normal
+  async dispatch and hadn't run yet when first checked (not stuck — a
+  WP-CLI context doesn't get the immediate loopback-HTTP kick a web request
+  would); `wp action-scheduler run` drove it to completion in the same way
+  the 1.9.0 deploy did.
+- Live verification: `title_normalized`/`title_padded` columns present and
+  correctly populated for a real punctuated title ("Farmer's Choice Bacon
+  Pieces - Rich & Flavorful" -> "farmer s choice bacon pieces rich
+  flavorful"); a live REST search for "farmer s choice" ranks that exact
+  product first; full ~2000-product rebuild completed with zero write
+  failures (no wcs_last_rebuild_error, no wcs_rebuild_failed_count row) and
+  a clean WooCommerce log (START/DONE per batch, one SWAP, OPTIMIZE
+  start/done — no retry or failure lines).
+
+
+2026-09-05 THIRD HIGH-IMPACT CODE AND SEARCH REVIEW (VERSION 1.10.0)
+-------------------------------------------------------------------
+
+Scope: a fresh source review after the 1.10.0 release, limited to failures
+that can materially truncate, stale, expose, or misrepresent search results.
+The previously documented candidate-window benchmark and Finding D's explicit
+degraded-swap policy remain open and are not repeated as new findings here.
+
+FINDING I: A FAILED PRODUCT-ID QUERY IS TREATED AS END OF CATALOG
+
+Area: Code & Functionality / Rebuild integrity
+Impact: High
+Status: Confirmed by source inspection; proposed
+Relevant code: includes/class-indexer.php, do_process_batch(), product-ID
+               get_col() and empty($products) finalization branch
+
+do_process_batch() reads the next page of eligible product IDs through
+$wpdb->get_col(), but never checks $wpdb->last_error or the query return. An
+SQL failure produces an empty value with the same shape as a genuine end of
+catalog. If staging already contains any rows, execution enters finalization
+and swaps that partial index into production.
+
+This is more severe than an individual failed product write: one transient
+failure while fetching a later batch can omit every product after the current
+cursor while the rebuild reports completion.
+
+Recommended solution:
+
+- Check the batch-selection query for a database error before evaluating
+  empty($products).
+- Throw or enter the existing bounded batch retry path on failure; never run
+  finalization from an indeterminate query result.
+- Record a specific rebuild error after retry exhaustion and preserve the live
+  table.
+
+Tradeoffs and risks:
+
+- A database outage delays completion, which is preferable to publishing an
+  index whose catalog coverage is unknown.
+
+Acceptance criteria:
+
+- A simulated get_col() failure cannot execute RENAME TABLE.
+- The same cursor is retried, and exhausted retries leave the live index and
+  an actionable error state intact.
+
+
+FINDING J: REBUILD SETUP AND ATOMIC SWAP SQL RESULTS ARE NOT VERIFIED
+
+Area: Code & Functionality / Rebuild integrity
+Impact: High
+Status: Confirmed by source inspection; proposed
+Relevant code: includes/class-indexer.php, schedule_full_rebuild() and
+               do_process_batch() finalization
+
+The CREATE-LIKE and TRUNCATE statements that prepare staging ignore their
+return values. Finalization likewise ignores DROP/RENAME results and proceeds
+to clear the indexing state, bust caches, and fire wcs_index_rebuild_complete
+as though the swap succeeded.
+
+A failed TRUNCATE can leave rows from an earlier abandoned rebuild in staging;
+the next build uses REPLACE rather than recreating the complete table, so
+products deleted since that abandoned run can be resurrected when staging is
+swapped. A failed RENAME reports a false success and can leave schema migration
+or configuration changes unapplied while downstream completion hooks run.
+
+Recommended solution:
+
+- Verify CREATE-LIKE and TRUNCATE before setting rebuild state or enqueueing
+  the first batch.
+- Verify the atomic RENAME result before dropping anything further or marking
+  the rebuild complete.
+- On failure, retain whichever table is currently live, set a distinct
+  setup/swap error, and leave enough state for an administrator or bounded
+  retry to recover safely.
+
+Tradeoffs and risks:
+
+- Recovery must account for the actual table names after DDL failure. Inspect
+  table existence before retrying instead of assuming the rename occurred.
+
+Acceptance criteria:
+
+- Failed staging creation/truncation never starts a rebuild.
+- Failed RENAME never clears the error, updates last-indexed time, busts the
+  cache as a successful rebuild, or fires the completion hook.
+- Tests cover stale rows remaining after a failed TRUNCATE.
+
+
+FINDING K: THE FAILED-ACTION RETRY ENQUEUE CAN STILL DISAPPEAR SILENTLY
+
+Area: Code & Functionality / Background-job reliability
+Impact: High
+Status: Confirmed by source inspection; proposed
+Relevant code: includes/class-indexer.php, on_batch_action_failed()
+
+Normal initial and continuation enqueues now verify Action Scheduler's return
+value, but on_batch_action_failed() has a separate retry path that calls
+as_enqueue_async_action() directly and discards the returned action ID. It
+sets the per-cursor retry transient before attempting the enqueue. If Action
+Scheduler returns zero, no retry job exists, the transient says the retry was
+already consumed, and wcs_is_indexing remains true indefinitely.
+
+Recommended solution:
+
+- Route this retry through the same verified enqueue/WP-Cron recovery helper,
+  or check its action ID and schedule the cursor/epoch WP-Cron retry on failure.
+- Mark the retry transient only after a job has actually been accepted, or
+  clear it when enqueueing fails.
+
+Tradeoffs and risks:
+
+- Ensure the Action Scheduler failure callback and WP-Cron retry budget share
+  one bounded attempt policy so two recovery mechanisms cannot loop each other.
+
+Acceptance criteria:
+
+- Returning zero from the failed-action retry enqueue cannot leave indexing
+  active without either a queued action or cron event.
+- Tests cover this exact callback path, not only normal continuation enqueue.
+
+
+FINDING L: INCREMENTAL UPDATES, DELETIONS, AND CACHE INVALIDATION CAN FAIL
+SILENTLY
+
+Area: Code & Functionality / Live-index freshness
+Impact: High
+Status: Confirmed by source inspection; proposed
+Relevant code: includes/class-indexer.php, queue_product_update(),
+               delete_single_product(), and trigger_cache_bust()
+
+The incremental product-update enqueue discards Action Scheduler's returned
+action ID. Both live and staging $wpdb->delete() calls discard database
+failures. The debounced cache-bust schedule also discards its returned action
+ID and sets the request-local `bust_queued` flag regardless of whether an
+action exists.
+
+These paths are the normal mechanism keeping search synchronized between full
+rebuilds. A rejected update enqueue can leave a changed product stale
+indefinitely. A failed deletion can keep a trashed, deleted, hidden, or newly
+password-protected product searchable. A lost cache-bust action can continue
+serving the pre-update result for the full 24-hour transient lifetime even if
+the index write itself succeeded.
+
+Recommended solution:
+
+- Verify incremental update and cache-bust enqueue IDs and use a bounded
+  fallback such as WP-Cron when Action Scheduler rejects them.
+- Check both deletion results. Retry transient failures asynchronously and log
+  a durable actionable error after exhaustion.
+- Set in-request deduplication flags only after an existing or newly accepted
+  action is confirmed.
+- For security-sensitive removals, perform an immediate cache-version bump
+  after a successful live delete rather than waiting five minutes.
+
+Tradeoffs and risks:
+
+- Reliable fallback scheduling adds small bookkeeping overhead to product-save
+  hooks. The work itself remains asynchronous.
+- Immediate invalidation on removal increases cache churn only for uncommon
+  delete/hide events and prevents obsolete public results from lingering.
+
+Acceptance criteria:
+
+- A zero action ID cannot silently discard the only incremental update or
+  cache invalidation.
+- Failed live/staging deletes are detected and retried or surfaced.
+- A successfully removed or hidden product cannot be returned from an old
+  server cache for five minutes.
+
+
+FINDING M: DATABASE-ERROR RESULTS ARE STILL CACHED IN THE BROWSER
+
+Area: Code & Functionality / User experience
+Impact: Medium
+Status: Confirmed by source inspection; proposed
+Relevant code: includes/class-search-handler.php, X-WCS-Query-Error response;
+               assets/js/search.js, doSearch() and performSearch()
+
+The server now correctly avoids transient and APCu writes whenever a search
+query encounters a database error. The JavaScript client does not read
+X-WCS-Query-Error, however. It caches every successful JSON response unless it
+has the separate X-WCS-Indexing marker. A degraded partial or empty response is
+therefore retained in the page's in-memory cache and reused for the same query
+until reload, even after the database has recovered.
+
+Recommended solution:
+
+- Read X-WCS-Query-Error in doSearch() and attach a non-enumerated response
+  marker using the same pattern as __indexing, or return structured metadata.
+- Do not insert marked responses into the browser cache. Render recovered rows
+  if present; render the existing temporary-error state for an empty degraded
+  response.
+
+Tradeoffs and risks:
+
+- Array-attached metadata is convenient but fragile across serialization. A
+  small structured response envelope is clearer long term, though it requires
+  coordinated server, MU-plugin, and frontend changes.
+
+Acceptance criteria:
+
+- A response carrying X-WCS-Query-Error is never stored in the page cache.
+- Repeating the query after database recovery performs another request.
+- Partial recovered rows remain usable without being presented or retained as
+  a fully reliable result set.
+
+
+VERIFICATION
+------------
+
+The released source at review time is tag v1.10.0 / commit 81272f5. Local
+PHPUnit passes 302 tests / 872 assertions and PHPCS passes. Those tests do not
+currently exercise the failure paths above. No production mutation or deploy
+was performed during this review.
+
+
+2026-09-05 THIRD HIGH-IMPACT REVIEW: DISPOSITION AND IMPLEMENTATION
+----------------------------------------------------------------------
+
+All five findings (I-M) verified against source and implemented in full —
+no scope reductions this round, unlike Findings D/E in the second review.
+
+FINDING I — accepted, implemented. Confirmed: $wpdb->get_col()'s failure and
+its genuine "no more products" return are identical (empty array), and that
+value fed straight into the finalization branch with no error check. Fixed
+with the same bounded-retry shape as every other enqueue in this file: on a
+detected $wpdb->last_error, retry the SAME cursor via
+enqueue_batch_with_retry() up to 5 attempts (transient-tracked per
+epoch+cursor), then halt with a new 'batch_fetch_failed' error, live index
+preserved. Tests cover both the retry and the halt-after-exhaustion path.
+
+FINDING J — accepted, implemented, both halves. Confirmed: schedule_full_
+rebuild()'s CREATE TABLE IF NOT EXISTS / TRUNCATE and the finalization
+RENAME TABLE all discarded their results.
+- Staging setup: both results are now checked before any rebuild state is
+  set. A failure records 'rebuild_setup_failed' and returns — no
+  wcs_is_indexing, no epoch bump, no batch enqueued. This directly closes
+  the resurrected-deleted-product risk the finding described (an
+  unconfirmed-clean staging table getting the next rebuild's REPLACE-only
+  writes, which never touch already-ineligible product IDs).
+- Atomic swap: RENAME TABLE's result is now checked. MySQL's multi-table
+  RENAME is atomic for one statement, so a failure leaves both tables
+  exactly as they were — the real risk named in the finding was reporting
+  success anyway (clearing wcs_is_indexing, bumping wcs_last_indexed,
+  firing wcs_index_rebuild_complete) while the site kept serving the OLD
+  index, which is actively misleading rather than merely unhelpful. Fixed
+  with the same 5-attempt bounded retry (transient-tracked per epoch) before
+  halting with a new 'swap_failed' error. Tests cover the retry, the
+  eventual halt, and that wcs_is_indexing/wcs_cache_version are never
+  touched by a swap that didn't happen.
+
+FINDING K — accepted, implemented. Confirmed: on_batch_action_failed()'s
+own retry path called as_enqueue_async_action() directly with the result
+discarded, and set its "already retried" transient before attempting the
+call — the exact failure class Finding G (second review) already fixed for
+every OTHER enqueue site in this file, just one call site missed. Now
+routes through the same enqueue_batch_with_retry() helper, so a rejected
+retry falls back to the same verified WP-Cron path instead of leaving
+wcs_is_indexing stuck at 1 with nothing left to ever fail again and notice.
+
+FINDING L — accepted, implemented, all three parts. Calibration note: this
+was filed as one High finding, but its three sub-issues differ meaningfully
+in real-world severity — noted per-part below, not to relitigate the
+finding, but because it shaped how much retry infrastructure each part got.
+
+- queue_product_update(): enqueue result was discarded. Unlike the rebuild-
+  batch race this whole retry pattern originated from (Activator::init()'s
+  plugins_loaded-time migration racing Action Scheduler's own
+  initialization), a normal product save happens well after plugins_loaded,
+  so that specific race doesn't apply here — but as_enqueue_async_action()
+  can still fail for other reasons, and an active store's next save of the
+  same product provides no implicit self-healing since $queued_ids is a
+  per-request, not persistent, guard. Fixed with the same WP-Cron fallback
+  pattern (new wcs_retry_product_enqueue hook, 5 bounded attempts).
+- delete_single_product(): both $wpdb->delete() calls discarded their
+  result. This is the sub-issue actually worth the "High" label — a
+  hidden/password-protected/deleted product surviving in an index the
+  public REST endpoint serves with no capability check is a real, if
+  narrow, exposure window, not just staleness. Fixed with an immediate
+  bounded retry (3 attempts, no WP-Cron hop): on_product_trash/
+  on_product_delete fire synchronously on the admin's own request, so the
+  retry needed to stay cheap rather than add a cron round-trip to that
+  request.
+- trigger_cache_bust(): $bust_queued was set to true unconditionally after
+  attempting as_schedule_single_action(), whose failure was discarded. Given
+  $bust_queued is a per-request static (not persisted), the practical impact
+  was narrower than "24 hours of stale results" — a failed schedule only
+  suppressed the REST of THAT SAME request's attempts (e.g. every remaining
+  row in a bulk save), not future ones; the next unrelated request gets a
+  fresh flag and a fresh attempt regardless. Still a real, cheap-to-fix gap:
+  $bust_queued is now set only on confirmed success (or an already-pending
+  action), so a later call in the SAME request retries instead of being
+  permanently suppressed by one earlier failure. No WP-Cron fallback added
+  here — proportionate to the now-narrower actual risk, and this function is
+  called on nearly every index write, so a genuinely persistent AS problem
+  self-heals via the very next product change on an active store regardless.
+
+FINDING M — accepted, implemented. Confirmed: search.js's doSearch() read
+X-WCS-Indexing and X-WCS-Corrected-Query but not X-WCS-Query-Error, and the
+in-memory result cache's only exclusion was `!data.__indexing`. Fixed:
+doSearch() now also attaches `data.__queryError` from the header;
+performSearch()'s cache-write gate excludes it the same way; an empty
+query-error response now renders through the existing renderError() UI
+("Search is temporarily unavailable. Please try again.") instead of a flat
+"No products found", while any recovered rows are still rendered normally
+per the finding's own recommendation. This repo has no JS test
+infrastructure (no package.json test script, no existing *.test.js) — the
+change was verified via `node --check` for syntax and by hand-tracing every
+call site of `cache`, `__indexing`, and `renderResults`/`renderError`
+against the new `__queryError` branch, consistent with search.js's existing,
+pre-review level of test coverage rather than a newly-introduced gap.
+
+Verification: 314 PHPUnit tests / 901 assertions passing (up from 302/872);
+PHPCS clean; line coverage 91.78%, above the 85% release gate.
