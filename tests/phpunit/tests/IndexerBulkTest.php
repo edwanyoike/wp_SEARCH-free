@@ -426,6 +426,29 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertFalse( get_option( 'wcs_last_rebuild_error' ) );
 	}
 
+	/**
+	 * Regression (Finding J): schedule_full_rebuild() ignored the return
+	 * values of the CREATE TABLE IF NOT EXISTS / TRUNCATE calls that prepare
+	 * staging. If TRUNCATE failed while the table already held rows from an
+	 * earlier abandoned rebuild, this rebuild's REPLACE-based batch writes
+	 * only ever touch currently-eligible product IDs — a stale row for a
+	 * product deleted since that abandoned run would survive untouched and
+	 * get shipped live at the swap, resurrecting a deleted product in
+	 * search. Verifies a failed setup now aborts before wcs_is_indexing is
+	 * ever set and before any batch is enqueued.
+	 */
+	public function test_failed_staging_setup_aborts_before_marking_indexing_active(): void {
+		$this->wpdb->handler = static fn( string $sql, string $type ) =>
+			str_contains( $sql, 'TRUNCATE TABLE' ) ? false : ( 'query' === $type ? 1 : null );
+
+		Indexer::start_rebuild();
+
+		$this->assertNotSame( 1, get_option( 'wcs_is_indexing' ), 'must never mark indexing active over an unconfirmed-clean staging table' );
+		$this->assertSame( 'rebuild_setup_failed', get_option( 'wcs_last_rebuild_error' ) );
+		$enqueued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'enqueue_async' === $c['fn'] );
+		$this->assertSame( array(), $enqueued, 'no batch may be enqueued against unprepared staging' );
+	}
+
 	public function test_start_rebuild_never_uses_the_args_blind_unique_flag(): void {
 		// Regression: every wcs_rebuild_index_batch enqueue in this file used
 		// to pass (0, true) for the trailing (unique, priority) args — under

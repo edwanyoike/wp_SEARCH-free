@@ -131,6 +131,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_cron']          = array();
 	$GLOBALS['wcs_test_single_events'] = array();
 	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
+	$GLOBALS['wcs_test_as_schedule_fails'] = false;
 	$GLOBALS['wcs_test_cron_schedule_fails'] = false;
 	$GLOBALS['wcs_test_active_plugins']       = array();
 	$GLOBALS['wcs_test_deactivated_plugins']  = array();
@@ -281,6 +282,10 @@ function as_enqueue_async_action( string $hook, array $args = array(), string $g
 }
 function as_schedule_single_action( int $timestamp, string $hook, array $args = array(), string $group = '' ): int {
 	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'schedule_single', 'hook' => $hook, 'args' => $args, 'group' => $group );
+	$fails = $GLOBALS['wcs_test_as_schedule_fails'] ?? false;
+	if ( is_callable( $fails ) ? $fails( $hook ) : $fails ) {
+		return 0;
+	}
 	return count( $GLOBALS['wcs_test_as_calls'] );
 }
 function as_has_scheduled_action( string $hook, $args = null, string $group = '' ): bool {
@@ -897,6 +902,9 @@ class Fake_WPDB {
 	/** @var bool|callable(string $table, array $data): bool — makes replace() report failure. */
 	public $replaceFails = false;
 
+	/** @var bool|callable(string $table, array $where): bool — makes delete() report failure. */
+	public $deleteFails = false;
+
 	private bool $suppress = false;
 
 	public function esc_like( string $text ): string {
@@ -999,6 +1007,11 @@ class Fake_WPDB {
 	}
 	public function delete( string $table, array $where, $formats = null ) {
 		$this->queries[] = 'DELETE FROM ' . $table . ' /* ' . wp_json_encode( $where ) . ' */';
+		$fails           = is_callable( $this->deleteFails ) ? ( $this->deleteFails )( $table, $where ) : $this->deleteFails;
+		if ( $fails ) {
+			$this->last_error = 'simulated delete failure';
+			return false;
+		}
 		return 1;
 	}
 	public function suppress_errors( bool $suppress = true ): bool {

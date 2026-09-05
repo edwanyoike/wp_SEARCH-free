@@ -132,6 +132,9 @@ class Indexer {
 		// WP-Cron fallback for when a rebuild batch enqueue never made it into
 		// Action Scheduler at all — see enqueue_batch_with_retry()'s docblock.
 		add_action( 'wcs_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 2 );
+		// Same fallback for a single incremental product-update enqueue —
+		// see queue_product_update()'s comment for why this can fail too.
+		add_action( 'wcs_retry_product_enqueue', array( __CLASS__, 'retry_product_enqueue' ), 10, 1 );
 
 		// ── Product taxonomy changes ──────────────────────────────────────────
 		// Renaming a category or tag makes the stored term name stale in every
@@ -224,8 +227,22 @@ class Indexer {
 		}
 		self::$queued_ids[ $product_id ] = true;
 
-		if ( ! as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
-			as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' );
+		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+			return;
+		}
+
+		$action_id = as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' );
+		if ( $action_id ) {
+			return;
+		}
+
+		// as_enqueue_async_action() returns 0 (not an exception) on failure —
+		// left unchecked, this product's edit silently never reaches the
+		// index and stays stale until its next save or a full rebuild. WP-
+		// Cron fallback, same shape as the rebuild-batch enqueue retries.
+		self::log( sprintf( 'Incremental update enqueue failed for product %d — falling back to WP-Cron retry', $product_id ) );
+		if ( ! wp_next_scheduled( 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+			wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) );
 		}
 	}
 
@@ -373,19 +390,25 @@ class Indexer {
 			$retry_key       = 'wcs_batch_retry_' . $epoch . '_' . $last_id;
 			$already_retried = (bool) get_transient( $retry_key );
 
-			if ( ! $already_retried && function_exists( 'as_enqueue_async_action' ) ) {
-				set_transient( $retry_key, 1, HOUR_IN_SECONDS );
-				// $unique=false, $priority=10 — the trailing args were
-				// previously (0, true), which cast true to priority 1
-				// instead of the intended 10.
-				as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
-					'last_id' => $last_id,
-					'epoch'   => $epoch,
-				), 'turbo-search-for-woocommerce', false, 10 );
-			} else {
+			if ( $already_retried ) {
 				self::log( sprintf( 'FAIL retry exhausted last_id=%d — halting', $last_id ) );
 				update_option( 'wcs_is_indexing', 0, false );
+				return;
 			}
+
+			// Recorded before attempting the enqueue — this budget is "retry
+			// once per cursor", independent of whether that one retry attempt
+			// itself lands cleanly. What used to be unconditional here was the
+			// raw as_enqueue_async_action() call below with its return value
+			// discarded: if Action Scheduler rejected THIS retry too (returns
+			// 0, not an exception), no job existed to ever fail again and
+			// re-trigger this callback, so wcs_is_indexing sat at 1 forever —
+			// the same failure class enqueue_batch_with_retry() already
+			// guards every other batch enqueue in this file against. Routing
+			// through it here closes the one remaining call site that still
+			// called Action Scheduler directly.
+			set_transient( $retry_key, 1, HOUR_IN_SECONDS );
+			self::enqueue_batch_with_retry( $last_id, $epoch );
 		} catch ( \Throwable $e ) {
 			update_option( 'wcs_is_indexing', 0, false );
 		}
@@ -504,6 +527,38 @@ class Indexer {
 			$fetch_limit
 		) );
 
+		// $wpdb->get_col() returns an empty array both when the query fails
+		// and when it genuinely matched nothing — identical to the ambiguity
+		// Search_Handler::get_rows() has on the read side (see that method's
+		// docblock). Here that ambiguity is far more consequential: an empty
+		// result feeds straight into the empty($products) check below, which
+		// means "reached the end of the catalog, swap staging in" — so a
+		// transient failure fetching THIS page would look exactly like a
+		// complete rebuild and could swap in a staging table missing every
+		// product from here to the end of the catalog. Bounded retry, same
+		// shape as the batch-enqueue retries elsewhere in this file: give it
+		// 5 attempts via the existing verified-enqueue/WP-Cron path before
+		// halting and preserving the live index.
+		if ( '' !== $wpdb->last_error ) {
+			$fetch_error  = (string) $wpdb->last_error;
+			$attempts_key = 'wcs_fetch_retry_' . $epoch . '_' . $last_id;
+			$attempts     = (int) get_transient( $attempts_key );
+
+			if ( $attempts >= 5 ) {
+				self::log( sprintf( 'Product-ID fetch failed 5 times at last_id=%d — halting, old live index preserved: %s', $last_id, $fetch_error ) );
+				update_option( 'wcs_last_rebuild_error', 'batch_fetch_failed', false );
+				update_option( 'wcs_is_indexing', 0, false );
+				delete_option( 'wcs_rebuild_phase' );
+				delete_transient( $attempts_key );
+				return;
+			}
+
+			set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
+			self::log( sprintf( 'Product-ID fetch failed at last_id=%d (attempt %d/5) — retrying: %s', $last_id, $attempts + 1, $fetch_error ) );
+			self::enqueue_batch_with_retry( $last_id, $epoch );
+			return;
+		}
+
 		$main_table  = $wpdb->prefix . 'wcs_search_index';
 		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
 
@@ -526,7 +581,42 @@ class Indexer {
 			if ( $stage_has_rows ) {
 				update_option( 'wcs_rebuild_phase', 'swapping', false );
 				$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-				$wpdb->query( $wpdb->prepare( 'RENAME TABLE %i TO %i, %i TO %i', $main_table, $old_table, $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+				$rename_ok = false !== $wpdb->query( $wpdb->prepare( 'RENAME TABLE %i TO %i, %i TO %i', $main_table, $old_table, $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+
+				if ( ! $rename_ok ) {
+					// MySQL's multi-table RENAME is atomic for one statement
+					// — either both renames happen or neither does — so a
+					// failure here leaves $main_table (still the pre-rebuild
+					// data) and $stage_table (still the fully-built new
+					// data) exactly as they were; $old_table never came into
+					// existence. Proceeding to report success anyway — as
+					// this used to, silently — would clear wcs_is_indexing,
+					// bump wcs_last_indexed to "just now", and fire
+					// wcs_index_rebuild_complete while the site is still
+					// serving the OLD index: actively misleading, since the
+					// Settings page would show a fresh "Last successful
+					// index" timestamp for a swap that never happened.
+					// Retry through the same verified path as every other
+					// enqueue in this file, bounded the same way.
+					$attempts_key = 'wcs_swap_retry_' . $epoch;
+					$attempts     = (int) get_transient( $attempts_key );
+
+					if ( $attempts >= 5 ) {
+						Logger::log( sprintf( 'RENAME TABLE failed 5 times at swap (epoch=%d) — halting, old live index preserved: %s', $epoch, $wpdb->last_error ), 'warning' );
+						update_option( 'wcs_last_rebuild_error', 'swap_failed', false );
+						update_option( 'wcs_is_indexing', 0, false );
+						delete_option( 'wcs_rebuild_phase' );
+						delete_transient( $attempts_key );
+						return;
+					}
+
+					set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
+					self::log( sprintf( 'RENAME TABLE failed at swap (epoch=%d, attempt %d/5) — retrying: %s', $epoch, $attempts + 1, $wpdb->last_error ) );
+					self::enqueue_batch_with_retry( $last_id, $epoch );
+					return;
+				}
+
+				delete_transient( 'wcs_swap_retry_' . $epoch );
 				$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 				// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only
@@ -1192,12 +1282,40 @@ class Indexer {
 			$table_name = $wpdb->prefix . 'wcs_search_index';
 			if ( get_option( 'wcs_is_indexing', false ) ) {
 				$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
-				$wpdb->delete( $stage_table, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				self::delete_with_retry( $stage_table, $product_id );
 			}
 		}
 
-		$wpdb->delete( $table_name, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		self::delete_with_retry( $table_name, $product_id );
 		self::trigger_cache_bust();
+	}
+
+	/**
+	 * Delete one product's row, retrying a bounded number of times before
+	 * logging a failure. $wpdb->delete() returns false (not an exception) on
+	 * a real write failure — left unchecked, a trashed, deleted, hidden, or
+	 * newly password-protected product's row could survive in the index,
+	 * remaining findable through the public REST search endpoint (which has
+	 * no capability check) even after the merchant removed it. This runs
+	 * synchronously on wp_trash_post/before_delete_post for the live-table
+	 * case, so the retry is immediate (no WP-Cron hop) and bounded low
+	 * enough to add negligible latency to that request.
+	 *
+	 * @param string $table_name Target table.
+	 * @param int    $product_id Product ID to remove.
+	 */
+	private static function delete_with_retry( string $table_name, int $product_id ): void {
+		global $wpdb;
+
+		$attempt = 0;
+		do {
+			if ( false !== $wpdb->delete( $table_name, array( 'product_id' => $product_id ), array( '%d' ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				return;
+			}
+			++$attempt;
+		} while ( $attempt < 3 );
+
+		self::log( sprintf( 'product %d — delete from %s failed after %d attempts: %s', $product_id, $table_name, $attempt, $wpdb->last_error ) );
 	}
 
 	/**
@@ -1311,8 +1429,24 @@ class Indexer {
 		// Ensure the staging table exists before TRUNCATE. schedule_full_rebuild() is
 		// called from term/setting-change hooks, not the AJAX button — those paths do
 		// not go through the CREATE TABLE IF NOT EXISTS step in ajax_rebuild_index().
-		$wpdb->query( $wpdb->prepare( 'CREATE TABLE IF NOT EXISTS %i LIKE %i', $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
+		//
+		// Both results are checked: a rebuild must never start against a
+		// staging table that might not actually be empty. If TRUNCATE fails
+		// (a lock, a permissions issue) while the table already held rows
+		// from an earlier abandoned rebuild, this rebuild's batch writes are
+		// REPLACE-based and only ever touch currently-eligible product IDs —
+		// a stale row for a product deleted since that abandoned run would
+		// never be touched, then get shipped live at the swap, resurrecting
+		// a deleted product in search. Bailing out here instead leaves the
+		// current live index untouched and the failure visible.
+		$create_ok   = false !== $wpdb->query( $wpdb->prepare( 'CREATE TABLE IF NOT EXISTS %i LIKE %i', $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$truncate_ok = false !== $wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.SchemaChange
+
+		if ( ! $create_ok || ! $truncate_ok ) {
+			Logger::log( sprintf( 'Rebuild setup failed for %s (create_ok=%d truncate_ok=%d): %s', $stage_table, (int) $create_ok, (int) $truncate_ok, $wpdb->last_error ), 'warning' );
+			update_option( 'wcs_last_rebuild_error', 'rebuild_setup_failed', false );
+			return;
+		}
 
 		// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only feature —
 		// this edition never creates those tables, so there is nothing to reset
@@ -1453,6 +1587,43 @@ class Indexer {
 	}
 
 	/**
+	 * WP-Cron callback: retry enqueueing a single product's incremental
+	 * update after the enqueue in queue_product_update() failed. Bounded to
+	 * 5 attempts (~2.5 minutes); beyond that the product simply stays stale
+	 * until its next save or a full rebuild, same as it always could if a
+	 * merchant never touched it again — this only shortens that window for
+	 * the common case where Action Scheduler was just having a moment.
+	 *
+	 * @param int $product_id Product to retry.
+	 */
+	public static function retry_product_enqueue( int $product_id ): void {
+		if ( ! function_exists( 'as_enqueue_async_action' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
+			return;
+		}
+		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+			return; // Already queued since — e.g. the product was saved again.
+		}
+
+		$attempts_key = 'wcs_product_retry_' . $product_id;
+		$attempts     = (int) get_transient( $attempts_key );
+
+		if ( $attempts >= 5 ) {
+			Logger::log( sprintf( 'Incremental update enqueue retries exhausted for product %d — giving up; it will resync on its next save or a full rebuild', $product_id ), 'warning' );
+			delete_transient( $attempts_key );
+			return;
+		}
+
+		$action_id = as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' );
+		if ( $action_id ) {
+			delete_transient( $attempts_key );
+			return;
+		}
+
+		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
+		wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) );
+	}
+
+	/**
 	 * Debounced cache invalidation.
 	 */
 	public static function trigger_cache_bust(): void {
@@ -1466,10 +1637,26 @@ class Indexer {
 			return;
 		}
 
-		if ( ! as_has_scheduled_action( 'wcs_debounce_cache_bust' ) ) {
-			as_schedule_single_action( time() + 300, 'wcs_debounce_cache_bust', array(), 'turbo-search-for-woocommerce' );
+		if ( as_has_scheduled_action( 'wcs_debounce_cache_bust' ) ) {
+			self::$bust_queued = true;
+			return;
 		}
-		self::$bust_queued = true;
+
+		// as_schedule_single_action() returns 0 (not an exception) on
+		// failure. $bust_queued is set ONLY on confirmed success (or an
+		// already-pending action) — if scheduling failed, leaving it false
+		// lets the next trigger_cache_bust() call this same request (a
+		// later product write in a bulk operation, say) try again instead of
+		// this one silent failure suppressing every attempt for the rest of
+		// the request. Cross-request staleness self-heals the same way: the
+		// flag is a per-request static, so an unrelated product save on the
+		// next request gets its own fresh attempt.
+		$action_id = as_schedule_single_action( time() + 300, 'wcs_debounce_cache_bust', array(), 'turbo-search-for-woocommerce' );
+		if ( $action_id ) {
+			self::$bust_queued = true;
+		} else {
+			self::log( 'Cache-bust scheduling failed — will retry on the next index write this request or a later one' );
+		}
 	}
 
 	/**

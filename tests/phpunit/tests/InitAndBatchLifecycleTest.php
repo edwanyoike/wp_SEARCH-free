@@ -88,6 +88,42 @@ final class InitAndBatchLifecycleTest extends TestCase {
 	}
 
 	/**
+	 * Regression (Finding L): $wpdb->delete() returns false (not an
+	 * exception) on a real write failure — left unchecked, a trashed,
+	 * deleted, hidden, or newly password-protected product's row could
+	 * survive in the index and remain findable through the public REST
+	 * search endpoint, which has no capability check. Verifies a
+	 * transient delete failure now recovers within a bounded number of
+	 * immediate retries (this runs synchronously on the admin's trash
+	 * request, so the retry must stay cheap) and that a permanent failure
+	 * is at least logged rather than vanishing silently.
+	 */
+	public function test_transient_delete_failure_recovers_within_retries(): void {
+		$GLOBALS['wcs_test_posts'][5] = (object) array( 'ID' => 5, 'post_type' => 'product', 'post_status' => 'publish' );
+		$calls = 0;
+		$this->wpdb->deleteFails = static function () use ( &$calls ): bool {
+			++$calls;
+			return $calls < 3; // fails the first 2 attempts, succeeds on the 3rd
+		};
+
+		Indexer::on_product_trash( 5 );
+
+		$this->assertSame( 3, $calls, 'must have retried up to the successful attempt' );
+		$logged = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertEmpty( preg_grep( '/delete .* failed/i', $logged ), 'a failure that recovered within retries must not be logged as a failure' );
+	}
+
+	public function test_permanent_delete_failure_is_logged_after_retries_are_exhausted(): void {
+		$GLOBALS['wcs_test_posts'][5] = (object) array( 'ID' => 5, 'post_type' => 'product', 'post_status' => 'publish' );
+		$this->wpdb->deleteFails = true;
+
+		Indexer::on_product_trash( 5 );
+
+		$logged = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertNotEmpty( preg_grep( '/product 5 .* delete .* failed after 3 attempts/i', $logged ) );
+	}
+
+	/**
 	 * Regression (Finding E): the indexed parent row carries variation SKUs
 	 * and the variable product's price range, but this plugin only listened
 	 * for hooks WooCommerce fires on the *parent* product — never the
@@ -190,6 +226,74 @@ final class InitAndBatchLifecycleTest extends TestCase {
 
 		$optimize = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_optimize_index' === $c['hook'] );
 		$this->assertCount( 1, $optimize, 'OPTIMIZE must be dispatched async, never inline' );
+	}
+
+	/**
+	 * Regression (Finding J): the atomic RENAME TABLE result was ignored.
+	 * MySQL's multi-table RENAME is atomic for one statement, so a failure
+	 * leaves both tables exactly as they were — but the code used to
+	 * proceed anyway: clear wcs_is_indexing, bump wcs_last_indexed to "just
+	 * now", and fire wcs_index_rebuild_complete as if the swap succeeded,
+	 * while the site kept serving the OLD index. That's actively
+	 * misleading, not just unhelpful. Verifies a failed rename is retried,
+	 * and that retry exhaustion halts with a specific error rather than
+	 * ever reporting the false success.
+	 */
+	public function test_failed_rename_is_retried_and_never_reports_false_success(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_cache_version', 1 );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'col' === $type ) {
+				return array();
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SHOW TABLES' ) ) {
+				preg_match( "/LIKE '([^']+)'/", $sql, $m );
+				return $m[1] ?? null;
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SELECT 1 FROM' ) ) {
+				return 1; // stage has rows
+			}
+			if ( 'query' === $type && str_contains( $sql, 'RENAME TABLE' ) ) {
+				return false;
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::process_batch( 9999, 42 );
+
+		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'a failed swap must not report completion — the retry owns recovery' );
+		$this->assertSame( 1, get_option( 'wcs_cache_version' ), 'cache must not be busted for a swap that never happened' );
+		$retried = array_values( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === ( $c['hook'] ?? '' ) ) );
+		$this->assertCount( 1, $retried, 'the same finalization cursor must be retried' );
+	}
+
+	public function test_failed_rename_halts_after_five_attempts_with_the_old_index_still_live(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		set_transient( 'wcs_swap_retry_42', 5 );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'col' === $type ) {
+				return array();
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SHOW TABLES' ) ) {
+				preg_match( "/LIKE '([^']+)'/", $sql, $m );
+				return $m[1] ?? null;
+			}
+			if ( 'var' === $type && str_contains( $sql, 'SELECT 1 FROM' ) ) {
+				return 1;
+			}
+			if ( 'query' === $type && str_contains( $sql, 'RENAME TABLE' ) ) {
+				return false;
+			}
+			return 'query' === $type ? 1 : null;
+		};
+
+		Indexer::process_batch( 9999, 42 );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'exhausted retries must not attempt the swap again' );
+		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
+		$this->assertSame( 'swap_failed', get_option( 'wcs_last_rebuild_error' ) );
 	}
 
 	public function test_empty_staging_aborts_the_swap_and_preserves_the_live_index(): void {
@@ -537,6 +641,33 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		$retries = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
 		$this->assertCount( 1, $retries, 'no second retry for the same cursor+epoch' );
 		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
+	}
+
+	/**
+	 * Regression (Finding K): the retry enqueue here called
+	 * as_enqueue_async_action() directly with its return value discarded —
+	 * the retry transient was set unconditionally first. If Action
+	 * Scheduler rejected this retry too, no job existed to ever fail again
+	 * and re-trigger this callback, so wcs_is_indexing sat at 1 forever with
+	 * nothing driving it: the same failure class every other batch enqueue
+	 * in this file already guards against. Verifies this call site now
+	 * falls back to a WP-Cron retry the same way instead of vanishing.
+	 */
+	public function test_failed_batch_retry_enqueue_itself_failing_falls_back_to_wp_cron(): void {
+		update_option( 'wcs_rebuild_epoch', 42 );
+		update_option( 'wcs_is_indexing', 1 );
+		$GLOBALS['wcs_test_as_actions'][7] = new ActionScheduler_Action(
+			'wcs_rebuild_index_batch',
+			array( 'last_id' => 500, 'epoch' => 42 )
+		);
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::on_batch_action_failed( 7 );
+
+		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'the WP-Cron fallback, not a hard failure, owns recovery' );
+		$scheduled = array_values( array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] ) );
+		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the retry enqueue itself fails' );
+		$this->assertSame( array( 42, 500 ), $scheduled[0]['args'] );
 	}
 
 	public function test_failed_batch_from_a_superseded_epoch_is_ignored(): void {

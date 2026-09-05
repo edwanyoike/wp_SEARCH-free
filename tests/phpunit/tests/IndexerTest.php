@@ -133,6 +133,52 @@ final class IndexerTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'] );
 	}
 
+	/**
+	 * Regression (Finding I): $wpdb->get_col() returns an empty array both
+	 * when the product-ID fetch fails and when it genuinely reached the end
+	 * of the catalog — the SAME ambiguity Search_Handler::get_rows() has on
+	 * the read side. Left unchecked, a transient failure fetching a later
+	 * page would look exactly like "reached the end", triggering
+	 * finalization and potentially swapping in a staging table missing
+	 * every product from the failure point onward. Verifies the failure is
+	 * now retried instead, and that retries eventually halt with the live
+	 * index preserved rather than looping or swapping forever.
+	 */
+	public function test_product_id_fetch_failure_is_retried_not_treated_as_end_of_catalog(): void {
+		update_option( 'wcs_rebuild_epoch', 100 );
+		update_option( 'wcs_is_indexing', 1 );
+		$this->wpdb->handler = static function ( string $sql, string $type ) {
+			if ( 'col' === $type ) {
+				return array(); // simulated failure: looks identical to "no more products"
+			}
+			return null;
+		};
+		$this->wpdb->last_error = 'simulated: connection lost';
+
+		Indexer::process_batch( 500, 100 );
+
+		$this->assertStringNotContainsString( 'RENAME TABLE', implode( "\n", $this->wpdb->queries ), 'a failed fetch must never be treated as end-of-catalog and trigger a swap' );
+		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'still marked indexing — the retry, not a hard failure, owns recovery' );
+		$retried = array_values( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === ( $c['hook'] ?? '' ) ) );
+		$this->assertCount( 1, $retried, 'the same cursor must be retried' );
+		$this->assertSame( 500, $retried[0]['args']['last_id'] );
+	}
+
+	public function test_product_id_fetch_failure_halts_after_five_attempts_preserving_the_live_index(): void {
+		update_option( 'wcs_rebuild_epoch', 100 );
+		update_option( 'wcs_is_indexing', 1 );
+		set_transient( 'wcs_fetch_retry_100_500', 5 );
+		$this->wpdb->handler = static fn( string $sql, string $type ) => 'col' === $type ? array() : null;
+		$this->wpdb->last_error = 'simulated: connection lost';
+
+		Indexer::process_batch( 500, 100 );
+
+		$this->assertStringNotContainsString( 'RENAME TABLE', implode( "\n", $this->wpdb->queries ) );
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'exhausted retries must not enqueue another attempt' );
+		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
+		$this->assertSame( 'batch_fetch_failed', get_option( 'wcs_last_rebuild_error' ) );
+	}
+
 	public function test_missing_staging_table_halts_the_chain_and_clears_the_flag(): void {
 		update_option( 'wcs_rebuild_epoch', 100 );
 		update_option( 'wcs_is_indexing', 1 );
@@ -259,6 +305,26 @@ final class IndexerTest extends TestCase {
 		$this->assertCount( 1, $scheduled );
 	}
 
+	/**
+	 * Regression (Finding L): $bust_queued used to be set to true
+	 * unconditionally after attempting as_schedule_single_action(), whose
+	 * return value (0 on failure, not an exception) was discarded. A failed
+	 * schedule therefore permanently suppressed every later
+	 * trigger_cache_bust() call for the rest of THIS request — e.g. a bulk
+	 * product save that calls it once per row — silently dropping the whole
+	 * request's cache invalidation instead of just this one attempt.
+	 */
+	public function test_failed_cache_bust_schedule_lets_a_later_call_this_request_retry(): void {
+		$GLOBALS['wcs_test_as_schedule_fails'] = true;
+
+		Indexer::trigger_cache_bust(); // fails — must not set $bust_queued
+		$GLOBALS['wcs_test_as_schedule_fails'] = false;
+		Indexer::trigger_cache_bust(); // this request's next attempt must still try
+
+		$scheduled = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_debounce_cache_bust' === $c['hook'] );
+		$this->assertCount( 2, $scheduled, 'a failed attempt must not block a later attempt in the same request' );
+	}
+
 	public function test_same_product_is_queued_once_per_request(): void {
 		Indexer::queue_product_update( 7 );
 		Indexer::queue_product_update( 7 );
@@ -266,6 +332,39 @@ final class IndexerTest extends TestCase {
 
 		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
 		$this->assertCount( 2, $queued );
+	}
+
+	/**
+	 * Regression (Finding L): as_enqueue_async_action()'s return value was
+	 * discarded here — a rejected enqueue meant a saved product's edit
+	 * silently never reached the index, staying stale until its next save
+	 * or a full rebuild, with no recovery path at all.
+	 */
+	public function test_product_enqueue_failure_falls_back_to_wp_cron_retry(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::queue_product_update( 7 );
+
+		$scheduled = array_values( array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_product_enqueue' === $e['hook'] ) );
+		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the enqueue fails' );
+		$this->assertSame( array( 7 ), $scheduled[0]['args'] );
+	}
+
+	public function test_product_enqueue_retry_succeeds_on_a_later_attempt(): void {
+		Indexer::retry_product_enqueue( 7 ); // default stub: as_enqueue_async_action succeeds
+
+		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) );
+		$this->assertCount( 1, $queued );
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'a successful retry must not schedule another one' );
+	}
+
+	public function test_product_enqueue_retry_gives_up_after_five_attempts(): void {
+		set_transient( 'wcs_product_retry_7', 5 );
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::retry_product_enqueue( 7 );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
 	}
 
 	// ── Synonym change → immediate cache bust ────────────────────────────────

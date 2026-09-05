@@ -78,6 +78,9 @@ class Activator {
 		'wcs_nr_',         // nonce-refresh rate limiter
 		'wcs_batch_retry_', // per-cursor rebuild retry flags
 		'wcs_schedule_retry_', // per-epoch initial-enqueue retry counters
+		'wcs_fetch_retry_', // per-cursor product-ID fetch retry counters
+		'wcs_swap_retry_', // per-epoch atomic-swap (RENAME TABLE) retry counters
+		'wcs_product_retry_', // per-product incremental-update enqueue retry counters
 	);
 
 	/**
