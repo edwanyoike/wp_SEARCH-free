@@ -796,28 +796,71 @@ class Search_Handler {
 
 		$escaped_query = $wpdb->esc_like( $query );
 
+		// Two-stage retrieval: candidates, then rerank. The full weighted
+		// formula below computes several MATCH() calls plus IF()/LOG() terms
+		// per row — for a broad query (a common single word on a large
+		// catalog) the plain WHERE MATCH(...) above could still match
+		// thousands of rows, and only $limit of them are ever returned.
+		// Computing that formula for all of them is wasted work.
+		//
+		// So a derived-table subquery narrows to a bounded candidate set
+		// first, using only the cheap combined-index relevance score already
+		// required to serve the FULLTEXT WHERE clause — no extra index or
+		// pass over the data. The outer query then re-joins to that bounded
+		// set by primary key and applies the full formula only there.
+		// $short_sql/$stock_clause stay on the inner subquery — they are
+		// real filters that must apply before the LIMIT truncation, not just
+		// to the final output, or a non-matching row could occupy a
+		// candidate slot a genuine match needed.
+		//
+		// This MUST be an INNER JOIN against a derived table, not
+		// `WHERE product_id IN (subquery ... LIMIT n)`: MySQL and MariaDB
+		// both reject that form with error 1235, "This version of MySQL/
+		// MariaDB doesn't yet support 'LIMIT & IN/ALL/ANY/SOME subquery'" —
+		// confirmed live against thogotodeli.com's MariaDB 10.11 while
+		// implementing this. A derived-table JOIN has no such restriction on
+		// any supported MySQL/MariaDB version and was verified there too.
+		// The outer table is aliased (t) because the derived table also
+		// exposes product_id — without the alias the SELECT list and JOIN
+		// condition would be ambiguous between the two.
+		//
+		// A candidate limit large relative to realistic per-store match
+		// counts is deliberate: the tradeoff this defers is that a row
+		// ranked outside the candidate window by the cheap score never
+		// reaches the full formula, even if that formula would have scored
+		// it highly (e.g. on an exact-title/SKU boost). Widen via the
+		// wcs_candidate_limit filter for catalogs where that is observed.
+		$candidate_limit = max( $limit, (int) apply_filters( 'wcs_candidate_limit', 200 ) );
+
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $stock_clause is a fixed SQL literal; $short_sql is built from %s placeholders; %i handles the table
 		return (string) $wpdb->prepare(
-			"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
-			 FROM %i
-			 WHERE MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
-			 {$short_sql}
-			 {$stock_clause}
+			"SELECT t.product_id, t.title, t.excerpt, t.price_min, t.price_max, t.image_url, t.permalink, t.stock_status
+			 FROM %i AS t
+			 INNER JOIN (
+				 SELECT product_id
+				 FROM %i
+				 WHERE MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
+				 {$short_sql}
+				 {$stock_clause}
+				 ORDER BY MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE) DESC
+				 LIMIT %d
+			 ) AS candidates ON candidates.product_id = t.product_id
 			 ORDER BY (
-				   %f * MATCH(title) AGAINST (%s IN BOOLEAN MODE)
-				 + %f * MATCH(title, sku, content) AGAINST (%s IN BOOLEAN MODE)
-				 + IF(title = %s, %f, 0)
-				 + IF(sku = %s, %f, 0)
-				 + IF(title = %s OR title LIKE %s, %f, 0)
-				 + IF(CONCAT(' ', title, ' ') LIKE %s, %f, 0)
-				 + IF(stock_status = 'instock', %f, 0)
-				 + %f * LEAST(LOG(1 + total_sales), 3)
-				 + %f * LEAST(LOG(1 + sales_30d), 3)
+				   %f * MATCH(t.title) AGAINST (%s IN BOOLEAN MODE)
+				 + %f * MATCH(t.title, t.sku, t.content) AGAINST (%s IN BOOLEAN MODE)
+				 + IF(t.title = %s, %f, 0)
+				 + IF(t.sku = %s, %f, 0)
+				 + IF(t.title = %s OR t.title LIKE %s, %f, 0)
+				 + IF(t.title_padded LIKE %s, %f, 0)
+				 + IF(t.stock_status = 'instock', %f, 0)
+				 + %f * LEAST(LOG(1 + t.total_sales), 3)
+				 + %f * LEAST(LOG(1 + t.sales_30d), 3)
 			 ) DESC
 			 LIMIT %d",
 			...array_merge(
-				array( $table_name, $boolean_query ),
+				array( $table_name, $table_name, $boolean_query ),
 				$short_params,
+				array( $boolean_query, $candidate_limit ),
 				array(
 					(float) ( $weights['title'] ?? 5.0 ),
 					$boolean_query,
@@ -842,7 +885,7 @@ class Search_Handler {
 					$escaped_query . ' %',
 					(float) ( $weights['title_prefix'] ?? 3.0 ),
 					// phrase now requires "query" to appear as a genuine
-					// whole word too — the padded-spaces CONCAT match is
+					// whole word too — the padded-spaces title_padded match is
 					// a standard whole-word-via-LIKE idiom, matching at
 					// the start, middle, or end of the title uniformly.
 					// Without it, "dog" still scored a phrase-boost

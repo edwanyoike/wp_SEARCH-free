@@ -62,7 +62,7 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->wpdb->queries = array();
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 		$this->search( 'hazina' );
-		$this->assertStringContainsString( 'SELECT product_id, title, excerpt,', $this->wpdb->queries[0] );
+		$this->assertStringContainsString( 'SELECT t.product_id, t.title, t.excerpt,', $this->wpdb->queries[0] );
 	}
 
 	public function test_substring_fill_runs_only_when_prefix_pass_comes_up_short(): void {
@@ -186,11 +186,11 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->search( 'hazina' );
 
 		$sql = $this->wpdb->queries[0];
-		$this->assertStringContainsString( 'MATCH(title) AGAINST', $sql );
-		$this->assertStringContainsString( "IF(title = 'hazina', 10, 0)", $sql );
-		$this->assertStringContainsString( "IF(sku = 'hazina', 20, 0)", $sql );
-		$this->assertStringContainsString( "IF(stock_status = 'instock', 0.5, 0)", $sql );
-		$this->assertStringContainsString( 'LEAST(LOG(1 + total_sales), 3)', $sql );
+		$this->assertStringContainsString( 'MATCH(t.title) AGAINST', $sql );
+		$this->assertStringContainsString( "IF(t.title = 'hazina', 10, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.sku = 'hazina', 20, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.stock_status = 'instock', 0.5, 0)", $sql );
+		$this->assertStringContainsString( 'LEAST(LOG(1 + t.total_sales), 3)', $sql );
 	}
 
 	public function test_ranking_weights_filter_overrides_defaults(): void {
@@ -202,7 +202,7 @@ final class SearchHandlerQueryTest extends TestCase {
 
 		$this->search( 'hazina' );
 
-		$this->assertStringContainsString( "IF(sku = 'hazina', 99.5, 0)", $this->wpdb->queries[0] );
+		$this->assertStringContainsString( "IF(t.sku = 'hazina', 99.5, 0)", $this->wpdb->queries[0] );
 	}
 
 	public function test_like_tiers_prioritize_exact_and_prefix_intent_before_popularity(): void {
@@ -212,6 +212,53 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertStringContainsString( "IF(sku = 'ab', 120, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( "IF(title = 'ab' OR title LIKE 'ab %', 20, 0)", $this->wpdb->queries[0] );
 		$this->assertStringContainsString( 'total_sales DESC, title ASC', $this->wpdb->queries[0] );
+	}
+
+	// ── Candidate-then-rerank (two-stage FULLTEXT retrieval) ─────────────────
+
+	public function test_fulltext_narrows_to_a_bounded_candidate_set_before_reranking(): void {
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'hazina' );
+
+		$sql = $this->wpdb->queries[0];
+		// The full weighted formula (MATCH(title), IF()/LOG() boosts) must be
+		// gated behind an INNER JOIN to a derived table so it only ever runs
+		// against the bounded candidate set that subquery selects, not every
+		// row the plain FULLTEXT WHERE clause matches. This must be a JOIN,
+		// not `WHERE product_id IN (subquery ... LIMIT n)` — MySQL/MariaDB
+		// reject that form with error 1235 (confirmed live).
+		$this->assertStringContainsString( 'INNER JOIN (', $sql );
+		$this->assertStringContainsString( ') AS candidates ON candidates.product_id = t.product_id', $sql );
+		$this->assertStringNotContainsString( 'WHERE product_id IN (', $sql );
+		$this->assertSame( 2, substr_count( $sql, 'LIMIT' ), 'one LIMIT bounds the candidate subquery, a second bounds the final result' );
+		// Default candidate window.
+		$this->assertStringContainsString( 'LIMIT 200', $sql );
+		// Final result limit (wcs_result_count) is unaffected.
+		$this->assertStringEndsWith( 'LIMIT 6', trim( $sql ) );
+	}
+
+	public function test_candidate_limit_is_filterable(): void {
+		add_filter( 'wcs_candidate_limit', static fn( $current ) => 50 );
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'hazina' );
+
+		$this->assertStringContainsString( 'LIMIT 50', $this->wpdb->queries[0] );
+	}
+
+	public function test_candidate_limit_never_drops_below_the_requested_result_count(): void {
+		update_option( 'wcs_result_count', 300 );
+		add_filter( 'wcs_candidate_limit', static fn( $current ) => 50 );
+		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
+
+		$this->search( 'hazina' );
+
+		// A store asking for more results than the candidate-limit filter
+		// allows must still get a candidate window at least as large as what
+		// it asked for — otherwise the final LIMIT could never be filled.
+		$this->assertStringContainsString( 'LIMIT 300', $this->wpdb->queries[0] );
+		$this->assertStringNotContainsString( 'LIMIT 50', $this->wpdb->queries[0] );
 	}
 
 	// ── Synonym expansion in SQL ─────────────────────────────────────────────
@@ -250,8 +297,8 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->search( 'hazina' );
 
 		$sql = $this->wpdb->queries[0];
-		$this->assertStringContainsString( "IF(title = 'hazina' OR title LIKE 'hazina %', 3, 0)", $sql );
-		$this->assertStringContainsString( "IF(CONCAT(' ', title, ' ') LIKE '% hazina %', 4, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.title = 'hazina' OR t.title LIKE 'hazina %', 3, 0)", $sql );
+		$this->assertStringContainsString( "IF(t.title_padded LIKE '% hazina %', 4, 0)", $sql );
 	}
 
 	/**
@@ -462,8 +509,8 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertNotEmpty( $relaxed );
 		// Same ranking as the strict pass — a relaxed match is scored on the
 		// same scale, it simply isn't required to match everything.
-		$this->assertStringContainsString( 'MATCH(title) AGAINST', $relaxed[0] );
-		$this->assertStringContainsString( 'LEAST(LOG(1 + total_sales), 3)', $relaxed[0] );
+		$this->assertStringContainsString( 'MATCH(t.title) AGAINST', $relaxed[0] );
+		$this->assertStringContainsString( 'LEAST(LOG(1 + t.total_sales), 3)', $relaxed[0] );
 	}
 
 	public function test_relaxation_is_skipped_when_the_strict_pass_found_anything(): void {
