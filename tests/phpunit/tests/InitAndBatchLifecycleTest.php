@@ -38,6 +38,8 @@ final class InitAndBatchLifecycleTest extends TestCase {
 			'before_delete_post',
 			'wcs_rebuild_index_batch',
 			'update_option_wcs_synonyms',
+			'update_option_wcs_result_count',
+			'update_option_wcs_show_out_of_stock',
 			'wp_enqueue_scripts',
 			'wp_ajax_wcs_refresh_nonce',
 			'admin_menu',

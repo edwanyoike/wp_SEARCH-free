@@ -166,6 +166,36 @@ final class IndexerTest extends TestCase {
 		$this->assertSame( 5, get_option( 'wcs_cache_version' ) );
 	}
 
+	// ── Result-affecting setting change → immediate cache bust ───────────────
+	// Regression coverage for Finding A (2026-09-05 algorithm audit):
+	// wcs_result_count/wcs_show_out_of_stock are not part of the search
+	// cache key, so a change must bump wcs_cache_version immediately or a
+	// stale payload could keep being served for up to the 24h transient TTL.
+
+	public function test_result_count_change_bumps_cache_version_immediately(): void {
+		update_option( 'wcs_cache_version', 5 );
+
+		Indexer::on_result_affecting_setting_changed( 6, 10 );
+
+		$this->assertSame( 6, get_option( 'wcs_cache_version' ) );
+	}
+
+	public function test_show_out_of_stock_change_bumps_cache_version_immediately(): void {
+		update_option( 'wcs_cache_version', 5 );
+
+		Indexer::on_result_affecting_setting_changed( 1, 0 );
+
+		$this->assertSame( 6, get_option( 'wcs_cache_version' ) );
+	}
+
+	public function test_unchanged_result_affecting_setting_does_not_bust_the_cache(): void {
+		update_option( 'wcs_cache_version', 5 );
+
+		Indexer::on_result_affecting_setting_changed( 6, 6 );
+
+		$this->assertSame( 5, get_option( 'wcs_cache_version' ) );
+	}
+
 	// ── "Last successful index" timestamp (timezone-offset regression) ───────
 
 	public function test_last_indexed_is_a_true_utc_timestamp_on_a_non_utc_site(): void {

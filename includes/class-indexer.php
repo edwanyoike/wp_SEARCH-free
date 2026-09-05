@@ -134,6 +134,18 @@ class Indexer {
 		// synonym config, so the cache version is bumped immediately.
 		add_action( 'update_option_wcs_synonyms', array( __CLASS__, 'on_synonyms_changed' ), 10, 2 );
 
+		// ── Result-affecting settings ─────────────────────────────────────────
+		// wcs_result_count and wcs_show_out_of_stock change what a search
+		// request returns without touching index data (no rebuild needed,
+		// same as synonyms above) — but neither participates in the search
+		// cache key (Query_Normalizer::cache_key() is query+currency+
+		// cache_version only), so without this hook a change here would keep
+		// serving results computed under the old setting for up to the full
+		// 24h transient TTL (or 5 min via APCu on top of that).
+		foreach ( array( 'wcs_result_count', 'wcs_show_out_of_stock' ) as $opt ) {
+			add_action( "update_option_{$opt}", array( __CLASS__, 'on_result_affecting_setting_changed' ), 10, 2 );
+		}
+
 		// ── WP-Cron GC ───────────────────────────────────────────────────────
 		add_action( 'wcs_daily_transient_gc', array( __CLASS__, 'run_transient_gc' ) );
 	}
@@ -149,6 +161,22 @@ class Indexer {
 			return;
 		}
 		Query_Normalizer::flush_synonym_cache();
+		self::execute_cache_bust();
+	}
+
+	/**
+	 * Bust the result cache when wcs_result_count or wcs_show_out_of_stock
+	 * changes — both affect what a search request returns but neither is
+	 * part of the cache key, so a stale cached payload would otherwise
+	 * survive until it naturally expires.
+	 *
+	 * @param mixed $old_value Previous option value.
+	 * @param mixed $new_value New option value.
+	 */
+	public static function on_result_affecting_setting_changed( $old_value, $new_value ): void {
+		if ( $old_value === $new_value ) {
+			return;
+		}
 		self::execute_cache_bust();
 	}
 
