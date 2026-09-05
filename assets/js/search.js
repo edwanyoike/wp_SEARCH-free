@@ -418,15 +418,28 @@
 
 		doSearch(query, currency, false)
 			.then(data => {
-				// Never cache "index still building" responses — results should
-				// appear the moment the build finishes.
-				if (!data.__indexing) {
+				// Never cache "index still building" or query-error responses —
+				// results should appear the moment the build finishes, and a
+				// degraded/error response must not outlive the problem it
+				// reflects in this tab's own in-memory cache, same as the
+				// server already refuses to persist it in its own caches.
+				if (!data.__indexing && !data.__queryError) {
 					cache.set(cacheKey, data);
 					if (cache.size > 100) {
 						cache.delete(cache.keys().next().value);
 					}
 				}
 				if (seq !== searchSeq) return; // A newer search already rendered.
+				// A query error with no rows recovered gets the same
+				// temporary-error treatment as a network failure — a flat
+				// "No products found" would misrepresent a database hiccup as
+				// a confident answer. Rows that DID come back (a later tier
+				// recovered from an earlier one's failure) are shown normally;
+				// they're real, just not cached — see doSearch()'s comment.
+				if (data.__queryError && data.length === 0) {
+					renderError(input);
+					return;
+				}
 				renderResults(data, input, currency, query);
 			})
 			.catch(err => {
@@ -557,6 +570,15 @@
 				// First-run signal: the index is still being built, so an empty
 				// array means "not ready yet", not "no matching products".
 				const indexing = res.headers.get('X-WCS-Indexing') === '1';
+				// Set when the server hit a real database error somewhere in
+				// the search — as opposed to a genuine zero-row match — and
+				// therefore did not cache this response server-side either
+				// (see Search_Handler::handle_request()). Any rows present
+				// are still real and shown normally; this only controls
+				// whether the client's own in-memory cache below may keep
+				// this response and whether an empty result gets the
+				// temporary-error treatment instead of a flat "no results".
+				const queryError = res.headers.get('X-WCS-Query-Error') === '1';
 				// Set when server-side typo correction silently substituted a
 				// different query — the corrected words, not what the shopper
 				// typed, are what actually appear in the result text, so
@@ -565,6 +587,9 @@
 				return res.json().then(data => {
 					if (indexing && Array.isArray(data)) {
 						data.__indexing = true;
+					}
+					if (queryError && Array.isArray(data)) {
+						data.__queryError = true;
 					}
 					if (corrected && Array.isArray(data)) {
 						data.__corrected = corrected;
