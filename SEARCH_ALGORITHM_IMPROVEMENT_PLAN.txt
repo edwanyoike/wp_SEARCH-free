@@ -1,0 +1,790 @@
+TURBO SEARCH FOR WOOCOMMERCE
+SEARCH ALGORITHM PERFORMANCE IMPROVEMENT PLAN
+================================================
+
+Document status: Living review document
+Created: 2026-09-04
+Last updated: 2026-09-05 (all three algorithm-audit findings verified live
+  and fixed; candidate-window benchmark requirement remains open)
+Plugin version reviewed: 1.8.1 (DB schema now at Activator::DB_VERSION 1.9.1)
+Scope: Search latency, database efficiency, throughput, and cache effectiveness
+
+
+PURPOSE
+-------
+
+This document tracks high-impact opportunities for improving the search
+algorithm. It should be reviewed and updated whenever the search query path,
+index schema, caching strategy, load-test results, or supported database
+versions change.
+
+Do not implement an optimization solely because it appears promising here.
+Each change must be benchmarked against the existing implementation and must
+preserve acceptable search relevance.
+
+
+CURRENT BASELINE
+----------------
+
+The current search path already provides:
+
+1. A dedicated InnoDB product-search table.
+2. Combined and title-only FULLTEXT indexes.
+3. Indexed normalized-SKU prefix lookup.
+4. Tiered FULLTEXT, prefix, and substring matching.
+5. APCu, WordPress transient, and browser-session caching.
+6. Cache-stampede protection when a persistent object cache is available.
+7. Client-side debouncing and cancellation of obsolete requests.
+8. Separate rate limiting for expensive fallback searches.
+
+The main remaining performance risk is cold-cache queries that fall through to
+prefix and leading-wildcard LIKE searches.
+
+
+PRIORITY 1: REPLACE LEADING-WILDCARD TABLE SCANS
+------------------------------------------------
+
+Status: Downgraded — problem statement overstated relative to the current
+        code; narrowed to a smaller cleanup, not implemented in this pass.
+Expected impact: Low-medium (was: Very high)
+Complexity: High
+Relevant code: includes/class-search-handler.php, substring and any-word tiers
+
+2026-09-04 feasibility review:
+
+Re-read against the actual query_database() implementation: leading-wildcard
+`%term%` LIKE against `content` is NOT routine today. It appears in exactly
+two places, both already gated to rare fallback paths:
+
+- Tier 3 substring fill (query_database(), gated on `0 === $fulltext_count`)
+  — only runs when FULLTEXT found literally nothing.
+- The any-word LIKE relaxation — only runs when every earlier tier returned
+  zero results, and only for 2+ word queries.
+
+Both are additionally covered by the separate, stricter "expensive fallback"
+rate limiter (wcs_fallback_rate_limit_requests/window) already listed under
+baseline item 8 in this document. Tier 1's own short-word LIKE clause is not
+a table scan either — it is ANDed onto rows the FULLTEXT MATCH() clause in
+the same query already narrowed via the index, not evaluated against the
+whole table. Tier 2 uses prefix-only LIKE ('term%'), which is index-served
+via idx_title_prefix/idx_sku.
+
+So the acceptance criterion "no routine leading-wildcard scan over content"
+is close to already true, and the ngram/side-table rebuild this priority
+proposed is not justified by what is actually left to fix. Left as a
+narrower future cleanup (e.g. dropping the content branch of the any-word
+relaxation specifically) rather than implemented as originally scoped.
+
+Problem (as originally written — kept for context, see note above):
+
+The substring and any-word fallback tiers use patterns such as `%term%` against
+title, SKU, and content. A conventional B-tree index cannot serve a
+leading-wildcard lookup, so these fallbacks can scan and score much of the
+search table. Content is a LONGTEXT column, making this particularly expensive
+for large catalogs and concurrent searches.
+
+Suggested direction:
+
+- Replace substring scans with an indexed token or ngram side table; or
+- use the database FULLTEXT ngram parser where reliably available; or
+- restrict substring recovery to smaller indexed fields and omit content scans
+  from interactive typeahead.
+
+Acceptance criteria:
+
+- No routine leading-wildcard scan over the content column.
+- Materially lower p95 latency for zero-result and short-word searches.
+- Relevance tests demonstrate that important partial matches remain available.
+
+
+PRIORITY 2: RETRIEVE CANDIDATES, THEN RERANK
+--------------------------------------------
+
+Status: IMPLEMENTED AND VERIFIED LIVE (2026-09-04) — the original IN-subquery
+        form was confirmed broken (see "release blocker" note below, now
+        resolved), rewritten as a derived-table JOIN, and re-verified against
+        a live MariaDB instance (thogotodeli.com).
+Expected impact: High for broad queries and large catalogs
+Complexity: Medium to high
+Relevant code: includes/class-search-handler.php, fulltext_sql()
+
+Implementation notes:
+
+fulltext_sql() runs as a two-stage retrieval: an inner derived-table subquery
+selects product_id only, filtered by the same MATCH()/short-word/stock
+clauses as before and ordered by the cheap combined-index MATCH() score,
+bounded by LIMIT wcs_candidate_limit (default 200, filterable, always >= the
+requested result count via `max( $limit, ... )`). The outer query
+INNER JOINs the real table (aliased `t`, since the derived table also exposes
+product_id) to that bounded candidate set and applies the full weighted
+formula (multiple MATCH() calls, IF()/LOG() boosts) only there, before the
+final LIMIT. product_id is the table's PRIMARY KEY, so the JOIN can never
+produce more rows than the subquery returned, regardless of any other
+clause — this is what actually bounds the reranking cost, not a
+query-planner assumption.
+
+$short_sql/$stock_clause were kept on the INNER subquery deliberately (not
+duplicated on the outer query): they are real filters that must apply before
+the candidate LIMIT truncates the set, or a non-matching row could occupy a
+candidate slot a genuine match needed.
+
+Known tradeoff (this is the acceptance-criteria risk called out below, not a
+bug): a row ranked outside the candidate window by the cheap MATCH() score
+never reaches the full formula, even if that formula would have scored it
+highly (e.g. via the exact-title boost). In practice an exact title/SKU match
+also contains every query term and should score highly on the cheap MATCH()
+score too, and the Tier 0 SKU-normalized probe already short-circuits exact
+SKU lookups before FULLTEXT ever runs — but per-catalog ranking-quality
+regression has NOT been benchmarked (only SQL correctness/execution has been
+verified — see below). Widen via `add_filter( 'wcs_candidate_limit', ... )`
+for a store where ranking regressions are observed.
+
+Testing performed: PHPUnit unit tests updated (SearchHandlerQueryTest,
+"Candidate-then-rerank" group) verifying the SQL shape — the INNER JOIN to a
+derived table, the inner LIMIT defaulting to 200, the wcs_candidate_limit
+filter, and the `max($limit, ...)` floor. These tests run against the
+project's fake $wpdb and validate SQL *construction*; they cannot and did not
+catch the release blocker recorded below — that required real execution.
+
+2026-09-04 — SQL COMPATIBILITY BUG FOUND, FIXED, AND VERIFIED LIVE:
+
+An earlier version of this implementation used:
+
+    WHERE product_id IN (
+        SELECT product_id ... ORDER BY ... LIMIT 200
+    )
+
+A follow-up review (the "2026-09-04 implementation audit" entry in the
+REVIEW LOG) correctly flagged this as invalid: MySQL and MariaDB reject LIMIT
+inside an IN/ALL/ANY/SOME subquery with error 1235 ("This version ... doesn't
+yet support 'LIMIT & IN/ALL/ANY/SOME subquery'"). This was independently
+confirmed by running the exact query shape against a live database — see
+below — rather than taken on the audit's word alone, since the audit itself
+is a claim to verify like any other.
+
+Verification (live, against thogotodeli.com's production MariaDB 10.11.18,
+per this repo's own "test live, not local dev" rule and no local MySQL/
+MariaDB being available):
+
+- The IN-subquery form reproduced the exact reported error:
+  `ERROR 1235 (42000): This version of MariaDB doesn't yet support
+  'LIMIT & IN/ALL/ANY/SOME subquery'` — confirming the audit's finding.
+- Rewritten as an INNER JOIN against a derived table (`... FROM t INNER JOIN
+  (SELECT product_id FROM ... LIMIT n) AS candidates ON candidates.product_id
+  = t.product_id`), which has no such restriction on any MySQL/MariaDB
+  version. This form was verified to execute correctly against the same live
+  database, including the full weighted ranking formula, and separately
+  re-verified with $short_sql and $stock_clause both populated (the hybrid
+  Tier 1 path) — both returned correct, sensibly-ranked results against the
+  real ~1995-row TEST- product catalog.
+- fulltext_sql() and its PHPUnit coverage were updated to the JOIN form (all
+  264 tests passing, phpcs clean).
+
+This is now resolved. Not yet done: a controlled p95/EXPLAIN benchmark and a
+broader relevance-regression pass against the full required benchmark query
+groups below — this fix confirms the query is *executable and correct*, not
+that its candidate-limit tradeoff has been latency/relevance-benchmarked.
+
+Problem:
+
+The FULLTEXT query computes several MATCH expressions plus LIKE, CONCAT, IF,
+and logarithmic scoring expressions before LIMIT is applied. Broad searches can
+therefore perform detailed ranking work across a large candidate set even
+though only a few dropdown results are returned.
+
+Suggested direction:
+
+Use two-stage retrieval:
+
+1. Select a bounded candidate set, initially 50-200 rows, using the inexpensive
+   combined FULLTEXT score.
+2. Apply the detailed relevance formula only to those candidates.
+
+The candidate limit must be selected through relevance and latency benchmarks.
+A limit that is too small may prevent an exact title, SKU, or high-quality
+business-ranking signal from reaching the reranking stage.
+
+Acceptance criteria:
+
+- Lower database CPU and p95 latency for broad FULLTEXT searches.
+- No material deterioration in top-six ranking quality.
+- Candidate size is justified by repeatable benchmark results.
+
+
+PRIORITY 3: REDUCE SECONDARY PREFIX QUERIES
+-------------------------------------------
+
+Status: REJECTED (2026-09-04) — conflicts with an already-implemented,
+        deliberate design decision. Not implemented.
+Expected impact: High for cold-cache throughput
+Complexity: Medium
+Relevant code: includes/class-search-handler.php, Tier 2 prefix fill
+
+2026-09-04 feasibility review:
+
+This priority proposes running Tier 2 (prefix LIKE fill) only when FULLTEXT
+returns zero results, instead of whenever FULLTEXT comes up short of the
+requested count. The code's own inline comment at the Tier 2 site records
+that this was already tried and deliberately reversed: Tier 2 used to run
+only on zero results, and was changed to run whenever FULLTEXT came up SHORT
+because the old behavior was "pure lost recall" — a FULLTEXT pass returning
+1 row against a 6-row limit was leaving 5 slots unfilled that real prefix
+matches could have covered. The same comment notes Tier 2 is index-served
+(idx_title_prefix/idx_sku) and therefore cheap — "free by comparison" to the
+Tier 3 substring scan, which is why Tier 3 alone kept the stricter
+zero-results-only gate.
+
+Implementing this priority as written would revert that considered recall
+fix for a savings the code's own prior review already judged not worth it.
+Dropped rather than implemented. If cold-cache throughput on Tier 2 is later
+found to be a real problem on a specific large catalog, that should be
+re-measured on its own — not assumed from this document alone — since it
+would be knowingly trading away recall the codebase fixed once already.
+
+Problem:
+
+The prefix tier runs whenever FULLTEXT returns fewer rows than the configured
+result count. This means a successful FULLTEXT search may still execute a
+second database query simply to fill every dropdown slot.
+
+Suggested direction:
+
+Run the prefix-fill query only when one of these conditions is true:
+
+- FULLTEXT returned no results.
+- The query contains words below the active FULLTEXT token-length threshold.
+- Testing demonstrates that the missing results have meaningful value.
+- An optional maximum-recall mode explicitly requests the extra work.
+
+Acceptance criteria:
+
+- Fewer database queries per cold-cache search.
+- Improved concurrent request throughput.
+- Any reduction in recall is measured and considered acceptable.
+
+
+PRIORITY 4: PRECOMPUTE NORMALIZED RANKING FIELDS
+------------------------------------------------
+
+Status: IMPLEMENTED (2026-09-04)
+Expected impact: Medium to high
+Complexity: Medium (confirmed — matched an existing schema-migration pattern)
+Relevant code: includes/class-activator.php and includes/class-indexer.php
+
+Implementation notes:
+
+Added a single precomputed column, `title_padded` (= ' ' . title . ' '),
+following the exact pattern already established for `sku_normalized`:
+computed once at index time in Indexer::apply_row_filter_and_sanitize()
+(the single source of truth shared by both the per-product and bulk-rebuild
+indexing paths), stored as a plain TEXT column (no DEFAULT literal on a TEXT
+column — MySQL 5.7/8.x reject that; matches the existing `title`/`content`
+column definitions), and read directly by the query layer instead of
+computing CONCAT(' ', title, ' ') fresh on every candidate row for every
+query word (the phrase boost in fulltext_sql(), and the per-word scoring
+loop shared by Tiers 2/3 and the any-word relaxation — a query with N words
+against M candidate rows previously ran that CONCAT M*N times per request).
+
+Schema: Activator::DB_VERSION bumped 1.9.0 -> 1.9.1; REBUILD_REQUIRED_BELOW
+bumped 1.8.0 -> 1.9.1 so upgrading installs get one full rebuild and every
+row gets title_padded populated promptly, rather than degrading silently
+(an empty title_padded on an un-rebuilt row just means the phrase boost
+contributes 0 for that row until reindexed — not broken, but worth avoiding).
+This mirrors exactly how sku_normalized/total_sales/etc. were rolled out.
+
+Did NOT add title_words/token-prefix columns from the original suggestion
+list — nothing in the current query path would consume them, and adding
+unused columns is exactly what the acceptance criteria below warn against
+("avoid storing fields that do not remove measurable work from the request
+path"). Revisit if a future priority needs them.
+
+Testing: PHPUnit suite updated (SearchHandlerQueryTest and IndexerTest — the
+canonical-column-order regression test in particular) and passing (264
+tests). phpcs clean. Like Priority 2, the actual CPU savings have not been
+measured against a live catalog — this is a mechanical, low-risk change
+whose correctness is verified, but its performance benefit is not.
+
+Problem:
+
+Ranking repeatedly evaluates expressions such as padded-title CONCAT and LIKE
+checks. These expressions consume CPU and cannot use ordinary indexes.
+
+Suggested direction:
+
+Compute reusable values during indexing, potentially including:
+
+- title_normalized
+- title_words or a padded word-boundary representation
+- indexed title/SKU token prefixes
+
+The final schema should be driven by EXPLAIN ANALYZE results. Avoid storing
+fields that do not remove measurable work from the request path.
+
+Acceptance criteria:
+
+- Reduced expression work during result ranking.
+- Storage and rebuild-time increases remain reasonable.
+- Schema upgrades work safely on existing installations.
+
+
+PRIORITY 5: PREWARM POPULAR SEARCH PREFIXES
+-------------------------------------------
+
+Status: Proposed — complexity revised, not implemented in this pass.
+Expected impact: Medium to high on active stores
+Complexity: Medium-high (was: Medium)
+Relevant code: cache invalidation and index-rebuild completion path
+
+2026-09-04 feasibility review:
+
+Hooking a prewarm job onto the existing versioned cache-invalidation flow
+(wcs_cache_version bump, deferred via Action Scheduler per ARCHITECTURE.md)
+is architecturally natural and confirmed low-risk to wire up. But there is
+currently no aggregate prefix-popularity tracking anywhere in this codebase
+— that piece is new infrastructure to design and privacy-audit, not a
+wire-up of something that already exists. Treat the complexity estimate as
+underestimated; budget for the counter/aggregation mechanism itself, not
+just the prewarm trigger.
+
+Problem:
+
+Common prefixes such as `sh`, `sho`, and `shoe` produce broad candidate sets
+and recur frequently. Immediately after cache invalidation, multiple common
+prefixes must be rebuilt through customer requests.
+
+Suggested direction:
+
+Maintain privacy-safe aggregate counts for popular normalized prefixes and
+asynchronously prewarm their result caches after an index rebuild or cache
+version change. Focus initially on prefixes of two to five characters.
+
+Acceptance criteria:
+
+- No storage of personally identifiable visitor data.
+- Improved post-rebuild cache-hit rate and p95 latency.
+- Prewarming is bounded and does not delay indexing or overload the database.
+
+
+2026-09-05 ALGORITHM AUDIT: UNRESOLVED FINDINGS
+-----------------------------------------------
+
+The following findings were identified by a source-level review of the current
+query, normalization, settings, and cache paths. No implementation changes were
+made as part of this audit. Local verification at the reviewed revision remains
+green (264 PHPUnit tests / 778 assertions, PHPCS clean, and git diff --check
+clean), but the unit-test database double validates generated SQL rather than
+executing its ranking semantics on MySQL or MariaDB.
+
+FINDING A: RESULT-AFFECTING SETTINGS DO NOT INVALIDATE SEARCH CACHES
+
+Severity: High
+Status: CONFIRMED AND FIXED (2026-09-05)
+Relevant code: includes/class-search-handler.php,
+               includes/class-query-normalizer.php,
+               includes/class-indexer.php
+
+Verification: re-read Query_Normalizer::cache_key() (query+currency+
+cache_version only) and Indexer::init()'s hook list directly — confirmed no
+update_option_wcs_result_count or update_option_wcs_show_out_of_stock hook
+existed anywhere in the codebase. The finding was correct as stated.
+
+Fix: added Indexer::on_result_affecting_setting_changed(), registered on both
+options in init(), mirroring the existing on_synonyms_changed() pattern
+exactly (old/new equality guard, then execute_cache_bust() — an immediate
+wcs_cache_version bump, not the deferred 5-minute product-save path). Test
+coverage added (IndexerTest: bump-on-change, no-bump-when-unchanged, for both
+options; InitAndBatchLifecycleTest: both hooks are actually registered on
+init()). 270 tests passing, phpcs clean.
+
+The server cache key contains the normalized query, currency, and
+wcs_cache_version. It does not contain wcs_result_count or
+wcs_show_out_of_stock. Indexer registers cache-invalidation hooks for indexed
+field settings and synonyms, but not for either of these two settings.
+
+Consequently, changing the result count or out-of-stock visibility can keep
+serving results computed under the previous setting until the existing
+24-hour transient expires or an unrelated index/cache-version event occurs.
+The five-minute APCu entry can preserve the same stale payload in front of the
+transient. A browser tab may also retain its own in-memory result until reload.
+
+Suggested fix:
+
+- Immediately bump wcs_cache_version when wcs_result_count or
+  wcs_show_out_of_stock changes.
+- Use the same old-value/new-value equality guard used by the synonym hook.
+- Add request-level tests proving a warmed query is recomputed after either
+  setting changes.
+
+Acceptance criteria:
+
+- A result-count change is reflected on the next search request.
+- An out-of-stock visibility change is reflected on the next search request.
+- Unchanged option writes do not cause unnecessary invalidation.
+
+
+FINDING B: A NORMALIZED-SKU PREFIX HIT SHORT-CIRCUITS ALL OTHER RELEVANCE
+
+Severity: Medium
+Status: CONFIRMED AND PARTIALLY FIXED (2026-09-05) — the false-suppression
+        bug is fixed; the "rank as a candidate rather than fallback" part of
+        the suggested fix is deferred (see note below).
+Relevant code: includes/class-search-handler.php, Tier 0 SKU probe
+
+Verification: re-read the Tier 0 probe — confirmed it was a prefix LIKE
+(`sku_normalized LIKE 'query%'`) with an immediate return on ANY hit, exactly
+as described. Reproduced the exact reported failure shape live against
+thogotodeli.com: `sku_normalized LIKE 'test%'` returns six rows (testeg30,
+testbs500, testcs500, ...), none of them an exact match for "test" — under
+the old code a literal query "test" would have returned only these, silently
+suppressing any genuine title/content match elsewhere in the catalog. The
+finding was correct as stated.
+
+Fix (implemented): the immediate short-circuit now fires only on an EXACT
+normalized-SKU match (`$row['sku_normalized'] === $sku_norm`), which is the
+one case genuinely deterministic enough to justify skipping every other
+tier. A prefix-only hit (no exact match) no longer returns immediately —
+it falls through and lets Tier 1/2/3 and the relaxation passes run normally,
+so a real FULLTEXT/title match can no longer be suppressed by an unrelated
+SKU merely starting with the same digits. The prefix rows are not discarded
+either: they are kept as a last-resort fallback, used only if every other
+tier and relaxation pass still finds nothing at all — so a query that
+genuinely only matches via SKU prefix still returns something instead of an
+empty dropdown.
+
+Deferred (not implemented): the suggested fix's other option — treating
+prefix hits as ranked candidates merged into the normal result set rather
+than an all-or-nothing fallback — was NOT implemented. That requires design
+work this audit itself flagged as unresolved ("benchmark the extra query/
+merge cost and define deterministic duplicate and ordering behavior"), and
+rushing a merge/dedup/ordering scheme without that benchmarking would risk
+trading one correctness bug for a subtler one. The last-resort fallback
+implemented here satisfies the finding's stated acceptance criteria (exact
+SKU still fast-paths; a mere prefix hit can no longer suppress a stronger
+match) without that additional risk.
+
+Testing: three tests added/replaced in SearchHandlerQueryTest — exact match
+still short-circuits (and the internal sku_normalized column never leaks
+into the public result shape), a prefix-only hit yields to a real FULLTEXT
+match, and a prefix-only hit is used when nothing else matches at all. Also
+verified live: the modified SELECT list (now including sku_normalized)
+executes correctly against thogotodeli.com's live MariaDB.
+
+Every digit-containing query whose normalized form is at least four characters
+runs an indexed `sku_normalized LIKE 'query%'` probe. Any hit returns
+immediately and bypasses FULLTEXT, title, content, and later fallback tiers.
+The implementation comment describes such a hit as deterministic intent, but
+the predicate is a prefix match rather than equality. For example, a query for
+`ABC1` can return only products with SKUs `ABC10`, `ABC11`, etc. and omit a
+strong title/content match for `ABC1` whose SKU differs.
+
+Suggested fix:
+
+- Preserve the immediate short-circuit for an exact normalized-SKU equality.
+- Treat normalized-SKU prefix hits as ranked candidates or as a fill tier, so
+  they do not suppress stronger non-SKU matches.
+- Benchmark the extra query/merge cost and define deterministic duplicate and
+  ordering behavior.
+
+Acceptance criteria:
+
+- Exact normalized SKU still ranks first and retains the fast path.
+- A mere SKU-prefix hit cannot suppress an exact-title or stronger FULLTEXT
+  result.
+- Multiple products sharing an SKU prefix have stable, documented ordering.
+
+
+FINDING C: PHP STOPWORDS DO NOT COVER THE DEFAULT INNODB STOPWORD LIST
+
+Severity: Medium
+Status: CONFIRMED AND FIXED (2026-09-05)
+Relevant code: includes/class-query-normalizer.php, STOPWORDS and
+               remove_stopwords()
+
+Verification: did not take the specific word list on trust (the audit's own
+list of missing words is itself a claim). Queried
+INFORMATION_SCHEMA.INNODB_FT_DEFAULT_STOPWORD directly on thogotodeli.com's
+live MariaDB — its default list is exactly: a, about, an, are, as, at, be,
+by, com, de, en, for, from, how, i, in, is, it, la, of, on, or, that, the,
+this, to, und, was, what, when, where, who, will, with, www. Confirmed com,
+de, en, la, und, www were indeed absent from STOPWORDS. The finding was
+correct.
+
+Fix: added the six missing words to STOPWORDS with a comment explaining they
+are not English function words but are still in the live-confirmed default
+InnoDB list, so omitting them lets one become a required `+word` BOOLEAN
+MODE term the index never tokenized. Test added
+(test_stopwords_cover_the_full_default_innodb_ft_list) proving "cafe de"
+drops "de" and all six words are present in the constant.
+
+The broader configuration-limit point the finding raised (a server can run a
+custom InnoDB stopword table, which no fixed PHP list can universally match)
+is NOT addressed — recording and adapting to a live server's actual active
+stopword configuration is a real feature, not a one-line fix, and is left
+for a future priority if a customer's non-default configuration is reported.
+
+The source says Query_Normalizer::STOPWORDS is a superset of InnoDB's default
+stopword list, but it omits at least `com`, `de`, `en`, `la`, `und`, and `www`
+from MySQL's documented INNODB_FT_DEFAULT_STOPWORD list. In a multi-word query,
+an omitted database stopword can become a required `+word` BOOLEAN MODE term
+that the index never stored. That makes the strict FULLTEXT query unmatchable
+and pushes a legitimate query such as `cafe de` into slower fallback tiers.
+
+There is a broader configuration limit: MySQL and MariaDB can use custom
+InnoDB stopword tables, so no fixed PHP constant can be guaranteed to match
+every server's active FULLTEXT configuration.
+
+Suggested fix:
+
+- At minimum, add the missing default InnoDB stopwords and regression tests.
+- Determine and record the active server stopword configuration when the
+  FULLTEXT index is created, or explicitly install/manage a plugin-owned
+  stopword configuration if operationally acceptable.
+- Keep the existing wcs_stopwords filter for catalog-specific adjustments.
+
+Acceptance criteria:
+
+- Queries containing a default InnoDB stopword do not become unmatchable
+  merely because the word was required by the PHP query builder.
+- Behavior with a custom server stopword table is documented and tested, or
+  detected reliably enough to keep query construction aligned with the index.
+
+
+CANDIDATE-WINDOW RELEASE VALIDATION REMAINS OPEN
+
+Priority 2's derived-table JOIN is executable, but its default 200-row window
+still needs the relevance and performance validation already required by this
+plan. Candidate selection orders only by the combined FULLTEXT score. A row
+outside that window never receives the outer exact-title, exact-SKU, title,
+stock, or sales boosts. Do not treat live SQL execution as evidence that 200
+is the correct cutoff.
+
+Required evidence before release:
+
+- Top-six relevance comparison against the previous unbounded ranking query,
+  including broad queries with more than 200 matching products.
+- Explicit exact-title and exact-SKU cases placed near/outside the cheap-score
+  boundary.
+- EXPLAIN ANALYZE plus p50/p95/p99 and database CPU measurements for candidate
+  limits such as 50, 100, 200, and an unbounded control.
+- A catalog-size-based or measured justification for the shipped default.
+
+
+MEASUREMENT REQUIRED BEFORE IMPLEMENTATION
+------------------------------------------
+
+Record or derive the following for each controlled benchmark:
+
+- Cache layer: browser, APCu, persistent object cache, transient DB, or miss.
+- Query tier or tiers executed.
+- Number of SQL queries per search request.
+- Database execution time per tier.
+- Rows examined and temporary/filesort behavior from EXPLAIN ANALYZE.
+- Total server response time.
+- p50, p95, and p99 latency under concurrent load.
+- Result count and ranking-quality regression cases.
+- Catalog size, database engine/version, and FULLTEXT parser.
+
+Required benchmark query groups:
+
+- Exact SKU.
+- Exact product title.
+- Common one-word prefix.
+- Broad one-word FULLTEXT query.
+- Multi-word strict match.
+- Multi-word partial match.
+- Short words below the FULLTEXT token threshold.
+- Genuine substring match.
+- Zero-result random query.
+- Warm-cache and cold-cache variants.
+
+
+IMPLEMENTATION ORDER
+--------------------
+
+Recommended order based on likely return on engineering effort (as revised
+by the 2026-09-04 feasibility review — see REVIEW LOG and each priority's
+own section above for reasoning):
+
+1. Establish repeatable query-tier and latency benchmarks. NOT YET DONE —
+   still the prerequisite for validating everything below against a real
+   catalog, including the two changes already implemented.
+2. [SUPERSEDED] Replace or tightly bound leading-wildcard scans — narrowed
+   to Priority 1's downgraded scope; not implemented, low remaining ROI.
+3. Introduce bounded candidate retrieval and reranking — IMPLEMENTED AND
+   VERIFIED LIVE (Priority 2). An earlier LIMIT-inside-IN-subquery form was
+   found to be rejected by MySQL/MariaDB, rewritten as a derived-table JOIN,
+   and confirmed executing correctly against thogotodeli.com's live MariaDB.
+   Latency/relevance benchmarking against the full query-group list below is
+   still outstanding.
+4. [REJECTED] Reduce unnecessary Tier 2 prefix-fill queries — conflicts with
+   an existing deliberate recall fix; will not be implemented (Priority 3).
+5. Add only the precomputed fields proven useful by query plans —
+   IMPLEMENTED for title_padded (Priority 4). No other fields currently have
+   a consuming code path.
+6. Prewarm common prefixes after the query path is stable — still Proposed;
+   complexity revised upward (Priority 5), needs new counter infrastructure.
+
+
+REVIEW LOG
+----------
+
+2026-09-04 / Version 1.8.0
+
+- Initial performance review recorded.
+- Highest-cost area identified as leading-wildcard fallback scanning.
+- No implementation changes made as part of this document.
+- Next review should begin with measured cold-cache query plans and latency.
+
+2026-09-04 / Version 1.8.1 (DB schema 1.9.1) — feasibility review + partial implementation
+
+- Reviewed all five priorities against the actual query_database()/
+  fulltext_sql()/Indexer/Activator implementation (the original review above
+  was written without re-reading the current code against each proposal).
+- Priority 1 downgraded: the "routine leading-wildcard scan over content"
+  problem statement does not match the current code — both places content is
+  scanned with a leading wildcard are already gated to rare, rate-limited
+  zero-result fallbacks. Not implemented; narrowed for a future pass.
+- Priority 2 (candidate-then-rerank) IMPLEMENTED: fulltext_sql() now selects
+  a bounded candidate set (default 200 rows, filterable via
+  wcs_candidate_limit, floored at the requested result count) via a
+  WHERE product_id IN (subquery) deferred join before applying the full
+  weighted ranking formula. NOT yet validated against a live MySQL/MariaDB
+  instance — unit tests cover SQL construction only (this repo's own test
+  design does not exercise real FULLTEXT semantics; see bootstrap.php).
+- Priority 3 REJECTED: proposed reverting Tier 2's "run whenever FULLTEXT
+  came up short" behavior to "only on zero results" — the code's own inline
+  comment shows this was already tried and deliberately reversed as a recall
+  fix. Implementing this priority would have reintroduced a known bug.
+- Priority 4 (precomputed title_padded) IMPLEMENTED: schema bumped to
+  Activator::DB_VERSION 1.9.1 (forces one rebuild on upgrade so existing
+  rows get the new column populated), Indexer populates it at index time,
+  Search_Handler reads it directly instead of computing
+  CONCAT(' ', title, ' ') per candidate row per query word. PHPUnit suite
+  (264 tests) and phpcs pass.
+- Priority 5 complexity revised from Medium to Medium-high: the prewarm
+  trigger point is architecturally easy, but privacy-safe prefix-popularity
+  tracking is new infrastructure this codebase does not have yet.
+- Next review should (a) run this repo's live-site verification workflow
+  against Priority 2's new SQL shape (EXPLAIN, a broad-query relevance
+  spot-check) before it ships in a release, and (b) still start the
+  benchmarking harness from item 1 of the Implementation Order — nothing
+  above has been measured against a real catalog yet, implemented changes
+  included.
+
+2026-09-04 / Implementation audit follow-up
+
+- Confirmed Priority 2 and Priority 4 are present in the current uncommitted
+  source, while Priorities 1 and 5 remain pending and Priority 3 remains
+  deliberately rejected.
+- Found a release-blocking SQL compatibility defect in Priority 2: LIMIT is
+  used inside an IN subquery, a form rejected by both MySQL and MariaDB with
+  error 1235. Priority 2 was changed from IMPLEMENTED to IMPLEMENTED IN
+  SOURCE, BUT BLOCKED.
+- Local PHPCS and PHPUnit gates remain green (264 tests, 776 assertions), but
+  they do not execute queries against a real database and therefore do not
+  cover this failure.
+- Required next action: rewrite Priority 2 as a supported derived-table JOIN,
+  then run live SQL execution, EXPLAIN, latency, and relevance validation.
+
+2026-09-04 / Fix + live verification follow-up
+
+- The audit's error-1235 finding was independently re-derived rather than
+  taken on trust: ran the exact reported IN-subquery SQL shape against
+  thogotodeli.com's live production MariaDB (10.11.18) and reproduced the
+  identical error, confirming the audit was correct (an initial assumption
+  that the restriction might be UPDATE/DELETE-specific and not apply to a
+  plain SELECT was wrong).
+- Rewrote fulltext_sql() to use an INNER JOIN against a derived table instead
+  of the IN-subquery form. Verified the rewritten query live against the same
+  database, both in its plain form and with $short_sql/$stock_clause
+  populated (the hybrid Tier 1 path) — both executed correctly and returned
+  sensibly-ranked results against the real TEST- product catalog.
+- Updated PHPUnit coverage for the new JOIN shape (table alias `t`, the
+  `candidates` derived table, no more `WHERE product_id IN (`). Full suite:
+  264 tests, 778 assertions, passing. phpcs clean.
+- Priority 2 status corrected from "IMPLEMENTED IN SOURCE, BUT BLOCKED" to
+  "IMPLEMENTED AND VERIFIED LIVE" — SQL correctness/executability is now
+  confirmed on a real MariaDB instance; latency and relevance benchmarking
+  (EXPLAIN, p95, the required benchmark query groups) remain outstanding and
+  are not claimed to be done.
+- Lesson for this document's own process: an external review's findings need
+  the same trust-but-verify treatment as the original proposals — this one
+  was correct, but it was checked against a live database rather than
+  accepted or dismissed on reasoning alone.
+
+2026-09-05 / Search algorithm source audit
+
+- Confirmed that wcs_result_count and wcs_show_out_of_stock affect returned
+  rows but neither participates in the cache key nor triggers a cache-version
+  bump. Recorded as high severity because stale results can persist for the
+  full 24-hour transient lifetime.
+- Confirmed that Tier 0 treats any normalized-SKU prefix hit as deterministic
+  intent and immediately bypasses every other relevance tier. Recorded the
+  distinction between safe exact-SKU short-circuiting and ambiguous prefix
+  matching.
+- Compared Query_Normalizer::STOPWORDS with MySQL's documented default InnoDB
+  list and found missing entries (`com`, `de`, `en`, `la`, `und`, `www`).
+  Recorded the custom-server-stopword limitation as a follow-up design issue.
+- Retained Priority 2's 200-candidate window as an open release-validation
+  item: SQL compatibility is established, but ranking preservation and the
+  cutoff itself remain unbenchmarked.
+- No source changes were made in this audit. Local PHPUnit (264 tests, 778
+  assertions), PHPCS, and whitespace checks were green at review time.
+
+2026-09-05 / Audit findings verified live and fixed
+
+- Applied the same trust-but-verify discipline as the earlier Priority 2 SQL
+  claim: none of Findings A/B/C were implemented on the audit's word alone.
+- Finding A: re-read cache_key() and Indexer::init()'s hook list directly —
+  confirmed no hook existed for wcs_result_count/wcs_show_out_of_stock.
+  FIXED: added Indexer::on_result_affecting_setting_changed(), mirroring the
+  existing synonym-change pattern (equality guard + immediate
+  execute_cache_bust()), registered on both options.
+- Finding B: reproduced the exact failure shape live against thogotodeli.com
+  — `sku_normalized LIKE 'test%'` returns six non-exact prefix rows, which
+  under the old code would have suppressed any genuine "test" title/content
+  match. FIXED the false-suppression: the immediate short-circuit now
+  requires an exact normalized-SKU match; a prefix-only hit falls through to
+  the normal tiers and is kept only as a last-resort fallback if nothing
+  else matches. Deliberately did NOT implement the audit's alternative
+  suggestion (rank prefix hits as merged candidates) — that needs the
+  benchmarking/ordering-design work the audit itself flagged as open, and
+  the simpler fallback already satisfies the stated acceptance criteria.
+- Finding C: did not trust the audit's specific word list either — queried
+  INFORMATION_SCHEMA.INNODB_FT_DEFAULT_STOPWORD live on thogotodeli.com's
+  MariaDB and confirmed com/de/en/la/und/www are genuinely in the default
+  list and genuinely absent from STOPWORDS. FIXED: added all six.
+- The broader "custom server stopword table" limitation Finding C also
+  raised is intentionally left open — it is a real feature (detect/track the
+  server's actual active configuration), not a mechanical fix.
+- Candidate-window release validation (Priority 2's 200-row default):
+  no new action — still correctly flagged as open, nothing here changes it.
+- Test coverage added for all three fixes (IndexerTest, SearchHandlerQueryTest,
+  QueryNormalizerTest, InitAndBatchLifecycleTest's hook-registration check).
+  Full suite: 270 tests, 794 assertions, passing. phpcs clean.
+- Nothing has been committed, built, or deployed as part of this pass.
+
+2026-09-05 / Defense-only InnoDB availability check
+
+- Prompted by a question about why this plugin's schema hardcodes
+  ENGINE=InnoDB (AGENT_CODING_STANDARDS.md §4.3, and consistent with the
+  row-level-locking/crash-safety reasoning behind Priority 2's concurrency
+  goals) and what happens if InnoDB is ever unavailable on the target server.
+- Not a bug fix — InnoDB has shipped as MySQL/MariaDB's default engine since
+  2010 and WordPress core itself has defaulted new tables to InnoDB since
+  WP 5.5, so this is defense against an exotic hosting configuration, not an
+  expected failure mode. Confirmed live (thogotodeli.com, MariaDB 10.11) that
+  `SHOW ENGINES` reports InnoDB as `Support = DEFAULT` with columns named
+  exactly `Engine`/`Support`, matching what the new check reads.
+- Added Activator::is_innodb_available() (checks SHOW ENGINES for an InnoDB
+  row with Support YES/DEFAULT; fails OPEN — returns true — if the check
+  itself is inconclusive, so it can never block activation on its own) and
+  wired it into create_tables(): if InnoDB is genuinely unavailable, a clear,
+  specific admin-facing schema_error is recorded ("... requires InnoDB ...
+  ask your hosting provider to enable it") and CREATE TABLE is never
+  attempted, instead of surfacing whatever raw SQL error MySQL would give.
+- Test coverage added (ActivatorTest): InnoDB missing entirely, InnoDB
+  present but disabled, and the fail-open path when SHOW ENGINES itself is
+  inconclusive — the last one confirming table creation still proceeds
+  normally rather than being blocked by an ambiguous check result. Full
+  suite: 273 tests, 800 assertions, passing. phpcs clean.
