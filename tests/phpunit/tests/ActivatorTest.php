@@ -20,9 +20,20 @@ final class ActivatorTest extends TestCase {
 		}
 	}
 
+	/** A `SHOW ENGINES` result set with a healthy, enabled InnoDB row. */
+	private function innodbAvailableRows(): array {
+		return array(
+			array( 'Engine' => 'InnoDB', 'Support' => 'DEFAULT' ),
+			array( 'Engine' => 'MyISAM', 'Support' => 'YES' ),
+		);
+	}
+
 	/** Script the fake wpdb so create_tables() sees healthy tables. */
 	private function healthyTables( string $create_suffix = '' ): void {
-		$this->wpdb->handler = static function ( string $sql, string $type ) use ( $create_suffix ) {
+		$this->wpdb->handler = function ( string $sql, string $type ) use ( $create_suffix ) {
+			if ( 'results' === $type && str_contains( $sql, 'SHOW ENGINES' ) ) {
+				return $this->innodbAvailableRows();
+			}
 			if ( 'var' === $type && str_contains( $sql, 'SHOW TABLES' ) ) {
 				// Echo back the requested table name → "exists".
 				preg_match( "/LIKE '([^']+)'/", $sql, $m );
@@ -155,6 +166,58 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init();
 
+		$this->assertFalse( get_option( 'wcs_schema_error' ) );
+	}
+
+	// ── InnoDB availability (defense only — see is_innodb_available()) ───────
+
+	public function test_missing_innodb_records_a_clear_error_and_skips_create_table(): void {
+		update_option( 'wcs_db_version', '1.0.0' );
+		update_option( 'wcs_mu_version', WCS_VERSION );
+		$this->wpdb->handler = static fn( string $sql, string $type ) =>
+			( 'results' === $type && str_contains( $sql, 'SHOW ENGINES' ) )
+				? array( array( 'Engine' => 'MyISAM', 'Support' => 'YES' ) ) // no InnoDB row at all
+				: null;
+
+		Activator::init();
+
+		$error = (string) get_option( 'wcs_schema_error' );
+		$this->assertStringContainsString( 'InnoDB', $error );
+		$this->assertSame( array(), $GLOBALS['wcs_test_dbdelta'], 'CREATE TABLE must never be attempted when InnoDB is unavailable' );
+	}
+
+	public function test_innodb_support_disabled_records_a_clear_error(): void {
+		update_option( 'wcs_db_version', '1.0.0' );
+		update_option( 'wcs_mu_version', WCS_VERSION );
+		$this->wpdb->handler = static fn( string $sql, string $type ) =>
+			( 'results' === $type && str_contains( $sql, 'SHOW ENGINES' ) )
+				? array( array( 'Engine' => 'InnoDB', 'Support' => 'DISABLED' ) )
+				: null;
+
+		Activator::init();
+
+		$this->assertStringContainsString( 'InnoDB', (string) get_option( 'wcs_schema_error' ) );
+		$this->assertSame( array(), $GLOBALS['wcs_test_dbdelta'] );
+	}
+
+	public function test_inconclusive_engine_check_fails_open_and_still_creates_tables(): void {
+		// SHOW ENGINES itself unavailable/erroring must never block real table
+		// creation on its own — the CREATE TABLE attempt is the authoritative
+		// signal either way.
+		update_option( 'wcs_db_version', '1.0.0' );
+		update_option( 'wcs_mu_version', WCS_VERSION );
+		$this->healthyTables();
+		$inner_handler        = $this->wpdb->handler;
+		$this->wpdb->handler = function ( string $sql, string $type ) use ( $inner_handler ) {
+			if ( 'results' === $type && str_contains( $sql, 'SHOW ENGINES' ) ) {
+				return null; // query failed
+			}
+			return $inner_handler( $sql, $type );
+		};
+
+		Activator::init();
+
+		$this->assertNotEmpty( $GLOBALS['wcs_test_dbdelta'], 'table creation must proceed when the engine check itself is inconclusive' );
 		$this->assertFalse( get_option( 'wcs_schema_error' ) );
 	}
 

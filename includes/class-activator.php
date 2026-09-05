@@ -278,6 +278,24 @@ class Activator {
 	private static function create_tables(): void {
 		global $wpdb;
 
+		// Defense only: this plugin hardcodes ENGINE=InnoDB for every table it
+		// creates (row-level locking for concurrent search-vs-write traffic,
+		// crash safety — see AGENT_CODING_STANDARDS.md §4.3), never MyISAM, so
+		// there is no fallback path if InnoDB genuinely is not available.
+		// InnoDB has shipped as MySQL/MariaDB's default engine since 2010 and
+		// is effectively always present — this check exists purely so that
+		// the exotic case where it truly is missing surfaces as one clear,
+		// specific admin notice instead of a raw, confusing SQL error from a
+		// failed CREATE TABLE further down.
+		if ( ! self::is_innodb_available() ) {
+			update_option(
+				'wcs_schema_error',
+				'The InnoDB storage engine is not available on this database server. Turbo Search for WooCommerce requires InnoDB for its search index table (needed for safe concurrent reads/writes and crash recovery). Please ask your hosting provider to enable the InnoDB storage engine.',
+				false
+			);
+			return;
+		}
+
 		$charset_collate = $wpdb->get_charset_collate();
 		$tables          = array(
 			$wpdb->prefix . 'wcs_search_index',
@@ -388,6 +406,36 @@ class Activator {
 		// autoload=true: read on every cache-miss search, so it must come from
 		// the alloptions batch instead of its own SELECT.
 		update_option( 'wcs_ft_parser', $parser, true );
+	}
+
+	/**
+	 * Defense only — see the call site in create_tables(). Checks
+	 * `SHOW ENGINES` for an InnoDB row whose Support column is YES or
+	 * DEFAULT. An inconclusive result (SHOW ENGINES itself unavailable or
+	 * returning something unexpected) fails OPEN — returns true — so this
+	 * check can never itself block activation; the real CREATE TABLE
+	 * attempt right after it remains the authoritative signal either way.
+	 *
+	 * @return bool
+	 */
+	private static function is_innodb_available(): bool {
+		global $wpdb;
+		$engines = $wpdb->get_results( 'SHOW ENGINES', ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+
+		if ( ! is_array( $engines ) ) {
+			return true;
+		}
+
+		foreach ( $engines as $engine ) {
+			if ( 'innodb' !== strtolower( (string) ( $engine['Engine'] ?? '' ) ) ) {
+				continue;
+			}
+			$support = strtolower( (string) ( $engine['Support'] ?? '' ) );
+			return in_array( $support, array( 'yes', 'default' ), true );
+		}
+
+		// No InnoDB row at all in the engine list — not available.
+		return false;
 	}
 
 	private static function is_ngram_supported(): bool {
