@@ -181,6 +181,7 @@ rsync -a \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
   --exclude='/WORDPRESS_ORG_*.txt' \
+  --exclude='/SEARCH_ALGORITHM_IMPROVEMENT_PLAN.txt' \
   "$REPO_DIR/" "$TMP_DIR/"
 
 # Regression guard: these paths are development tooling or repository

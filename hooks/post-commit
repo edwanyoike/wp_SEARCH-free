@@ -64,6 +64,7 @@ rsync -a \
   --exclude='/banner-*'        \
   --exclude='/*.png'           \
   --exclude='/WORDPRESS_ORG_*.txt' \
+  --exclude='/SEARCH_ALGORITHM_IMPROVEMENT_PLAN.txt' \
   "$REPO_DIR/" "$TMP_DIR/"
 
 # Regression guard: kept in sync with build.sh's own copy of this check —
