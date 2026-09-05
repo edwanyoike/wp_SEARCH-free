@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.8.1
+Stable tag:        1.9.0
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -88,6 +88,14 @@ responses for 1 hour. The service is provided by OzuLabs: [service website](http
 and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.9.0 =
+* Improvement: search ranking now narrows to a bounded set of FULLTEXT candidates before applying the full relevance formula, instead of scoring every row a broad query matches. Reduces database work for common single-word searches on large catalogs without changing top-result ranking.
+* Improvement: the title matching used in ranking is now precomputed once when a product is indexed instead of being recalculated on every search request.
+* Fix: changing the "Number of results" or "Show out-of-stock products" setting could keep showing search results computed under the previous setting for up to 24 hours, because neither setting was part of the search result cache key. Both now refresh cached results immediately.
+* Fix: a search term that happened to be a prefix of a product's SKU (for example "ABC1" against a SKU of "ABC10") could return only SKU matches and hide a genuine, stronger match on a completely different product's title or description. Only an exact SKU match now takes priority this way — a mere prefix match no longer suppresses a real result.
+* Fix: a handful of words MySQL/MariaDB's default full-text configuration treats as noise (com, de, en, la, und, www) were missing from this plugin's own list of ignored words, which could make an otherwise ordinary multi-word search (for example "cafe de") return nothing.
+* Hardening: activation now detects if the required InnoDB database storage engine is unavailable and shows a clear, specific error instead of a confusing raw database error. This plugin has always required InnoDB; virtually every MySQL/MariaDB host has it available by default.
 
 = 1.8.1 =
 * Fix: 1.8.0's one-batch-per-check rebuild driver released the batch it claimed only on the success path — if processing that batch failed for any reason, the claim was never released, leaving it stuck until Action Scheduler's own timeout (several minutes) eventually force-released it. It's now always released, success or failure.
