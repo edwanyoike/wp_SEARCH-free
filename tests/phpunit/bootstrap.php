@@ -131,6 +131,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_cron']          = array();
 	$GLOBALS['wcs_test_single_events'] = array();
 	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
+	$GLOBALS['wcs_test_cron_schedule_fails'] = false;
 	$GLOBALS['wcs_test_active_plugins']       = array();
 	$GLOBALS['wcs_test_deactivated_plugins']  = array();
 	$GLOBALS['wcs_test_primed']        = array();
@@ -582,6 +583,10 @@ function get_post_type( int $id ): string|false {
 	$post = get_post( $id );
 	return $post->post_type ?? false;
 }
+function wp_get_post_parent_id( int $id ): int {
+	$post = get_post( $id );
+	return (int) ( $post->post_parent ?? 0 );
+}
 function _prime_post_caches( array $ids, bool $terms = true, bool $meta = true ): void {
 	$GLOBALS['wcs_test_primed'][] = $ids;
 }
@@ -714,6 +719,9 @@ function wp_next_scheduled( string $hook ) {
 	return $GLOBALS['wcs_test_cron'][ $hook ] ?? false;
 }
 function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ): bool {
+	if ( ! empty( $GLOBALS['wcs_test_cron_schedule_fails'] ) ) {
+		return false; // simulates WP-Cron itself refusing to store the event
+	}
 	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
 	$GLOBALS['wcs_test_single_events'][] = array( 'hook' => $hook, 'timestamp' => $timestamp, 'args' => $args );
 	return true;
@@ -886,6 +894,9 @@ class Fake_WPDB {
 	/** @var callable|null fn(string $sql, string $type): mixed — scripted results. */
 	public $handler = null;
 
+	/** @var bool|callable(string $table, array $data): bool — makes replace() report failure. */
+	public $replaceFails = false;
+
 	private bool $suppress = false;
 
 	public function esc_like( string $text ): string {
@@ -979,6 +990,11 @@ class Fake_WPDB {
 	}
 	public function replace( string $table, array $data, $formats = null ) {
 		$this->queries[] = 'REPLACE INTO ' . $table . ' /* ' . wp_json_encode( $data ) . ' */';
+		$fails           = is_callable( $this->replaceFails ) ? ( $this->replaceFails )( $table, $data ) : $this->replaceFails;
+		if ( $fails ) {
+			$this->last_error = 'simulated replace failure';
+			return false;
+		}
 		return 1;
 	}
 	public function delete( string $table, array $where, $formats = null ) {

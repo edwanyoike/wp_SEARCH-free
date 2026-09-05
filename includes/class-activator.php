@@ -47,6 +47,7 @@ class Activator {
 		'wcs_rebuild_epoch',
 		'wcs_rebuild_cursor',
 		'wcs_rebuild_phase',
+		'wcs_rebuild_failed_count',
 		'wcs_last_indexed',
 		'wcs_last_rebuild_error',
 		'wcs_result_count',

@@ -48,7 +48,25 @@ final class IndexerTest extends TestCase {
 		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'still marked indexing — the fallback, not a hard failure, owns recovery' );
 		$scheduled = array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] );
 		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the initial enqueue fails' );
-		$this->assertSame( array( $epoch ), array_values( $scheduled )[0]['args'] );
+		$this->assertSame( array( $epoch, 0 ), array_values( $scheduled )[0]['args'] );
+	}
+
+	/**
+	 * Regression: wp_schedule_single_event() itself returns false (not an
+	 * exception) if WP-Cron can't store the event. Left unchecked, this
+	 * would leave a rebuild stranded with literally nothing driving it — no
+	 * Action Scheduler action pending (that's what triggered the fallback)
+	 * and no cron event pending either — so retry_rebuild_scheduling() would
+	 * simply never run and wcs_is_indexing would sit at 1 forever.
+	 */
+	public function test_wp_cron_itself_refusing_the_retry_event_fails_the_rebuild_immediately(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::start_rebuild();
+
+		$this->assertSame( 0, get_option( 'wcs_is_indexing' ), 'nothing can drive this rebuild — it must not report "still indexing"' );
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
 	}
 
 	public function test_enqueue_success_does_not_schedule_a_retry(): void {
@@ -79,10 +97,22 @@ final class IndexerTest extends TestCase {
 		$this->assertNull( get_option( 'wcs_last_rebuild_error', null ), 'not exhausted yet — no error should be recorded' );
 	}
 
+	public function test_retry_reschedule_itself_failing_stops_the_rebuild_instead_of_looping_silently(): void {
+		update_option( 'wcs_rebuild_epoch', 555 );
+		update_option( 'wcs_is_indexing', 1 );
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::retry_rebuild_scheduling( 555 );
+
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
+		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
+	}
+
 	public function test_retry_rebuild_scheduling_gives_up_after_five_attempts(): void {
 		update_option( 'wcs_rebuild_epoch', 555 );
 		update_option( 'wcs_is_indexing', 1 );
-		set_transient( 'wcs_schedule_retry_555', 5 );
+		set_transient( 'wcs_schedule_retry_555_0', 5 );
 		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
 
 		Indexer::retry_rebuild_scheduling( 555 );
@@ -163,9 +193,26 @@ final class IndexerTest extends TestCase {
 		$row = $this->sanitizeRow( $this->validRow() );
 
 		$this->assertSame(
-			array( 'product_id', 'title', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' ),
+			array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' ),
 			array_keys( $row )
 		);
+	}
+
+	public function test_title_normalized_and_padded_strip_punctuation_like_a_query_would(): void {
+		// Search_Handler compares a normalized query directly against
+		// title_normalized/title_padded (never the raw `title` column) for
+		// the exact-title/title-prefix/phrase boosts, so these two columns
+		// must be normalized exactly the way Query_Normalizer::normalize()
+		// normalizes the query side, or a punctuated product name like this
+		// one would never earn those boosts even for a shopper query that is
+		// an exact match in every sense that matters.
+		$row = $this->sanitizeRow( array_merge( $this->validRow(), array(
+			'title' => "Men's T-Shirt/Jacket",
+		) ) );
+
+		$this->assertSame( "Men's T-Shirt/Jacket", $row['title'], 'raw title keeps its punctuation for FULLTEXT indexing and display' );
+		$this->assertSame( 'men s t shirt jacket', $row['title_normalized'] );
+		$this->assertSame( ' men s t shirt jacket ', $row['title_padded'] );
 	}
 
 	public function test_excerpt_is_html_stripped_and_truncated_at_a_word_boundary(): void {

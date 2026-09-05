@@ -391,6 +391,8 @@ class Admin_Settings {
 			'stuck_no_batch_dispatched' => __( 'The last rebuild could not start — this usually means the server ran out of memory partway through. Click "Rebuild Index" to try again; consider lowering the batch size via the wcs_batch_size filter if this keeps happening.', 'turbo-search-for-woocommerce' ),
 			'staging_empty'             => __( 'The last rebuild produced no data and was discarded — your existing search index was kept. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
 			'schedule_enqueue_failed'   => __( 'The last rebuild could not be scheduled — the background job queue was not ready yet when this ran (this can happen right after an update). It was retried automatically several times without success. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
+			'partial_failure'           => __( 'The last rebuild finished, but one or more products failed to write to the new index and were skipped — check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for which ones. The rest of the catalog is searchable on the new index; re-saving an affected product will retry it.', 'turbo-search-for-woocommerce' ),
+			'batch_write_failed'        => __( 'The last rebuild was halted because every product in a batch failed to write to the new index — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
 		);
 	}
 

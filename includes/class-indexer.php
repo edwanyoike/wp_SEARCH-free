@@ -83,6 +83,29 @@ class Indexer {
 		add_action( 'save_post_product', array( __CLASS__, 'queue_product_update_from_post' ), 10, 2 );
 		add_action( 'woocommerce_product_set_stock_status', array( __CLASS__, 'queue_product_update' ), 10, 1 );
 
+		// The indexed parent row carries variation SKUs and the variable
+		// product's price range, so a variation change must refresh the
+		// parent — but WooCommerce fires distinct hooks for variations
+		// rather than reusing the product ones above. Confirmed live against
+		// WooCommerce's own data store (class-wc-product-variation-data-
+		// store-cpt.php, class-wc-product-data-store-cpt.php): a variation
+		// save fires woocommerce_update_product_variation /
+		// woocommerce_new_product_variation (never woocommerce_update_product
+		// or save_post_product — that post type doesn't match 'product'),
+		// and a variation stock change fires woocommerce_variation_set_stock_
+		// status, never woocommerce_product_set_stock_status (the two are
+		// mutually exclusive in core, gated on is_type( 'variation' )). All
+		// three pass the variation ID first, so one callback covers them.
+		add_action( 'woocommerce_update_product_variation', array( __CLASS__, 'queue_variation_update' ), 10, 1 );
+		add_action( 'woocommerce_new_product_variation', array( __CLASS__, 'queue_variation_update' ), 10, 1 );
+		add_action( 'woocommerce_variation_set_stock_status', array( __CLASS__, 'queue_variation_update' ), 10, 1 );
+		// Restoring either a variation or its parent from the Trash doesn't
+		// go through WC_Product::save() (wp_untrash_post() is a raw core
+		// operation), so neither of the hooks above nor woocommerce_update_
+		// product fires — without this, a restored product/variation stays
+		// unsearchable until an unrelated save or a full rebuild.
+		add_action( 'untrashed_post', array( __CLASS__, 'on_product_untrash' ), 10, 1 );
+
 		// ── WooCommerce CSV importer hooks ────────────────────────────────────
 		// The built-in WC importer does not fire woocommerce_update_product, so
 		// without these hooks bulk-imported products are invisible until the next
@@ -106,9 +129,9 @@ class Indexer {
 		// Reset the indexing flag when AS marks a rebuild batch as permanently failed
 		// so the UI never stays stuck in "Indexing..." with no running job behind it.
 		add_action( 'action_scheduler_failed_action', array( __CLASS__, 'on_batch_action_failed' ), 10, 1 );
-		// WP-Cron fallback for when the *initial* rebuild batch never made it
-		// into Action Scheduler at all — see enqueue_first_batch()'s docblock.
-		add_action( 'wcs_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 1 );
+		// WP-Cron fallback for when a rebuild batch enqueue never made it into
+		// Action Scheduler at all — see enqueue_batch_with_retry()'s docblock.
+		add_action( 'wcs_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 2 );
 
 		// ── Product taxonomy changes ──────────────────────────────────────────
 		// Renaming a category or tag makes the stored term name stale in every
@@ -219,6 +242,47 @@ class Indexer {
 	}
 
 	/**
+	 * Queue a variation's parent product for incremental re-indexing.
+	 *
+	 * Shared callback for every WooCommerce variation hook registered in
+	 * init() (update, create, stock-status change) — all three pass the
+	 * variation ID first. Uses wp_get_post_parent_id() rather than
+	 * wc_get_product() so this stays a cheap lookup, not a full product load,
+	 * on what can be a high-frequency hook (saving the variations admin UI
+	 * fires one of these per changed row).
+	 *
+	 * @param int $variation_id Variation post ID.
+	 */
+	public static function queue_variation_update( int $variation_id ): void {
+		$parent_id = wp_get_post_parent_id( $variation_id );
+		if ( $parent_id ) {
+			self::queue_product_update( $parent_id );
+		}
+	}
+
+	/**
+	 * Reindex a product or variation restored from the Trash.
+	 *
+	 * Fires on the core untrashed_post hook, which wp_untrash_post() fires
+	 * for any post type — it does not go through WC_Product::save(), so
+	 * neither woocommerce_update_product nor the variation hooks above ever
+	 * fire for a restore. A restored parent product is queued directly; a
+	 * restored variation queues its parent via queue_variation_update().
+	 *
+	 * @param int $post_id Restored post ID.
+	 */
+	public static function on_product_untrash( int $post_id ): void {
+		$post_type = get_post_type( $post_id );
+		if ( 'product' === $post_type ) {
+			self::queue_product_update( $post_id );
+			return;
+		}
+		if ( 'product_variation' === $post_type ) {
+			self::queue_variation_update( $post_id );
+		}
+	}
+
+	/**
 	 * Queue a single product for incremental re-indexing after a CSV import row.
 	 *
 	 * Handles woocommerce_product_import_inserted_product_object and
@@ -242,10 +306,17 @@ class Indexer {
 	 * @param int $post_id Post ID being trashed.
 	 */
 	public static function on_product_trash( int $post_id ): void {
-		if ( 'product' !== get_post_type( $post_id ) ) {
+		$post_type = get_post_type( $post_id );
+		if ( 'product' === $post_type ) {
+			self::delete_single_product( $post_id );
 			return;
 		}
-		self::delete_single_product( $post_id );
+		// A trashed variation is never itself an index row (only parents
+		// are indexed), but its SKU/price/stock must disappear from the
+		// parent's indexed row immediately.
+		if ( 'product_variation' === $post_type ) {
+			self::queue_variation_update( $post_id );
+		}
 	}
 
 	/**
@@ -257,10 +328,14 @@ class Indexer {
 	 * @param int $post_id Post ID being permanently deleted.
 	 */
 	public static function on_product_delete( int $post_id ): void {
-		if ( 'product' !== get_post_type( $post_id ) ) {
+		$post_type = get_post_type( $post_id );
+		if ( 'product' === $post_type ) {
+			self::delete_single_product( $post_id );
 			return;
 		}
-		self::delete_single_product( $post_id );
+		if ( 'product_variation' === $post_type ) {
+			self::queue_variation_update( $post_id );
+		}
 	}
 
 	/**
@@ -481,7 +556,22 @@ class Indexer {
 
 			update_option( 'wcs_is_indexing', 0, false );
 			delete_option( 'wcs_rebuild_phase' );
-			delete_option( 'wcs_last_rebuild_error' );
+
+			// A rebuild that produced rows but also hit unresolved per-product
+			// write failures along the way (tracked by
+			// increment_rebuild_failure_count()) still swaps in — see that
+			// method's docblock for why — but must not report a silent,
+			// unqualified success: the admin has no other way to learn that
+			// some products didn't make it into the new index.
+			$failed_count = (int) get_option( 'wcs_rebuild_failed_count', 0 );
+			if ( $failed_count > 0 ) {
+				update_option( 'wcs_last_rebuild_error', 'partial_failure', false );
+				self::log( sprintf( 'SWAP completed with %d failed product write(s) — see earlier log lines for IDs', $failed_count ) );
+			} else {
+				delete_option( 'wcs_last_rebuild_error' );
+			}
+			delete_option( 'wcs_rebuild_failed_count' );
+
 			self::execute_cache_bust();
 			do_action( 'wcs_index_rebuild_complete' );
 			return;
@@ -502,12 +592,31 @@ class Indexer {
 			} catch ( \Throwable $bulk_e ) {
 				self::log( sprintf( 'bulk chunk failed (%s) — retrying per-product', $bulk_e->getMessage() ) );
 				foreach ( $chunk as $product_id ) {
-					try {
-						self::do_index_single_product( $product_id, $stage_table );
-					} catch ( \Throwable $e ) {
-						++$batch_failures;
-						self::log( sprintf( 'product %d failed — %s', $product_id, $e->getMessage() ) );
-					}
+					// Up to 3 attempts before counting this product as a real
+					// failure. A single retry (falling back from the bulk
+					// write to this per-product path) is already thin
+					// protection against a genuinely transient error — a lock
+					// wait timeout or a momentary connection blip can just as
+					// easily hit the immediate retry too. This does not
+					// change the swap decision below: a product that still
+					// fails after 3 attempts is presumed to have a real,
+					// non-transient problem (bad data, a broken filter
+					// callback), not bad luck, and is counted exactly as
+					// before.
+					$attempt = 0;
+					do {
+						try {
+							self::do_index_single_product( $product_id, $stage_table );
+							continue 2; // succeeded — next product in the chunk
+						} catch ( \Throwable $e ) {
+							++$attempt;
+							$last_exception = $e;
+						}
+					} while ( $attempt < 3 );
+
+					++$batch_failures;
+					self::increment_rebuild_failure_count();
+					self::log( sprintf( 'product %d failed after %d attempts — %s', $product_id, $attempt, $last_exception->getMessage() ) );
 				}
 			}
 			$processed_in_batch += count( $chunk );
@@ -517,22 +626,17 @@ class Indexer {
 				$processed = (int) get_option( 'wcs_reindex_processed', 0 );
 				update_option( 'wcs_reindex_processed', $processed + $processed_in_batch, false );
 				self::log( sprintf( 'BUDGET last_id=%d done=%d elapsed=%.1fs', $chunk_last_id, $processed + $processed_in_batch, microtime( true ) - $batch_start ) );
-				if ( function_exists( 'as_enqueue_async_action' ) ) {
-					// $unique=false, $priority=10 — see the retry-enqueue
-					// above for why (the previous (0, true) cast true to
-					// priority 1 instead of the intended 10).
-					as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
-						'last_id' => $chunk_last_id,
-						'epoch'   => $epoch,
-					), 'turbo-search-for-woocommerce', false, 10 );
-				}
+				self::enqueue_batch_with_retry( $chunk_last_id, $epoch );
 				return;
 			}
 		}
 
 		if ( $batch_failures === $processed_in_batch ) {
-			self::log( sprintf( 'ALL FAILED last_id=%d — halting chain', $last_id ) );
+			self::log( sprintf( 'ALL FAILED last_id=%d — halting chain, old live index preserved', $last_id ) );
+			update_option( 'wcs_last_rebuild_error', 'batch_write_failed', false );
 			update_option( 'wcs_is_indexing', 0, false );
+			delete_option( 'wcs_rebuild_phase' );
+			delete_option( 'wcs_rebuild_failed_count' );
 			return;
 		}
 
@@ -542,15 +646,7 @@ class Indexer {
 		update_option( 'wcs_reindex_processed', $new_total, false );
 		self::log( sprintf( 'DONE last_id=%d next=%d total=%d elapsed=%.1fs', $last_id, $next_last_id, $new_total, microtime( true ) - $batch_start ) );
 
-		if ( function_exists( 'as_enqueue_async_action' ) ) {
-			// $unique=false, $priority=10 — see the retry-enqueue above for
-			// why (the previous (0, true) cast true to priority 1 instead
-			// of the intended 10).
-			as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
-				'last_id' => $next_last_id,
-				'epoch'   => $epoch,
-			), 'turbo-search-for-woocommerce', false, 10 );
-		}
+		self::enqueue_batch_with_retry( $next_last_id, $epoch );
 	}
 
 	/**
@@ -680,8 +776,12 @@ class Indexer {
 			'updated_at'     => current_time( 'mysql' ),
 		);
 
-		$data    = self::apply_row_filter_and_sanitize( $data, $product_id );
-		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%d', '%s', '%s', '%s' );
+		$data = self::apply_row_filter_and_sanitize( $data, $product_id );
+		// product_id, title, title_normalized, title_padded, sku, sku_normalized,
+		// content, excerpt, price_min, price_max, stock_status, total_sales,
+		// sales_30d, image_url, permalink, updated_at — positional, must match
+		// apply_row_filter_and_sanitize()'s return array order exactly.
+		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%d', '%s', '%s', '%s' );
 
 		if ( empty( $table_name ) ) {
 			$table_name = $wpdb->prefix . 'wcs_search_index';
@@ -689,13 +789,68 @@ class Indexer {
 			// If a full rebuild is active, also duplicate live edits to staging to maintain parity
 			if ( get_option( 'wcs_is_indexing', false ) ) {
 				$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
-				$wpdb->replace( $stage_table, $data, $formats ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+				// Same bounded retry as do_process_batch()'s per-product
+				// fallback (see that loop's comment): this write runs inside
+				// the async wcs_update_single_product action, not the
+				// admin's original save request, so retrying costs nothing
+				// user-facing — and without it, a transient blip here (a
+				// lock wait, a momentary connection drop) would leave this
+				// product's staging row silently stale for the rest of the
+				// rebuild, with no later batch pass ever revisiting an ID
+				// the cursor has already scanned past.
+				$stage_attempt = 0;
+				$stage_written = false;
+				do {
+					$stage_written = ( false !== $wpdb->replace( $stage_table, $data, $formats ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+					++$stage_attempt;
+				} while ( ! $stage_written && $stage_attempt < 3 );
+
+				if ( ! $stage_written ) {
+					self::log( sprintf( 'product %d — staging write failed after %d attempts: %s', $product_id, $stage_attempt, $wpdb->last_error ) );
+					self::increment_rebuild_failure_count();
+				}
 			}
 		}
 
-		$wpdb->replace( $table_name, $data, $formats ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		// $wpdb->replace() returns false (not an exception) on a write failure —
+		// a bad connection, a lock wait timeout, or data a column genuinely
+		// rejects. Left unchecked this method returns as if the row was
+		// written: an incremental update silently leaves the live index
+		// stale, and during a rebuild the row is simply missing from staging
+		// with nothing to show for it. Throwing here lets both callers'
+		// existing failure handling actually see it — do_process_batch()'s
+		// per-product fallback loop already counts a Throwable as a batch
+		// failure, and a plain incremental update surfaces as a failed
+		// action in Action Scheduler's own admin log instead of vanishing.
+		if ( false === $wpdb->replace( $table_name, $data, $formats ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+			$db_error = (string) $wpdb->last_error;
+			self::log( sprintf( 'product %d — write to %s failed: %s', $product_id, $table_name, $db_error ) );
+			// Deliberately NOT counted here even when $table_name is the
+			// staging table: do_process_batch()'s per-product fallback calls
+			// this method up to 3 times for the same product before giving
+			// up (see that loop's comment), and counting on every attempt
+			// would triple-count one product as three failures. That loop
+			// increments the shared counter itself, exactly once, only
+			// after retries are exhausted.
+			throw new \RuntimeException( 'Index write failed for product ' . $product_id . ': ' . esc_html( $db_error ) );
+		}
 
 		self::trigger_cache_bust();
+	}
+
+	/**
+	 * Count distinct products that failed to reach the staging table during
+	 * the rebuild currently in progress, after do_process_batch()'s bounded
+	 * per-product retry gave up on them. Read back at the final swap in that
+	 * same method so a rebuild that finished with unresolved failures still
+	 * swaps in the (mostly complete) new index — discarding it would let one
+	 * pathological product block every future rebuild — but surfaces a
+	 * specific, admin-visible warning instead of silently reporting success.
+	 * Reset to 0 at the start of every rebuild in schedule_full_rebuild().
+	 */
+	private static function increment_rebuild_failure_count(): void {
+		$count = (int) get_option( 'wcs_rebuild_failed_count', 0 );
+		update_option( 'wcs_rebuild_failed_count', $count + 1, false );
 	}
 
 	/**
@@ -823,27 +978,38 @@ class Indexer {
 		// or markup into the search index via this filter. Rebuilt in canonical
 		// column order: wpdb->replace() applies $formats positionally, so a
 		// filter callback that unset a key must not be able to shift alignment.
-		$title = wp_strip_all_tags( (string) ( $data['title'] ?? '' ) );
+		$title            = wp_strip_all_tags( (string) ( $data['title'] ?? '' ) );
+		$title_normalized = Query_Normalizer::normalize_title( $title );
 		return array(
-			'product_id'     => (int) ( $data['product_id'] ?? $product_id ),
-			'title'          => $title,
-			// Word-boundary padding, precomputed at index time so the query layer
-			// can match `title_padded LIKE '% word %'` directly instead of
-			// evaluating CONCAT(' ', title, ' ') fresh on every candidate row for
-			// every query word (Search_Handler's phrase/word-score boosts).
-			'title_padded'   => ' ' . $title . ' ',
-			'sku'            => (string) ( $data['sku'] ?? '' ),
-			'sku_normalized' => Query_Normalizer::normalize_sku( (string) ( $data['sku_normalized'] ?? $data['sku'] ?? '' ) ),
-			'content'        => wp_strip_all_tags( (string) ( $data['content'] ?? '' ) ),
-			'excerpt'        => self::make_excerpt( (string) ( $data['excerpt'] ?? '' ) ),
-			'price_min'      => (float) ( $data['price_min'] ?? 0 ),
-			'price_max'      => (float) ( $data['price_max'] ?? 0 ),
-			'stock_status'   => sanitize_key( (string) ( $data['stock_status'] ?? '' ) ),
-			'total_sales'    => max( 0, (int) ( $data['total_sales'] ?? 0 ) ),
-			'sales_30d'      => max( 0, (int) ( $data['sales_30d'] ?? 0 ) ),
-			'image_url'      => esc_url_raw( (string) ( $data['image_url'] ?? '' ) ),
-			'permalink'      => esc_url_raw( (string) ( $data['permalink'] ?? '' ) ),
-			'updated_at'     => (string) ( $data['updated_at'] ?? current_time( 'mysql' ) ),
+			'product_id'       => (int) ( $data['product_id'] ?? $product_id ),
+			'title'            => $title,
+			// Punctuation-normalized title, precomputed once at index time so
+			// the query layer's exact-title/title-prefix boosts (Search_
+			// Handler) can compare it directly against a normalized query —
+			// see Query_Normalizer::normalize_title()'s docblock for why the
+			// raw `title` column can't serve that comparison correctly.
+			'title_normalized' => $title_normalized,
+			// Word-boundary padding of the NORMALIZED title, precomputed at
+			// index time so the query layer can match
+			// `title_padded LIKE '% word %'` directly instead of evaluating
+			// CONCAT(' ', title_normalized, ' ') fresh on every candidate row
+			// for every query word (Search_Handler's phrase/word-score
+			// boosts). Padding the normalized form rather than the raw title
+			// is what makes those boosts match "T-Shirt" against the
+			// normalized query word "shirt" in the first place.
+			'title_padded'     => ' ' . $title_normalized . ' ',
+			'sku'              => (string) ( $data['sku'] ?? '' ),
+			'sku_normalized'   => Query_Normalizer::normalize_sku( (string) ( $data['sku_normalized'] ?? $data['sku'] ?? '' ) ),
+			'content'          => wp_strip_all_tags( (string) ( $data['content'] ?? '' ) ),
+			'excerpt'          => self::make_excerpt( (string) ( $data['excerpt'] ?? '' ) ),
+			'price_min'        => (float) ( $data['price_min'] ?? 0 ),
+			'price_max'        => (float) ( $data['price_max'] ?? 0 ),
+			'stock_status'     => sanitize_key( (string) ( $data['stock_status'] ?? '' ) ),
+			'total_sales'      => max( 0, (int) ( $data['total_sales'] ?? 0 ) ),
+			'sales_30d'        => max( 0, (int) ( $data['sales_30d'] ?? 0 ) ),
+			'image_url'        => esc_url_raw( (string) ( $data['image_url'] ?? '' ) ),
+			'permalink'        => esc_url_raw( (string) ( $data['permalink'] ?? '' ) ),
+			'updated_at'       => (string) ( $data['updated_at'] ?? current_time( 'mysql' ) ),
 		);
 	}
 
@@ -984,8 +1150,8 @@ class Indexer {
 		}
 
 		// Single multi-row REPLACE for the whole chunk.
-		$columns      = array( 'product_id', 'title', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' );
-		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%s,%f,%f,%s,%d,%d,%s,%s,%s)';
+		$columns      = array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' );
+		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%s,%s,%f,%f,%s,%d,%d,%s,%s,%s)';
 		$placeholders = implode( ',', array_fill( 0, count( $rows ), $row_pattern ) );
 
 		$values = array();
@@ -1161,29 +1327,30 @@ class Indexer {
 		update_option( 'wcs_is_indexing', 1, false );
 		update_option( 'wcs_reindex_processed', 0, false );
 		delete_option( 'wcs_last_rebuild_error' );
+		delete_option( 'wcs_rebuild_failed_count' );
 		self::log( sprintf( 'NEW REBUILD epoch=%d', $epoch ) );
-		self::enqueue_first_batch( $epoch );
+		self::enqueue_batch_with_retry( 0, $epoch );
 	}
 
 	/**
-	 * Enqueue the first rebuild batch for $epoch, verifying it actually
-	 * landed rather than assuming success.
+	 * Enqueue a rebuild batch (initial or continuation) for $epoch/$last_id,
+	 * verifying it actually landed rather than assuming success.
 	 *
 	 * as_enqueue_async_action() returns 0 (not an error/exception) when it
-	 * fails, and it CAN fail here specifically: this method's only caller
-	 * that runs during plugins_loaded is Activator::init()'s migration path
-	 * (schedule_jobs()/start_rebuild() are also plugins_loaded-time, via
-	 * activate_single_site()), and Action Scheduler initializes its own data
-	 * store on a hook too — under some bootstrap orderings this plugin's
-	 * migration code can run first. Confirmed live: a WP-CLI command
-	 * (`wp cache flush`) run immediately after a schema-migrating upgrade
-	 * logged "as_enqueue_async_action() was called before the Action
-	 * Scheduler data store was initialized" and silently dropped the call —
-	 * no action row, no error option, wcs_is_indexing stuck at 1 forever
-	 * with nothing driving it and no signal anywhere that anything was
-	 * wrong. The only thing that previously noticed was the admin-page AJAX
-	 * status poll's own resume logic — which never runs at all if no one
-	 * happens to open the Settings page after an upgrade.
+	 * fails. This was first observed for the *initial* batch: this method's
+	 * caller from Activator::init()'s migration path runs during
+	 * plugins_loaded, and Action Scheduler initializes its own data store on
+	 * a hook too — under some bootstrap orderings this plugin's migration
+	 * code can run first. Confirmed live: a WP-CLI command (`wp cache
+	 * flush`) run immediately after a schema-migrating upgrade logged
+	 * "as_enqueue_async_action() was called before the Action Scheduler data
+	 * store was initialized" and silently dropped the call — no action row,
+	 * no error option, wcs_is_indexing stuck at 1 forever with nothing
+	 * driving it. The same call, with the same failure mode, is also made
+	 * from do_process_batch() for every *continuation* batch after the
+	 * first — a transient Action Scheduler hiccup there would strand a
+	 * rebuild mid-catalog just as silently, so both call sites route through
+	 * here rather than calling as_enqueue_async_action() directly.
 	 *
 	 * WP-Cron doesn't share that race: it's core WordPress, always
 	 * available, and a retry dispatched through it runs on its own later
@@ -1192,14 +1359,14 @@ class Indexer {
 	 * broken/absent Action Scheduler surfaces as a recorded error instead of
 	 * retrying forever.
 	 *
-	 * @param int $epoch Rebuild epoch this batch belongs to.
+	 * @param int $last_id Cursor this batch should start from (0 = first batch).
+	 * @param int $epoch   Rebuild epoch this batch belongs to.
 	 */
-	private static function enqueue_first_batch( int $epoch ): void {
-		// $unique=false, $priority=10 — see the retry-enqueue in
-		// do_process_batch() for why (the previous (0, true) cast true to
-		// priority 1 instead of the intended 10).
+	private static function enqueue_batch_with_retry( int $last_id, int $epoch ): void {
+		// $unique=false, $priority=10 — the trailing args were previously
+		// (0, true), which cast true to priority 1 instead of the intended 10.
 		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
-			'last_id' => 0,
+			'last_id' => $last_id,
 			'epoch'   => $epoch,
 		), 'turbo-search-for-woocommerce', false, 10 );
 
@@ -1207,22 +1374,50 @@ class Indexer {
 			return;
 		}
 
-		self::log( sprintf( 'Initial batch enqueue failed (epoch=%d) — falling back to WP-Cron retry', $epoch ) );
-		if ( ! wp_next_scheduled( 'wcs_retry_rebuild_scheduling', array( $epoch ) ) ) {
-			wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch ) );
+		self::log( sprintf( 'Batch enqueue failed (last_id=%d epoch=%d) — falling back to WP-Cron retry', $last_id, $epoch ) );
+		if ( ! wp_next_scheduled( 'wcs_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
+			self::schedule_retry_or_fail( $epoch, $last_id );
 		}
 	}
 
 	/**
-	 * WP-Cron callback: retry enqueueing the first rebuild batch after the
-	 * enqueue in enqueue_first_batch() failed. See that method's docblock
-	 * for why this can happen and why WP-Cron (not another Action Scheduler
-	 * call) is the retry mechanism.
+	 * Schedule the WP-Cron retry for a failed batch enqueue — and, unlike a
+	 * bare wp_schedule_single_event() call, actually check whether WP-Cron
+	 * accepted it. wp_schedule_single_event() returns false (not an
+	 * exception) if the event can't be stored. Left unchecked, that failure
+	 * would leave a rebuild stranded with absolutely nothing driving it: no
+	 * Action Scheduler action pending (that's what got us here) AND no cron
+	 * event pending either, so retry_rebuild_scheduling() would simply never
+	 * run and wcs_is_indexing would sit at 1 forever with no path to the
+	 * eventual 'schedule_enqueue_failed' error this whole retry chain exists
+	 * to produce. Failing the rebuild immediately here at least gives the
+	 * admin the same actionable error retry exhaustion would have, instead
+	 * of a silent, unrecoverable hang.
 	 *
-	 * @param int $epoch Rebuild epoch to retry. Ignored if a newer rebuild
-	 *                   has already superseded it.
+	 * @param int $epoch   Rebuild epoch.
+	 * @param int $last_id Cursor the retried batch should resume from.
 	 */
-	public static function retry_rebuild_scheduling( int $epoch ): void {
+	private static function schedule_retry_or_fail( int $epoch, int $last_id ): void {
+		if ( wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
+			return;
+		}
+
+		Logger::log( sprintf( 'WP-Cron refused to schedule the rebuild retry (epoch=%d last_id=%d) — nothing left to drive this rebuild, halting', $epoch, $last_id ), 'warning' );
+		update_option( 'wcs_last_rebuild_error', 'schedule_enqueue_failed', false );
+		update_option( 'wcs_is_indexing', 0, false );
+	}
+
+	/**
+	 * WP-Cron callback: retry enqueueing a rebuild batch after the enqueue in
+	 * enqueue_batch_with_retry() failed. See that method's docblock for why
+	 * this can happen and why WP-Cron (not another Action Scheduler call) is
+	 * the retry mechanism.
+	 *
+	 * @param int $epoch   Rebuild epoch to retry. Ignored if a newer rebuild
+	 *                     has already superseded it.
+	 * @param int $last_id Cursor the retried batch should start from.
+	 */
+	public static function retry_rebuild_scheduling( int $epoch, int $last_id = 0 ): void {
 		if ( (int) get_option( 'wcs_rebuild_epoch', 0 ) !== $epoch ) {
 			return; // Superseded by a newer rebuild — this retry is stale.
 		}
@@ -1230,11 +1425,11 @@ class Indexer {
 			return;
 		}
 
-		$attempts_key = 'wcs_schedule_retry_' . $epoch;
+		$attempts_key = 'wcs_schedule_retry_' . $epoch . '_' . $last_id;
 		$attempts     = (int) get_transient( $attempts_key );
 
 		if ( $attempts >= 5 ) {
-			Logger::log( sprintf( 'Rebuild scheduling retries exhausted (epoch=%d) — halting', $epoch ), 'warning' );
+			Logger::log( sprintf( 'Rebuild scheduling retries exhausted (epoch=%d last_id=%d) — halting', $epoch, $last_id ), 'warning' );
 			update_option( 'wcs_last_rebuild_error', 'schedule_enqueue_failed', false );
 			update_option( 'wcs_is_indexing', 0, false );
 			delete_transient( $attempts_key );
@@ -1242,19 +1437,19 @@ class Indexer {
 		}
 
 		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
-			'last_id' => 0,
+			'last_id' => $last_id,
 			'epoch'   => $epoch,
 		), 'turbo-search-for-woocommerce', false, 10 );
 
 		if ( $action_id ) {
 			delete_transient( $attempts_key );
-			self::log( sprintf( 'Retry enqueue succeeded (epoch=%d, attempt %d)', $epoch, $attempts + 1 ) );
+			self::log( sprintf( 'Retry enqueue succeeded (epoch=%d last_id=%d, attempt %d)', $epoch, $last_id, $attempts + 1 ) );
 			return;
 		}
 
 		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
-		wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch ) );
-		Logger::log( sprintf( 'Retry enqueue failed again (epoch=%d, attempt %d/5)', $epoch, $attempts + 1 ), 'warning' );
+		Logger::log( sprintf( 'Retry enqueue failed again (epoch=%d last_id=%d, attempt %d/5)', $epoch, $last_id, $attempts + 1 ), 'warning' );
+		self::schedule_retry_or_fail( $epoch, $last_id );
 	}
 
 	/**

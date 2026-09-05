@@ -295,6 +295,75 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertStringContainsString( 'REPLACE INTO wp_wcs_search_index ', $sql );
 	}
 
+	public function test_single_product_write_failure_during_rebuild_throws_and_counts_toward_the_failure_total(): void {
+		// $wpdb->replace() returns false (not an exception) on a real write
+		// failure — left unchecked, do_index_single_product() used to return
+		// as if the row was written. Regression: verify a false return is now
+		// surfaced both as a thrown exception (so do_process_batch()'s
+		// per-product fallback loop counts it as a batch failure) and as an
+		// increment to wcs_rebuild_failed_count (so the swap-time check in
+		// do_process_batch() can warn instead of reporting silent success).
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_failed_count', 0 );
+		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		$this->wpdb->replaceFails = true;
+
+		$this->expectException( RuntimeException::class );
+		try {
+			Indexer::index_single_product( 7 );
+		} finally {
+			// The parity write to staging is what actually matters for the
+			// rebuild's completeness (see increment_rebuild_failure_count()'s
+			// docblock) and fails first here, before the live-table write's
+			// own exception unwinds the call.
+			$this->assertSame( 1, (int) get_option( 'wcs_rebuild_failed_count' ) );
+		}
+	}
+
+	/**
+	 * Regression (implementor-comment audit follow-up): the staging parity
+	 * write made from a concurrent live product update — a product saved
+	 * normally while an unrelated full rebuild happens to be running — had
+	 * no retry at all, unlike do_process_batch()'s own per-product fallback.
+	 * A transient failure here permanently left that product's staging row
+	 * stale for the rest of the rebuild, since the batch cursor never
+	 * revisits an already-scanned ID. This runs inside the async
+	 * wcs_update_single_product action, not the admin's page load, so
+	 * retrying costs nothing user-facing.
+	 */
+	public function test_concurrent_staging_parity_write_recovers_within_retries_without_being_counted(): void {
+		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'wcs_rebuild_failed_count', 0 );
+		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		$calls = 0;
+		$this->wpdb->replaceFails = static function () use ( &$calls ): bool {
+			++$calls;
+			return $calls < 3; // fails the first 2 staging attempts, succeeds on the 3rd, then the live write succeeds too
+		};
+
+		Indexer::index_single_product( 7 );
+
+		$this->assertSame( 0, (int) get_option( 'wcs_rebuild_failed_count' ), 'a staging write that recovered within retries must not be counted' );
+	}
+
+	public function test_single_product_write_failure_outside_a_rebuild_does_not_touch_the_rebuild_failure_count(): void {
+		// A plain incremental update failing (no rebuild in progress) must
+		// still throw — so Action Scheduler's own admin log shows it — but
+		// must not pollute wcs_rebuild_failed_count, which only means
+		// something during an active rebuild's swap decision.
+		update_option( 'wcs_is_indexing', 0 );
+		update_option( 'wcs_rebuild_failed_count', 0 );
+		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		$this->wpdb->replaceFails = true;
+
+		try {
+			Indexer::index_single_product( 7 );
+			$this->fail( 'expected a RuntimeException' );
+		} catch ( RuntimeException $e ) {
+			$this->assertSame( 0, (int) get_option( 'wcs_rebuild_failed_count' ) );
+		}
+	}
+
 	// ── Hooks around indexing ────────────────────────────────────────────────
 
 	public function test_term_edit_on_unindexed_taxonomy_is_ignored(): void {
