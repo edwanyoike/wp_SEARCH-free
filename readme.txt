@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.9.0
+Stable tag:        1.9.1
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -88,6 +88,9 @@ responses for 1 hour. The service is provided by OzuLabs: [service website](http
 and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.9.1 =
+* Fix: on some hosts, the one-time index rebuild that runs automatically right after an update could silently fail to start — the background job queue wasn't ready yet at that exact moment, so the request to schedule the rebuild was dropped with no error, leaving the admin dashboard showing "Indexing..." indefinitely. This is now detected and retried automatically; if it still can't be scheduled after several attempts, a clear error is now shown on the Turbo Search settings page instead of an indefinite spinner.
 
 = 1.9.0 =
 * Improvement: search ranking now narrows to a bounded set of FULLTEXT candidates before applying the full relevance formula, instead of scoring every row a broad query matches. Reduces database work for common single-word searches on large catalogs without changing top-result ranking.
