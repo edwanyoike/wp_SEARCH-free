@@ -68,6 +68,18 @@ class Query_Normalizer {
 		'be',
 		'but',
 		'by',
+		// The six entries below (com, de, en, la, und, www) are not English
+		// function words — they are in MySQL/MariaDB's documented default
+		// INNODB_FT_DEFAULT_STOPWORD list (confirmed live via
+		// INFORMATION_SCHEMA.INNODB_FT_DEFAULT_STOPWORD), which this constant
+		// is meant to be a superset of. Omitting any of them lets a query
+		// like "cafe de" turn "de" into a required `+de` BOOLEAN MODE term
+		// the FULLTEXT index never tokenized (the default InnoDB parser never
+		// stores stopwords), making the strict pass unmatchable and pushing
+		// an otherwise-ordinary query into the slower fallback tiers.
+		'com',
+		'de',
+		'en',
 		'for',
 		'from',
 		'how',
@@ -76,6 +88,7 @@ class Query_Normalizer {
 		'into',
 		'is',
 		'it',
+		'la',
 		'of',
 		'on',
 		'or',
@@ -88,6 +101,7 @@ class Query_Normalizer {
 		'they',
 		'this',
 		'to',
+		'und',
 		'was',
 		'what',
 		'when',
@@ -96,6 +110,7 @@ class Query_Normalizer {
 		'who',
 		'will',
 		'with',
+		'www',
 		'your',
 	);
 

@@ -82,6 +82,23 @@ final class QueryNormalizerTest extends TestCase {
 		);
 	}
 
+	public function test_stopwords_cover_the_full_default_innodb_ft_list(): void {
+		// Regression coverage for Finding C (2026-09-05 algorithm audit):
+		// these six were missing from STOPWORDS despite being in MySQL/
+		// MariaDB's documented default INNODB_FT_DEFAULT_STOPWORD list
+		// (confirmed live via INFORMATION_SCHEMA.INNODB_FT_DEFAULT_STOPWORD).
+		// Omitting any of them lets it become a required `+word` BOOLEAN MODE
+		// term the FULLTEXT index never tokenized, making an otherwise
+		// ordinary multi-word query unmatchable by the strict FULLTEXT pass.
+		$this->assertSame(
+			array( 'cafe' ),
+			Query_Normalizer::remove_stopwords( array( 'cafe', 'de' ) )
+		);
+		foreach ( array( 'com', 'de', 'en', 'la', 'und', 'www' ) as $word ) {
+			$this->assertContains( $word, Query_Normalizer::STOPWORDS, "\"$word\" must be in the default InnoDB FULLTEXT stopword list" );
+		}
+	}
+
 	public function test_short_non_function_words_are_never_treated_as_stopwords(): void {
 		// Brand/size tokens are short but highly selective — dropping them
 		// would be far worse than dropping "for".
