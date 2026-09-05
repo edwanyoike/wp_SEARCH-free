@@ -338,13 +338,26 @@ class Search_Handler {
 		// Digit-containing queries are usually SKUs typed verbatim. The
 		// sku_normalized column collapses "ABC-123", "abc 123", and "abc123"
 		// to one form, so a single indexed prefix lookup finds the product no
-		// matter how the shopper (or the catalog) punctuates it. A hit here is
-		// deterministic intent — return immediately, shortest SKU first.
-		$sku_norm = Query_Normalizer::normalize_sku( $query );
+		// matter how the shopper (or the catalog) punctuates it.
+		//
+		// Only an EXACT normalized-SKU match is genuinely deterministic
+		// intent — return immediately, that row and nothing else. A mere
+		// PREFIX hit is not: "ABC1" prefix-matching "ABC10"/"ABC11" used to
+		// short-circuit and return only those, even when the catalog also
+		// had a strong title/content match for "ABC1" on a product whose SKU
+		// doesn't start with those digits at all — a real product could
+		// become unfindable by name merely because another product's SKU
+		// happened to start with the same digits. So a prefix-only hit no
+		// longer returns here; it is kept as $sku_prefix_probe and used only
+		// as a last-resort fallback at the very end of this method, after
+		// every normal tier and relaxation pass has had a chance to find a
+		// stronger match on its own merits.
+		$sku_norm         = Query_Normalizer::normalize_sku( $query );
+		$sku_prefix_probe = array();
 		if ( strlen( $sku_norm ) >= 4 && preg_match( '/\d/', $sku_norm ) ) {
 			// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $stock_clause is a fixed SQL literal
 			$probe = self::get_rows( $wpdb->prepare(
-				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status
+				"SELECT product_id, title, excerpt, price_min, price_max, image_url, permalink, stock_status, sku_normalized
 				 FROM %i
 				 WHERE sku_normalized LIKE %s
 				 {$stock_clause}
@@ -355,10 +368,23 @@ class Search_Handler {
 				$limit
 			) );
 			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-			if ( ! empty( $probe ) ) {
-				/** This filter is documented below. */
-				return (array) apply_filters( 'wcs_search_results', $probe, $query );
+			foreach ( $probe as $row ) {
+				if ( ( $row['sku_normalized'] ?? '' ) === $sku_norm ) {
+					unset( $row['sku_normalized'] ); // internal-only column, not part of the public result shape
+					/** This filter is documented below. */
+					return (array) apply_filters( 'wcs_search_results', array( $row ), $query );
+				}
 			}
+			// No exact match — keep the prefix rows as a last-resort fallback,
+			// stripped of the internal sku_normalized column so their shape
+			// matches every other tier's rows.
+			$sku_prefix_probe = array_map(
+				static function ( array $row ): array {
+					unset( $row['sku_normalized'] );
+					return $row;
+				},
+				$probe
+			);
 		}
 
 		// Split words by FULLTEXT eligibility for this index's parser.
@@ -729,6 +755,16 @@ class Search_Handler {
 			// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 
 			$results = self::get_rows( $sql );
+		}
+
+		// ── Last-resort SKU-prefix fallback ──────────────────────────────────────
+		// Only reached when every tier and relaxation pass above found
+		// nothing at all. A prefix-only normalized-SKU hit is real signal —
+		// just not strong enough to override a genuine title/content match,
+		// which is why Tier 0 above no longer returns it immediately. This is
+		// where it still gets to contribute: better than an empty dropdown.
+		if ( empty( $results ) && ! empty( $sku_prefix_probe ) ) {
+			$results = $sku_prefix_probe;
 		}
 
 		/**

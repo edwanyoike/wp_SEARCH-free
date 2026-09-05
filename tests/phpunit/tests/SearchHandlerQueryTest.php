@@ -274,15 +274,61 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertStringNotContainsString( 'couch', $this->wpdb->queries[0] );
 	}
 
-	public function test_sku_probe_intercepts_digit_queries_before_fulltext(): void {
+	public function test_sku_probe_exact_match_short_circuits_immediately(): void {
+		// Regression coverage for Finding B (2026-09-05 algorithm audit): only
+		// an EXACT normalized-SKU match is genuinely deterministic intent.
+		$exact_row = array_merge( $this->fakeRow( 7 ), array( 'sku_normalized' => 'abc123' ) );
 		$this->wpdb->handler = fn( string $sql, string $type ) =>
-			( 'results' === $type && str_contains( $sql, 'sku_normalized LIKE' ) ) ? array( $this->fakeRow( 7 ) ) : null;
+			( 'results' === $type && str_contains( $sql, 'sku_normalized LIKE' ) ) ? array( $exact_row ) : null;
 
 		$results = $this->search( 'abc 123' );
 
 		$this->assertSame( 7, $results[0]['product_id'] );
-		$this->assertCount( 1, $this->wpdb->queries, 'a probe hit must skip all other tiers' );
+		$this->assertArrayNotHasKey( 'sku_normalized', $results[0], 'internal-only column must not leak into the public result shape' );
+		$this->assertCount( 1, $this->wpdb->queries, 'an exact SKU match must skip all other tiers' );
 		$this->assertStringContainsString( "sku_normalized LIKE 'abc123%'", $this->wpdb->queries[0] );
+	}
+
+	public function test_sku_probe_prefix_only_does_not_suppress_a_stronger_tier_match(): void {
+		// Regression: "ABC1" used to prefix-match "ABC10"/"ABC11" and return
+		// only those, even when the catalog had a strong title/content match
+		// for a different product whose SKU doesn't start with those digits
+		// at all. A prefix (non-exact) SKU hit must not win over a real
+		// FULLTEXT/title match found by the normal tiers.
+		$prefix_row = array_merge( $this->fakeRow( 9 ), array( 'sku_normalized' => 'abc12345' ) );
+		$this->wpdb->handler = function ( string $sql, string $type ) use ( $prefix_row ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			if ( str_contains( $sql, 'sku_normalized LIKE' ) ) {
+				return array( $prefix_row ); // prefix match, not exact
+			}
+			return str_contains( $sql, 'MATCH' ) ? array( $this->fakeRow( 1 ) ) : array();
+		};
+
+		// A query with a real (>= 4 char) word so Tier 1 FULLTEXT actually
+		// engages, plus a digit group so the SKU probe also triggers.
+		$results = $this->search( 'widget 4520' );
+
+		$this->assertSame( array( 1 ), array_column( $results, 'product_id' ), 'the genuine FULLTEXT match must win, not the SKU-prefix hit' );
+	}
+
+	public function test_sku_probe_prefix_only_is_last_resort_when_nothing_else_matches(): void {
+		// The prefix hit is still real signal — just not strong enough to
+		// override a genuine match. When every other tier and relaxation
+		// pass finds nothing at all, it is better than an empty dropdown.
+		$prefix_row = array_merge( $this->fakeRow( 9 ), array( 'sku_normalized' => 'abc12345' ) );
+		$this->wpdb->handler = function ( string $sql, string $type ) use ( $prefix_row ) {
+			if ( 'results' !== $type ) {
+				return null;
+			}
+			return str_contains( $sql, 'sku_normalized LIKE' ) ? array( $prefix_row ) : array();
+		};
+
+		$results = $this->search( 'abc 123' );
+
+		$this->assertSame( array( 9 ), array_column( $results, 'product_id' ) );
+		$this->assertArrayNotHasKey( 'sku_normalized', $results[0] );
 	}
 
 	public function test_sku_probe_is_skipped_for_letter_only_queries(): void {
