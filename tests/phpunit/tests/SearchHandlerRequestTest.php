@@ -213,6 +213,75 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['wcs_test_transients']['data'] );
 	}
 
+	/**
+	 * Regression (Finding F): $wpdb itself does not distinguish "the query
+	 * failed" from "the query succeeded and matched nothing" — get_results()
+	 * returns an empty array either way, and get_rows() previously reported
+	 * that straight to query_database() with no way to tell the two apart.
+	 * A transient database error (lock-wait timeout, mid-migration schema
+	 * mismatch, a malformed query from a wcs_indexed_taxonomies-style
+	 * filter) would therefore get cached as a confident "no products found"
+	 * for up to 24h, with no admin-visible signal since the error was
+	 * suppressed. A failed query must now be excluded from both cache
+	 * layers and flagged on the response instead.
+	 */
+	public function test_database_error_is_not_cached_as_a_genuine_empty_result(): void {
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			$this->wpdb->last_error = 'simulated: lock wait timeout exceeded';
+			return 'results' === $type ? array() : null;
+		};
+
+		$response = $this->request( array( 'q' => 'lamp' ) );
+
+		$this->assertSame( array(), $response->data );
+		$this->assertSame( '1', $response->headers['X-WCS-Query-Error'] ?? null );
+		$this->assertSame( array(), $GLOBALS['wcs_test_transients']['data'] ?? array(), 'a failed query must never be cached as a real empty result' );
+	}
+
+	/**
+	 * Regression: the first version of this fix only skipped caching when
+	 * the FINAL result set was also empty. A query error in one tier (e.g. a
+	 * corrupted FULLTEXT index failing every MATCH() query) does not stop a
+	 * later, unrelated tier (plain title/sku LIKE recall) from still
+	 * returning real rows — and that recovered set is exactly as
+	 * incomplete/mis-ranked as the failure made it. It must still be shown
+	 * to the shopper (better than nothing) but must not be cached for 24h,
+	 * since caching it would let a degraded response outlive the outage.
+	 */
+	public function test_partial_results_after_a_tier_failure_are_returned_but_never_cached(): void {
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			if ( 'results' !== $type || ! str_contains( $sql, 'wcs_search_index' ) ) {
+				return null;
+			}
+			if ( str_contains( $sql, 'MATCH(' ) ) {
+				$this->wpdb->last_error = 'simulated: corrupted FULLTEXT index';
+				return array();
+			}
+			// Same NOT-IN-aware behavior as scriptRows() above, so the
+			// second LIKE-based tier that tops up an empty set doesn't
+			// return the same already-found row again as a fake duplicate.
+			if ( preg_match( '/NOT IN \(([\d,]+)\)/', $sql, $m ) ) {
+				$excluded = array_map( 'intval', explode( ',', $m[1] ) );
+				return in_array( 1, $excluded, true ) ? array() : array( $this->row( 1 ) );
+			}
+			return array( $this->row( 1 ) );
+		};
+
+		$response = $this->request( array( 'q' => 'lamp' ) );
+
+		$this->assertCount( 1, $response->data, 'the shopper still sees whatever a later, unaffected tier actually found' );
+		$this->assertSame( '1', $response->headers['X-WCS-Query-Error'] ?? null );
+		$this->assertSame( array(), $GLOBALS['wcs_test_transients']['data'] ?? array(), 'a degraded result must not outlive the outage in the cache' );
+	}
+
+	public function test_genuine_zero_results_are_still_cached_normally_without_a_query_error_header(): void {
+		$response = $this->request( array( 'q' => 'lamp' ) );
+
+		$this->assertSame( array(), $response->data );
+		$this->assertArrayNotHasKey( 'X-WCS-Query-Error', $response->headers );
+		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['wcs_test_transients']['data'] );
+	}
+
 	// ── Zero-result logging (Pro feature — always inert in this edition) ────
 
 	public function test_zero_result_searches_are_never_logged(): void {

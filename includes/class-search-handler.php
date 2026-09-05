@@ -172,8 +172,41 @@ class Search_Handler {
 
 		// ── 4. DB: run the search query ──────────────────────────────────────
 		self::$last_corrected_query = null;
+		self::$last_query_had_error = false;
 		$results                    = self::query_database( $query );
 		$corrected_query            = self::$last_corrected_query;
+
+		// A DB error and a genuine zero-row result both come back from
+		// get_rows() as an empty array — $wpdb itself doesn't distinguish
+		// them either (see get_rows()'s docblock). Left unhandled, a
+		// transient failure (a lock-wait timeout, a schema mismatch mid-
+		// migration, a malformed query from a wcs_indexed_taxonomies-style
+		// filter) would be cached as "no products found" for up to 24h in
+		// the transient layer and re-served from APCu for 5 minutes on top
+		// of that even after the database recovers — with no admin-visible
+		// signal, since get_rows() suppresses the error to keep one bad
+		// query from ever throwing mid-request.
+		//
+		// This check does NOT require $results to be empty: a query error in
+		// one tier (e.g. a corrupted FULLTEXT index making every MATCH()
+		// query fail) does not stop a later tier from still finding real
+		// rows through a different, unaffected code path (Tier 2's plain
+		// title/sku LIKE recall touches no FULLTEXT index at all) — and that
+		// recovered set is exactly as incomplete/mis-ranked as the failure
+		// made it. Caching *that* for 24h would just make the degraded
+		// response outlive the outage instead of the empty one. So any
+		// request that saw a query error skips both cache layers regardless
+		// of what it ended up returning; the shopper still sees whatever
+		// rows were actually found, just not written back for next time, and
+		// the frontend is told via header not to treat this as reliable.
+		if ( self::$last_query_had_error ) {
+			if ( $lock_key ) {
+				wp_cache_delete( $lock_key, $lock_group );
+			}
+			$response = self::build_response( $results, $corrected_query );
+			$response->header( 'X-WCS-Query-Error', '1' );
+			return $response;
+		}
 
 		// First-run window: until the initial index build completes, an empty
 		// result set means "not indexed yet", not "no matching products".
@@ -943,10 +976,30 @@ class Search_Handler {
 		// phpcs:enable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber
 	}
 
+	/**
+	 * Run a prepared SELECT and return its rows, ARRAY_A-shaped.
+	 *
+	 * $wpdb itself does not distinguish "query failed" from "query
+	 * succeeded, zero rows matched": get_results() returns an empty array
+	 * for both (a failed query() call never reaches the loop that populates
+	 * last_result, but flush() already reset it to array() at the start of
+	 * that same call — confirmed against wpdb's own query()/flush()). The
+	 * only side channel is $wpdb->last_error, checked here and recorded via
+	 * self::$last_query_had_error so handle_request() can refuse to cache a
+	 * failure as if it were a confident "no results" — see the call site in
+	 * handle_request() for what that would otherwise cost.
+	 *
+	 * @param string $sql Prepared SQL.
+	 * @return array
+	 */
 	private static function get_rows( string $sql ): array {
 		global $wpdb;
 		$suppress = $wpdb->suppress_errors( true );
 		$rows     = $wpdb->get_results( $sql, ARRAY_A ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.PreparedSQL.NotPrepared,PluginCheck.Security.DirectDB.UnescapedDBParameter -- $sql is built by callers via $wpdb->prepare(); this helper never receives raw user input
+		if ( '' !== $wpdb->last_error ) {
+			self::$last_query_had_error = true;
+			Logger::log( sprintf( 'Search query failed: %s', $wpdb->last_error ), 'error' );
+		}
 		$wpdb->suppress_errors( $suppress );
 		return is_array( $rows ) ? $rows : array();
 	}
@@ -961,10 +1014,19 @@ class Search_Handler {
 	private static ?string $last_corrected_query = null;
 
 	/**
+	 * Set by get_rows() when any query this request ran hit a real database
+	 * error (as opposed to a genuine zero-row match) — see that method's
+	 * docblock. Reset per-request by handle_request() before it calls
+	 * query_database().
+	 */
+	private static bool $last_query_had_error = false;
+
+	/**
 	 * Reset per-request memoization (used by the test suite).
 	 */
 	public static function flush_runtime_cache(): void {
 		self::$last_corrected_query = null;
+		self::$last_query_had_error = false;
 	}
 
 	private static function get_client_ip(): string {
