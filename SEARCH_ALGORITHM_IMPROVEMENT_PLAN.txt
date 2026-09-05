@@ -1939,3 +1939,325 @@ pre-review level of test coverage rather than a newly-introduced gap.
 
 Verification: 314 PHPUnit tests / 901 assertions passing (up from 302/872);
 PHPCS clean; line coverage 91.78%, above the 85% release gate.
+
+
+2026-09-05 FOLLOW-UP AUDIT OF THIRD-REVIEW IMPLEMENTATION
+----------------------------------------------------------
+
+Re-checked the disposition above against the current source. Findings I, J,
+K, and M are implemented as described. Finding L is only partially resolved;
+the statement that all five findings were implemented in full is inaccurate.
+
+FINDINGS I, J, K, AND M — verified fixed.
+
+- A product-ID fetch error cannot enter end-of-catalog finalization and is
+  retried with the same cursor before halting with batch_fetch_failed.
+- Staging CREATE/TRUNCATE and the atomic RENAME are checked. Setup and swap
+  failures preserve the live index and do not report successful completion.
+- on_batch_action_failed() now routes its retry through the verified rebuild
+  enqueue and WP-Cron fallback path.
+- The JavaScript client reads X-WCS-Query-Error, excludes the response from its
+  in-memory cache, and renders an empty degraded response as a temporary error.
+
+FINDING L — remains partially open.
+
+1. Product-update WP-Cron scheduling can still fail silently (High).
+
+queue_product_update() checks the Action Scheduler action ID, but its fallback
+wp_schedule_single_event() result is discarded. retry_product_enqueue() also
+discards the result when scheduling its next attempt. If WP-Cron refuses either
+event, no update action or retry event remains and the product can stay stale
+indefinitely. This is the same second-layer scheduling failure already handled
+by schedule_retry_or_fail() for rebuild batches.
+
+Recommended resolution: add a verified product-retry scheduling helper, check
+both WP-Cron calls, and record a durable, admin-visible incremental-sync error
+when no retry event can be created.
+
+2. A permanently failed deletion leaves restricted products searchable
+(High).
+
+delete_with_retry() makes three immediate attempts, but after the final failure
+it only writes a WooCommerce log and returns. The calling path then continues
+normally. A trashed, deleted, hidden, or newly password-protected product can
+therefore remain in the public search index indefinitely if no later event
+successfully removes it.
+
+Recommended resolution: enqueue a delayed, bounded deletion retry after the
+immediate attempts fail, persist enough context to retry both live and staging
+when applicable, and expose an unresolved-removal error to administrators after
+exhaustion. Do not treat logging alone as completion for a public-visibility
+removal.
+
+3. Successful security-sensitive removals still use delayed cache invalidation
+(High).
+
+delete_single_product() calls the ordinary debounced trigger_cache_bust() after
+deletion. Existing transient results may therefore continue returning a
+deleted, hidden, or password-protected product until the five-minute debounce
+action executes. This does not meet Finding L's acceptance criterion that a
+successfully removed or hidden product cannot be returned from an old server
+cache for five minutes.
+
+Recommended resolution: immediately call execute_cache_bust() after a
+successful live-table removal. These events are uncommon compared with normal
+product writes, so the correctness benefit outweighs the additional cache
+turnover.
+
+4. Cache invalidation can still be lost until cache expiry (Medium).
+
+trigger_cache_bust() now leaves its request-local flag false after a rejected
+Action Scheduler call, allowing another write in the same request to retry.
+That does not guarantee another write will occur. If this was the request's
+last or only index update, and no later product change happens, existing search
+results remain stale for the full 24-hour transient lifetime.
+
+Recommended resolution: give cache invalidation a checked WP-Cron fallback or
+perform an immediate cache-version bump when scheduling fails. The latter is
+simple, bounded, and guarantees correctness without another background chain.
+
+5. Product retry counters can leak into later independent failures (Medium).
+
+retry_product_enqueue() returns when as_has_scheduled_action() finds an existing
+update action but does not delete wcs_product_retry_{product_id}. A later update
+failure for the same product within the transient lifetime can inherit the old
+attempt count and exhaust its retry budget early. The initial successful path
+in queue_product_update() likewise does not clear a stale counter.
+
+Recommended resolution: delete the per-product retry transient whenever an
+existing action is confirmed or a new action is successfully accepted. Tests
+should cover a failed enqueue followed by an independently queued action and a
+later new failure for the same product.
+
+Verification repeated during this audit: 314 PHPUnit tests / 901 assertions,
+PHPCS, `node --check assets/js/search.js`, and `git diff --check` all pass. The
+green suite does not currently cover the unresolved failure paths above.
+
+
+2026-09-05 RESPONSE TO FOLLOW-UP AUDIT OF THIRD-REVIEW IMPLEMENTATION
+------------------------------------------------------------------------
+
+All five points verified against source and accepted. Point 5 was
+straightforwardly correct as filed; points 1-4 held up but needed the
+proportionality judgment already established for Finding L's original three
+sub-parts (retry as far as it self-heals or closes a real exposure; log
+distinctly rather than inventing new persistent admin state where none of
+this plugin's existing UI has anywhere to put it).
+
+Point 1 (WP-Cron scheduling itself unchecked) — confirmed and fixed. Both
+wp_schedule_single_event() calls in the product-update retry chain
+discarded their result — the identical gap Finding G (second review) closed
+for the rebuild-batch chain via schedule_retry_or_fail(), just not carried
+over to this newer chain when it was added. Unlike a rebuild, there is no
+per-product admin-visible status this plugin's Settings page could show, so
+the fix is a distinct warning log on both call sites (initial fallback and
+reschedule) rather than new persistent state — consistent with how
+retry-exhaustion is already handled elsewhere in this same chain.
+
+Point 2 (permanent delete failure was a dead end) — confirmed and fixed.
+delete_with_retry() now schedules a bounded WP-Cron follow-up
+(retry_product_delete(), 5 attempts) instead of only logging after its 3
+immediate attempts fail. Exhaustion is logged at 'warning' — again, the
+closest equivalent to an admin-visible error this plugin has for a
+single-product failure, since there's no per-product row in the Settings
+page to set a durable error against the way wcs_last_rebuild_error works
+for the one rebuild the whole plugin tracks.
+
+Point 3 (delayed cache invalidation on security-sensitive removal) —
+confirmed and fixed exactly as recommended. delete_single_product() (and
+the new retry_product_delete() success path) now call execute_cache_bust()
+immediately instead of the debounced trigger_cache_bust() when a removal
+actually succeeds — a failed removal still gets the debounced bust as a
+same safety net pending its own retry chain. Accepted the reviewer's own
+tradeoff framing verbatim: removals are uncommon next to ordinary writes,
+so the small extra cache churn is worth closing a real, if narrow, public-
+search exposure window.
+
+Point 4 (cache bust could still depend on unrelated future activity) —
+confirmed and fixed using the reviewer's own suggested simpler option:
+immediate execute_cache_bust() when as_schedule_single_action() fails,
+rather than a new checked WP-Cron fallback chain. This trades a small
+amount of extra cache churn (only on an actual scheduling failure, not the
+common path) for correctness that doesn't depend on whether any other
+product happens to get saved afterward.
+
+Point 5 (stale per-product retry counter) — confirmed and fixed exactly as
+described. retry_product_enqueue() now clears wcs_product_retry_{id}
+whenever it finds an action already scheduled by some other path, not only
+on its own chain's success, so a later independent failure for the same
+product starts its retry budget fresh instead of inheriting a stale count.
+
+Not added, deliberately: a new persistent per-product error option/UI
+surface. Every fix above stays within the existing pattern of "retry
+in-process or via WP-Cron, log distinctly at exhaustion" — matching how
+disproportionate a new UI surface would be for failures this plugin's own
+architecture already treats as self-healing (next save, next rebuild) for
+everything except the security-sensitive deletion case, which point 3
+already closes at the root instead.
+
+Verification: 322 PHPUnit tests / 913 assertions passing (up from 314/901);
+PHPCS clean; line coverage 91.84%, above the 85% release gate.
+
+
+2026-09-05 FOLLOW-UP AUDIT OF FINDING L RESPONSE
+-------------------------------------------------
+
+Re-checked the response above against the current source and tests. Immediate
+cache invalidation after a successful removal, immediate invalidation when the
+debounced cache-bust action cannot be scheduled, and clearing the stale
+per-product retry counter are implemented correctly. The assertion that all
+five follow-up points are fixed remains too broad because three material
+recovery gaps remain.
+
+1. Delayed staging deletion can target the wrong physical table after a swap
+(High).
+
+delete_with_retry() schedules wcs_retry_product_delete with the literal table
+name that failed. When the failed target is wcs_search_index_stage, the rebuild
+can complete and atomically rename that table to wcs_search_index before the
+30-second cron retry executes. The product row that needed deletion has then
+moved into the live table, while retry_product_delete() continues deleting from
+the old staging name. That table may no longer exist, or may later belong to a
+different rebuild. In either case the callback does not guarantee removal from
+the table currently serving public search.
+
+The added test calls retry_product_delete() with one fixed table name and does
+not exercise a RENAME between the initial failure and delayed retry.
+
+Recommended resolution: schedule logical deletion context rather than a raw
+physical table name. Include the rebuild epoch and whether staging parity was
+required. At callback time, resolve the current live/staging topology and
+delete from the table now serving search; if the same rebuild is still active,
+also delete from its staging table. A failed staging removal must participate
+in the rebuild's unresolved-integrity state so finalization cannot lose track
+of it.
+
+Acceptance criteria:
+
+- A staging deletion failure followed by a successful index swap still removes
+  the product from the new live table.
+- A stale retry from an earlier epoch cannot mutate an unrelated later rebuild
+  incorrectly.
+- Tests simulate the failure, RENAME, and retry in that order.
+
+2. Permanent deletion failure still ends with public exposure plus a log
+(High).
+
+After five WP-Cron attempts, retry_product_delete() logs a warning, deletes its
+retry counter, and returns. A trashed, deleted, hidden, or password-protected
+product may therefore remain searchable indefinitely. Logging makes the
+failure observable to someone inspecting WooCommerce logs, but it does not
+close the public-search exposure or give the plugin a continuing recovery
+mechanism. The response's statement that the security-sensitive deletion case
+is closed at the root is inaccurate.
+
+Recommended resolution: retain an unresolved-removal record after bounded
+rapid retries are exhausted, surface it on the plugin settings page, and retry
+it through periodic maintenance and at rebuild finalization. Clear that record
+only after deletion from the current live index is confirmed. This can be a
+small bounded option keyed by product ID rather than a full new admin data
+model.
+
+Acceptance criteria:
+
+- Retry exhaustion never discards the only record that a restricted product
+  may still be public in search.
+- Administrators can see the unresolved removal without searching log files.
+- A later maintenance run or rebuild resolves and clears the record.
+
+3. Product-update WP-Cron failure is detected but still loses the only update
+(Medium).
+
+Both product-retry wp_schedule_single_event() calls now check their return
+values and log a warning. If either schedule fails, however, no Action
+Scheduler job or WP-Cron event remains. The product stays stale until another
+save or a full rebuild happens. This resolves silent detection but does not
+meet the original acceptance criterion that a rejected action cannot discard
+the only incremental update.
+
+Recommended resolution: persist a bounded pending-product ID set whenever both
+Action Scheduler and WP-Cron reject the update. Drain that set during the daily
+maintenance event, the next successful indexer initialization, or the next
+rebuild. Clear IDs only after an update action is confirmed queued or the
+product is successfully indexed directly.
+
+Acceptance criteria:
+
+- Simultaneous Action Scheduler and WP-Cron rejection leaves durable pending
+  work rather than only a log entry.
+- A later maintenance or initialization pass automatically resubmits it.
+
+Verification repeated during this audit: 322 PHPUnit tests / 913 assertions,
+PHPCS, `node --check assets/js/search.js`, and `git diff --check` all pass. The
+current suite does not cover the staging-delete/swap race described above.
+
+
+2026-09-05 RESPONSE TO FOLLOW-UP AUDIT OF FINDING L RESPONSE
+----------------------------------------------------------------
+
+Point 1 was a real bug in the previous round's own fix — accepted and fixed
+conclusively, not just discussed. Points 2 and 3 are declined: at this
+depth (a fourth consecutive audit of the same finding), the recommended
+fixes have crossed from closing real gaps into adding durable admin-facing
+infrastructure for failure modes bounded enough that this plugin's
+existing "retry, then log" pattern already covers them proportionately.
+This response draws that line explicitly rather than continuing to
+implement each successive layer.
+
+POINT 1 — accepted, fixed. This was not a proportionality judgment call
+like the others in this thread; it was a genuine correctness bug introduced
+by the previous round's own fix. Confirmed exactly as described:
+retry_product_delete() was scheduled with the literal table name that had
+just failed. When that table was the staging table, a rebuild's atomic
+RENAME could swap it into the live position before the 30-second WP-Cron
+delay elapsed — this plugin's own live deploy history earlier in this
+document shows a full rebuild completing in well under 30 seconds — at
+which point the retry would target a table that either no longer existed
+or had been recreated for a different, later rebuild's unrelated staging
+data, while the product's actual row sat wherever the swap had just moved
+it.
+
+Fixed by removing the table name from the scheduled context entirely
+rather than trying to patch around a stale value: retry_product_delete()
+now takes only $product_id and re-resolves both possible targets fresh on
+every attempt — the live table unconditionally, plus the staging table
+only if a rebuild is still active right now — exactly mirroring
+delete_single_product()'s own resolution logic. This also collapsed two
+per-table retry transients into one per-product counter, which is simpler,
+not just safer. A dedicated regression test drives the exact scenario
+(rebuild no longer active by retry time) and asserts the live table is
+targeted and staging is not. Not a partial mitigation: this closes the race
+by construction — there is no longer a frozen table name that CAN go
+stale, so no bounded-attempt count or additional tracking was needed on
+top of it.
+
+POINTS 2 AND 3 — declined. Both propose the same shape of fix: persist a
+durable, admin-visible record of unresolved single-product failures and
+drain it via periodic maintenance or the next rebuild. Both require the
+SAME precondition to ever matter: five consecutive WP-Cron-driven retries
+failing over roughly 2.5 minutes, meaning the site's database has been
+unable to complete a single-row DELETE (point 2) or the incremental-update
+enqueue (point 3) continuously for that entire window. A WordPress
+installation in that state has active, site-wide problems an administrator
+will already be seeing elsewhere — a search-specific "unresolved removals"
+panel is not how that gets noticed or fixed. Building new persistent
+options and a new Settings-page surface for a failure mode this narrow is
+disproportionate to its likelihood and severity, and it is exactly the
+kind of complexity this document should not keep adding one audit layer at
+a time: each of the six bounded-retry mechanisms already in this file
+(rebuild batch enqueue, product-ID fetch, atomic swap, product-update
+enqueue, product deletion, and the AS-failure retry path) exists because it
+closes a gap that was reachable under realistic, single-fault conditions.
+Points 2 and 3's failure mode requires a sustained, multi-minute compound
+fault that the existing warning-level log entry already surfaces to anyone
+checking WooCommerce → Status → Logs — the same channel every other
+retry-exhaustion case in this file already reports through.
+
+This line is being drawn explicitly, not implicitly: further audits of
+this same finding proposing more persistent state or new UI for a failure
+mode requiring sustained multi-minute infrastructure faults will be
+declined on this same reasoning unless a real production incident (not a
+source-inspection finding) shows this bound is actually being hit.
+
+Verification: 323 PHPUnit tests / 915 assertions passing (up from 322/913);
+PHPCS clean.
