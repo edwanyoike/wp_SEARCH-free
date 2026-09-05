@@ -132,6 +132,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_single_events'] = array();
 	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
 	$GLOBALS['wcs_test_as_schedule_fails'] = false;
+	$GLOBALS['wcs_test_as_has_scheduled'] = false;
 	$GLOBALS['wcs_test_cron_schedule_fails'] = false;
 	$GLOBALS['wcs_test_active_plugins']       = array();
 	$GLOBALS['wcs_test_deactivated_plugins']  = array();
@@ -289,7 +290,7 @@ function as_schedule_single_action( int $timestamp, string $hook, array $args = 
 	return count( $GLOBALS['wcs_test_as_calls'] );
 }
 function as_has_scheduled_action( string $hook, $args = null, string $group = '' ): bool {
-	return false;
+	return ! empty( $GLOBALS['wcs_test_as_has_scheduled'] );
 }
 function as_unschedule_all_actions( $hook = null, array $args = array(), string $group = '' ): void {
 	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'unschedule_all', 'hook' => $hook, 'group' => $group );

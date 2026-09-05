@@ -135,6 +135,8 @@ class Indexer {
 		// Same fallback for a single incremental product-update enqueue —
 		// see queue_product_update()'s comment for why this can fail too.
 		add_action( 'wcs_retry_product_enqueue', array( __CLASS__, 'retry_product_enqueue' ), 10, 1 );
+		// Same fallback for a product removal — see delete_with_retry()'s comment.
+		add_action( 'wcs_retry_product_delete', array( __CLASS__, 'retry_product_delete' ), 10, 1 );
 
 		// ── Product taxonomy changes ──────────────────────────────────────────
 		// Renaming a category or tag makes the stored term name stale in every
@@ -242,7 +244,15 @@ class Indexer {
 		// Cron fallback, same shape as the rebuild-batch enqueue retries.
 		self::log( sprintf( 'Incremental update enqueue failed for product %d — falling back to WP-Cron retry', $product_id ) );
 		if ( ! wp_next_scheduled( 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
-			wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) );
+			// wp_schedule_single_event() itself can also return false (not an
+			// exception). Unlike a rebuild — a single trackable operation
+			// with its own status this plugin can mark failed — there is no
+			// equivalent per-product admin state to set here, so this stays
+			// a logged warning: the product still resyncs on its next save
+			// or a full rebuild, same as if this whole fallback didn't exist.
+			if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+				Logger::log( sprintf( 'WP-Cron also refused to schedule the incremental-update retry for product %d — it will resync on its next save or a full rebuild', $product_id ), 'warning' );
+			}
 		}
 	}
 
@@ -1286,36 +1296,138 @@ class Indexer {
 			}
 		}
 
-		self::delete_with_retry( $table_name, $product_id );
-		self::trigger_cache_bust();
+		$removed = self::delete_with_retry( $table_name, $product_id );
+
+		// A successful removal here is security/privacy-sensitive — a
+		// trashed, deleted, hidden, or newly password-protected product —
+		// unlike an ordinary content edit, so it gets an immediate cache
+		// bust instead of the usual 5-minute debounce: an existing cached
+		// result could otherwise keep surfacing the removed product to the
+		// public REST search endpoint (no capability check) for up to that
+		// whole window even though the row is already gone. A failed
+		// removal still gets the debounced bust as a same safety net as any
+		// other write, pending delete_with_retry()'s own follow-up retry.
+		if ( $removed ) {
+			self::execute_cache_bust();
+		} else {
+			self::trigger_cache_bust();
+		}
 	}
 
 	/**
 	 * Delete one product's row, retrying a bounded number of times before
-	 * logging a failure. $wpdb->delete() returns false (not an exception) on
-	 * a real write failure — left unchecked, a trashed, deleted, hidden, or
-	 * newly password-protected product's row could survive in the index,
-	 * remaining findable through the public REST search endpoint (which has
-	 * no capability check) even after the merchant removed it. This runs
-	 * synchronously on wp_trash_post/before_delete_post for the live-table
-	 * case, so the retry is immediate (no WP-Cron hop) and bounded low
-	 * enough to add negligible latency to that request.
+	 * falling back to a WP-Cron follow-up retry. $wpdb->delete() returns
+	 * false (not an exception) on a real write failure — left unchecked, a
+	 * trashed, deleted, hidden, or newly password-protected product's row
+	 * could survive in the index, remaining findable through the public
+	 * REST search endpoint (which has no capability check) even after the
+	 * merchant removed it, for as long as nothing else happens to touch
+	 * that specific product again. This runs synchronously on
+	 * wp_trash_post/before_delete_post for the live-table case, so the
+	 * immediate attempts are bounded low enough to add negligible latency
+	 * to that request; the WP-Cron follow-up (if needed) does not block it.
 	 *
 	 * @param string $table_name Target table.
 	 * @param int    $product_id Product ID to remove.
+	 * @return bool Whether the row was confirmed removed (immediately).
 	 */
-	private static function delete_with_retry( string $table_name, int $product_id ): void {
+	private static function delete_with_retry( string $table_name, int $product_id ): bool {
 		global $wpdb;
 
 		$attempt = 0;
 		do {
 			if ( false !== $wpdb->delete( $table_name, array( 'product_id' => $product_id ), array( '%d' ) ) ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
-				return;
+				return true;
 			}
 			++$attempt;
 		} while ( $attempt < 3 );
 
 		self::log( sprintf( 'product %d — delete from %s failed after %d attempts: %s', $product_id, $table_name, $attempt, $wpdb->last_error ) );
+
+		// Deliberately does NOT schedule the retry against this specific
+		// $table_name — see retry_product_delete()'s docblock for why a
+		// table name captured now can be wrong by the time a 30s-delayed
+		// WP-Cron event fires. schedule_delete_retry() re-resolves the
+		// correct target(s) fresh instead.
+		self::schedule_delete_retry( $product_id );
+
+		return false;
+	}
+
+	/**
+	 * Schedule (or no-op if already pending) a WP-Cron follow-up that
+	 * retries a product's removal. Keyed by product ID only — not by
+	 * table — because retry_product_delete() re-resolves its own targets;
+	 * see that method's docblock.
+	 *
+	 * @param int $product_id Product to retry removing.
+	 */
+	private static function schedule_delete_retry( int $product_id ): void {
+		if ( wp_next_scheduled( 'wcs_retry_product_delete', array( $product_id ) ) ) {
+			return;
+		}
+		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_delete', array( $product_id ) ) ) {
+			Logger::log( sprintf( 'WP-Cron also refused to schedule a removal retry for product %d — it may still be searchable; check manually or run a full rebuild', $product_id ), 'warning' );
+		}
+	}
+
+	/**
+	 * WP-Cron callback: retry a product removal that failed all of
+	 * delete_with_retry()'s immediate attempts. Bounded to 5 attempts
+	 * (~2.5 minutes); beyond that this is logged at 'warning' — the
+	 * closest thing to an admin-visible error this plugin has for a
+	 * single-product failure (see WooCommerce → Status → Logs) — since
+	 * there is no per-product state in the Settings page to set a durable
+	 * error against, unlike a whole rebuild.
+	 *
+	 * Deliberately takes no $table_name argument and re-resolves both
+	 * possible targets fresh on every attempt, exactly like
+	 * delete_single_product() itself does. A table name captured at the
+	 * time of the original failure and carried into a 30-second-delayed
+	 * WP-Cron event can go stale in the meantime: if the original failure
+	 * was on the staging table, a rebuild's atomic RENAME can swap that
+	 * very table into the live position before this callback runs — at
+	 * which point retrying against the frozen staging name would either
+	 * hit a table that no longer exists, or (if a newer, unrelated rebuild
+	 * had already recreated staging) silently touch that DIFFERENT
+	 * rebuild's in-progress data instead of the table actually serving
+	 * public search. Re-resolving fresh here is immune to that by
+	 * construction — confirmed against the live deploy history in this
+	 * document, where a full rebuild completed in well under 30 seconds.
+	 *
+	 * @param int $product_id Product to remove.
+	 */
+	public static function retry_product_delete( int $product_id ): void {
+		global $wpdb;
+
+		$attempts_key = 'wcs_delete_retry_' . $product_id;
+		$attempts     = (int) get_transient( $attempts_key );
+
+		if ( $attempts >= 5 ) {
+			Logger::log( sprintf( 'Removal of product %d could not be confirmed after repeated retries — it may still be searchable; check manually or run a full rebuild', $product_id ), 'warning' );
+			delete_transient( $attempts_key );
+			return;
+		}
+
+		$live_table = $wpdb->prefix . 'wcs_search_index';
+		$live_ok    = false !== $wpdb->delete( $live_table, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+
+		$stage_ok = true;
+		if ( get_option( 'wcs_is_indexing', false ) ) {
+			$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+			$stage_ok    = false !== $wpdb->delete( $stage_table, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		}
+
+		if ( $live_ok && $stage_ok ) {
+			delete_transient( $attempts_key );
+			self::execute_cache_bust(); // same immediate-bust reasoning as delete_single_product()'s own success path
+			return;
+		}
+
+		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
+		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_delete', array( $product_id ) ) ) {
+			Logger::log( sprintf( 'WP-Cron refused to reschedule a removal retry for product %d (attempt %d/5) — it may still be searchable; check manually or run a full rebuild', $product_id, $attempts + 1 ), 'warning' );
+		}
 	}
 
 	/**
@@ -1600,12 +1712,22 @@ class Indexer {
 		if ( ! function_exists( 'as_enqueue_async_action' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
 			return;
 		}
-		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
-			return; // Already queued since — e.g. the product was saved again.
-		}
 
 		$attempts_key = 'wcs_product_retry_' . $product_id;
-		$attempts     = (int) get_transient( $attempts_key );
+
+		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+			// Already queued since — e.g. the product was saved again, which
+			// enqueues its own fresh action independently of this retry
+			// chain. Clear the counter here too, not just on this chain's
+			// own success below: without it, a stale count from THIS failed
+			// attempt could survive (the transient's 1h TTL) and be
+			// inherited by a later, unrelated failure for the same product,
+			// exhausting that failure's retry budget early.
+			delete_transient( $attempts_key );
+			return;
+		}
+
+		$attempts = (int) get_transient( $attempts_key );
 
 		if ( $attempts >= 5 ) {
 			Logger::log( sprintf( 'Incremental update enqueue retries exhausted for product %d — giving up; it will resync on its next save or a full rebuild', $product_id ), 'warning' );
@@ -1620,7 +1742,9 @@ class Indexer {
 		}
 
 		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
-		wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) );
+		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+			Logger::log( sprintf( 'WP-Cron refused to reschedule the incremental-update retry for product %d (attempt %d/5) — it will resync on its next save or a full rebuild', $product_id, $attempts + 1 ), 'warning' );
+		}
 	}
 
 	/**
@@ -1643,20 +1767,26 @@ class Indexer {
 		}
 
 		// as_schedule_single_action() returns 0 (not an exception) on
-		// failure. $bust_queued is set ONLY on confirmed success (or an
-		// already-pending action) — if scheduling failed, leaving it false
-		// lets the next trigger_cache_bust() call this same request (a
-		// later product write in a bulk operation, say) try again instead of
-		// this one silent failure suppressing every attempt for the rest of
-		// the request. Cross-request staleness self-heals the same way: the
-		// flag is a per-request static, so an unrelated product save on the
-		// next request gets its own fresh attempt.
+		// failure. Leaving $bust_queued false lets a later trigger_cache_
+		// bust() call THIS SAME request (another product write in a bulk
+		// operation, say) try scheduling again instead of this one failure
+		// suppressing every attempt for the rest of the request — but that
+		// alone does not guarantee a later call ever happens: if this was
+		// the request's only index write, cached results would otherwise
+		// stay stale for the full 24h transient lifetime with nothing left
+		// to retry the schedule at all. So bust immediately here instead as
+		// the fallback, trading a touch more cache churn (only on an actual
+		// AS scheduling failure, not the common path) for a bound on
+		// staleness that doesn't depend on unrelated future activity.
 		$action_id = as_schedule_single_action( time() + 300, 'wcs_debounce_cache_bust', array(), 'turbo-search-for-woocommerce' );
 		if ( $action_id ) {
 			self::$bust_queued = true;
-		} else {
-			self::log( 'Cache-bust scheduling failed — will retry on the next index write this request or a later one' );
+			return;
 		}
+
+		self::log( 'Cache-bust scheduling failed — busting immediately as a fallback instead of risking indefinite staleness' );
+		self::execute_cache_bust();
+		self::$bust_queued = true; // the bust already happened; no need for a later call this request to retry scheduling it
 	}
 
 	/**

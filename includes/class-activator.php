@@ -81,6 +81,7 @@ class Activator {
 		'wcs_fetch_retry_', // per-cursor product-ID fetch retry counters
 		'wcs_swap_retry_', // per-epoch atomic-swap (RENAME TABLE) retry counters
 		'wcs_product_retry_', // per-product incremental-update enqueue retry counters
+		'wcs_delete_retry_', // per-product removal retry counters
 	);
 
 	/**

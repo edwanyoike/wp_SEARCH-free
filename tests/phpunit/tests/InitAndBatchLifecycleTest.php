@@ -124,6 +124,97 @@ final class InitAndBatchLifecycleTest extends TestCase {
 	}
 
 	/**
+	 * Regression (follow-up audit of Finding L, point 2): a permanently
+	 * failed removal (all 3 immediate attempts) used to just log and
+	 * return — the row stayed in the index indefinitely unless something
+	 * else happened to touch that exact product again. Verifies a WP-Cron
+	 * follow-up retry is now scheduled instead of the failure being a dead
+	 * end.
+	 */
+	public function test_permanent_delete_failure_schedules_a_wp_cron_follow_up_retry(): void {
+		$GLOBALS['wcs_test_posts'][5] = (object) array( 'ID' => 5, 'post_type' => 'product', 'post_status' => 'publish' );
+		$this->wpdb->deleteFails = true;
+
+		Indexer::on_product_trash( 5 );
+
+		$scheduled = array_values( array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_product_delete' === $e['hook'] ) );
+		$this->assertNotEmpty( $scheduled, 'a WP-Cron follow-up retry must be scheduled when all immediate attempts fail' );
+		$this->assertSame( 5, $scheduled[0]['args'][0] );
+	}
+
+	public function test_delete_retry_callback_succeeds_and_busts_cache_immediately(): void {
+		update_option( 'wcs_cache_version', 1 );
+
+		Indexer::retry_product_delete( 5 ); // default stub: delete() succeeds
+
+		$this->assertFalse( get_transient( 'wcs_delete_retry_5' ) );
+		$this->assertSame( 2, get_option( 'wcs_cache_version' ), 'a resolved removal is security-sensitive — bust immediately, not on the 5-minute debounce' );
+	}
+
+	public function test_delete_retry_callback_gives_up_after_five_attempts(): void {
+		set_transient( 'wcs_delete_retry_5', 5 );
+		$this->wpdb->deleteFails = true;
+
+		Indexer::retry_product_delete( 5 );
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
+		$logged = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertNotEmpty( preg_grep( '/could not be confirmed after repeated retries/i', $logged ) );
+	}
+
+	/**
+	 * Regression (follow-up audit of Finding L response, point 1): the
+	 * retry used to be scheduled against the literal table name that just
+	 * failed. If that was the staging table, a rebuild's atomic RENAME
+	 * could swap it into the live position before the 30s-delayed WP-Cron
+	 * event fired — at which point retrying against the frozen staging
+	 * name would hit a table that either no longer exists or belongs to a
+	 * different, later rebuild. retry_product_delete() now takes no table
+	 * name at all and re-resolves both possible targets fresh every
+	 * attempt. Verifies that a rebuild swap occurring between the initial
+	 * failure and the retry does not stop the retry from reaching the
+	 * product's row wherever it currently lives.
+	 */
+	public function test_delete_retry_still_finds_the_product_after_a_rebuild_swap_moved_it(): void {
+		// Simulate: a rebuild is active when the staging delete first
+		// fails; by the time the retry fires, the rebuild has completed —
+		// wcs_is_indexing is now 0, and any row for this product would be
+		// wherever the LIVE table now points (the former staging table,
+		// post-swap). The retry must not still be looking at the old
+		// staging table name.
+		update_option( 'wcs_is_indexing', 0 );
+		$deletedTables = array();
+		$this->wpdb->deleteFails = static function ( string $table ) use ( &$deletedTables ): bool {
+			$deletedTables[] = $table;
+			return false; // always succeed — this test only checks WHICH tables were targeted
+		};
+
+		Indexer::retry_product_delete( 5 );
+
+		$this->assertContains( 'wp_wcs_search_index', $deletedTables, 'must target the live table, not a frozen pre-swap staging name' );
+		$this->assertNotContains( 'wp_wcs_search_index_stage', $deletedTables, 'must not touch staging once the rebuild is no longer active' );
+	}
+
+	/**
+	 * Regression (follow-up audit of Finding L, point 3): delete_single_
+	 * product() used to call the ordinary 5-minute-debounced trigger_
+	 * cache_bust() after a successful removal — a trashed/deleted/hidden/
+	 * password-protected product could keep appearing in an existing
+	 * cached search result for up to that whole window even though the row
+	 * was already gone. A successful removal now busts immediately.
+	 */
+	public function test_successful_removal_busts_cache_immediately_not_on_the_debounce(): void {
+		$GLOBALS['wcs_test_posts'][5] = (object) array( 'ID' => 5, 'post_type' => 'product', 'post_status' => 'publish' );
+		update_option( 'wcs_cache_version', 1 );
+
+		Indexer::on_product_trash( 5 );
+
+		$this->assertSame( 2, get_option( 'wcs_cache_version' ) );
+		$debounced = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_debounce_cache_bust' === ( $c['hook'] ?? '' ) );
+		$this->assertSame( array(), $debounced, 'the debounced path must not even be scheduled when the bust already happened immediately' );
+	}
+
+	/**
 	 * Regression (Finding E): the indexed parent row carries variation SKUs
 	 * and the variable product's price range, but this plugin only listened
 	 * for hooks WooCommerce fires on the *parent* product — never the

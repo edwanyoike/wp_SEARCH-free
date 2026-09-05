@@ -306,23 +306,31 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
-	 * Regression (Finding L): $bust_queued used to be set to true
-	 * unconditionally after attempting as_schedule_single_action(), whose
-	 * return value (0 on failure, not an exception) was discarded. A failed
-	 * schedule therefore permanently suppressed every later
-	 * trigger_cache_bust() call for the rest of THIS request — e.g. a bulk
-	 * product save that calls it once per row — silently dropping the whole
-	 * request's cache invalidation instead of just this one attempt.
+	 * Regression (Finding L, refined per follow-up audit): a failed
+	 * as_schedule_single_action() call (returns 0, not an exception) used to
+	 * leave nothing driving the eventual cache bust except an unrelated
+	 * later write in the same request — which might never come, leaving
+	 * results stale for the full 24h transient lifetime. It now busts
+	 * immediately as a fallback instead, so correctness never depends on
+	 * whether anything else happens to write to the index afterward.
 	 */
-	public function test_failed_cache_bust_schedule_lets_a_later_call_this_request_retry(): void {
+	public function test_failed_cache_bust_schedule_busts_immediately_as_a_fallback(): void {
+		update_option( 'wcs_cache_version', 1 );
 		$GLOBALS['wcs_test_as_schedule_fails'] = true;
 
-		Indexer::trigger_cache_bust(); // fails — must not set $bust_queued
-		$GLOBALS['wcs_test_as_schedule_fails'] = false;
-		Indexer::trigger_cache_bust(); // this request's next attempt must still try
+		Indexer::trigger_cache_bust();
 
-		$scheduled = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_debounce_cache_bust' === $c['hook'] );
-		$this->assertCount( 2, $scheduled, 'a failed attempt must not block a later attempt in the same request' );
+		$this->assertSame( 2, get_option( 'wcs_cache_version' ), 'a failed schedule must bust immediately, not depend on a later unrelated write' );
+	}
+
+	public function test_failed_cache_bust_schedule_does_not_retry_scheduling_again_this_request(): void {
+		update_option( 'wcs_cache_version', 1 );
+		$GLOBALS['wcs_test_as_schedule_fails'] = true;
+
+		Indexer::trigger_cache_bust(); // fails, busts immediately
+		Indexer::trigger_cache_bust(); // the bust already happened — must not bump the version again
+
+		$this->assertSame( 2, get_option( 'wcs_cache_version' ) );
 	}
 
 	public function test_same_product_is_queued_once_per_request(): void {
@@ -365,6 +373,53 @@ final class IndexerTest extends TestCase {
 		Indexer::retry_product_enqueue( 7 );
 
 		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
+	}
+
+	/**
+	 * Regression (follow-up audit of Finding L, point 1): both
+	 * wp_schedule_single_event() calls in this retry chain (the initial
+	 * fallback in queue_product_update() and the reschedule in
+	 * retry_product_enqueue()) discarded their own return value. If WP-Cron
+	 * itself refused the event, no retry existed at all and the product
+	 * silently never resynced. There is no per-product admin error state to
+	 * set (unlike a whole rebuild), so the fix is a distinct warning log —
+	 * verify it fires instead of failing silently.
+	 */
+	public function test_wp_cron_itself_refusing_the_product_retry_is_logged(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::queue_product_update( 7 );
+
+		$messages = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertNotEmpty( preg_grep( '/WP-Cron also refused .* product 7/i', $messages ) );
+	}
+
+	public function test_wp_cron_itself_refusing_the_product_reschedule_is_logged(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::retry_product_enqueue( 7 );
+
+		$messages = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertNotEmpty( preg_grep( '/WP-Cron refused to reschedule .* product 7/i', $messages ) );
+	}
+
+	/**
+	 * Regression (follow-up audit of Finding L, point 5): retry_product_
+	 * enqueue() returned early without clearing wcs_product_retry_{id} when
+	 * it found an action already scheduled (e.g. the product was saved
+	 * again independently). The stale attempt count then survived its 1h
+	 * TTL and could be inherited by a LATER, unrelated failure for the same
+	 * product, exhausting that failure's retry budget early.
+	 */
+	public function test_product_enqueue_retry_clears_stale_counter_when_already_queued_elsewhere(): void {
+		set_transient( 'wcs_product_retry_7', 3 );
+		$GLOBALS['wcs_test_as_has_scheduled'] = true;
+
+		Indexer::retry_product_enqueue( 7 );
+
+		$this->assertFalse( get_transient( 'wcs_product_retry_7' ), 'the stale counter must not survive to poison a later, unrelated failure' );
 	}
 
 	// ── Synonym change → immediate cache bust ────────────────────────────────
