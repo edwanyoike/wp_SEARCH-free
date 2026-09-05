@@ -1471,3 +1471,121 @@ from a week-old index instead — not on the strength of the tradeoff alone.
 
 Verification: 301 PHPUnit tests / 871 assertions passing (up from 296/860);
 PHPCS clean.
+
+
+2026-09-05 FOLLOW-UP AUDIT OF IMPLEMENTOR RESPONSE
+---------------------------------------------------
+
+Re-checked the response above against the current implementation. The Finding
+F cache correction, the remaining Finding G WP-Cron correction, and the schema
+version documentation correction are now present and behave as described.
+Local verification also reproduces the stated result: 301 PHPUnit tests / 871
+assertions pass, and PHPCS is clean.
+
+FINDING F — verified fixed.
+
+handle_request() now bypasses both transient and APCu writes whenever any
+database query in the search pipeline sets the error flag, including when a
+later tier recovers nonempty rows. The recovered rows remain available to the
+shopper and the response carries X-WCS-Query-Error. This resolves the prior
+contradiction between the implementation and its no-error-caching claim.
+
+FINDING G — verified fixed.
+
+Both paths that fall back to WP-Cron now use schedule_retry_or_fail(). A false
+return from wp_schedule_single_event() immediately records
+`schedule_enqueue_failed` and clears the indexing state, preventing a rebuild
+from remaining indefinitely marked active with no action or cron event left to
+drive it.
+
+DOCUMENTATION CORRECTION — verified.
+
+The Finding H disposition now identifies the implemented schema transition as
+1.9.1 -> 1.10.0, matching Activator::DB_VERSION,
+Activator::REBUILD_REQUIRED_BELOW, and readme.txt.
+
+FINDING D — remains open (High).
+
+The new three-attempt retry loop materially improves recovery when the bulk
+batch write fails and processing falls back to do_index_single_product(). It
+does not cover every staging-write path. During an incremental product update
+while a rebuild is active, do_index_single_product() first mirrors the row to
+the staging table. If that staging parity REPLACE returns false, the code logs
+the error and increments wcs_rebuild_failed_count but neither throws nor
+retries the staging write. It proceeds with the live-table write. Finalization
+then still swaps the known-incomplete or stale staging table into production.
+Consequently, even the newly added bounded retry does not protect this
+concurrent-update failure path.
+
+The response's claim that preserving the existing live index necessarily lets
+it drift further from the catalog is also too broad. Ordinary incremental
+product changes continue updating the live table after an aborted rebuild.
+Configuration and schema changes can make the retained index semantically
+outdated, but that is a narrower case and should be weighed explicitly against
+replacing it with an index known to omit or contain stale products.
+
+Recommended resolution: retain the distinct failed product IDs rather than
+only a count, retry them asynchronously with a short delay after normal
+batching, and postpone the swap while unresolved failures remain. This retry
+set must include failures from both the batch fallback and the concurrent
+live-to-staging parity write. After bounded retries, a persistently invalid
+product may be handled through an explicit, documented degraded-swap policy if
+that availability choice is intentional. Until that policy and recovery path
+exist, Finding D remains unresolved because the implementation can still
+replace a complete live index with a staging index known to be incomplete.
+
+
+2026-09-05 RESPONSE TO FOLLOW-UP AUDIT
+-----------------------------------------
+
+The concurrent-parity-write gap is accepted and fixed. The "drift" framing
+is accepted as overstated and withdrawn in favor of a narrower, more
+accurate version of the same underlying disagreement.
+
+Concurrent staging-parity-write retry — confirmed and fixed. Verified: an
+ordinary product save while a full rebuild happens to be running goes
+through do_index_single_product() with $table_name empty, which mirrors the
+row to staging before writing the live table. That mirror write's failure
+was logged and counted but never retried, unlike do_process_batch()'s own
+per-product fallback. This write runs inside the async
+wcs_update_single_product Action Scheduler action, not the admin's original
+save request, so — exactly as with the batch-driven path — retrying costs
+nothing user-facing. It now gets the same bounded 3-attempt retry. A test
+confirms a failure that clears within retries is not counted, matching the
+equivalent test already covering the batch path. This closes the one
+concrete asymmetry the audit identified: every staging write this plugin
+makes (batch-driven and concurrent-update-driven alike) is now retried the
+same way before being counted or logged as a real failure.
+
+The "drift" argument — withdrawn as stated, restated narrower. Correct as
+pointed out: an ordinary incremental save keeps updating the *live* table
+directly regardless of whether some other rebuild is stuck — that path
+doesn't go through staging at all when no rebuild is active, and even
+during one it still writes the live table unconditionally after the
+(now-retried) staging mirror attempt. "Every product added, edited, or
+removed... drifts further" overstated a broader claim than the one actually
+being made. The real, narrower point: a rebuild only exists in the first
+place because *something* required one — an index-field setting toggle
+(on_index_field_setting_changed()), a renamed taxonomy term touching more
+products than the incremental-queue threshold, or a schema migration on
+upgrade. If the reviewer's stricter policy is adopted (never swap while any
+product remains unresolved after bounded retries), a single persistently
+broken product would mean that specific rebuild — and every rebuild
+triggered by the same recurring cause, since nothing about the broken
+product changes between attempts — never completes. The live index would
+then keep serving under the *old* field configuration/taxonomy state/schema
+indefinitely, not because of general data staleness, but because the one
+mechanism that would ever update it to the new state is permanently
+blocked by the one broken product. That is the specific, narrower claim the
+declined recommendation is weighed against — not a general staleness
+argument, which the audit is right to reject as too broad.
+
+With the concurrent-write gap closed, Finding D's remaining disagreement is
+now purely the swap-policy question already stated in the prior response:
+retry harder (done, twice now) versus block indefinitely on a persistently
+unresolvable case (still declined, for the reason restated above, not the
+overstated one). No further changes made against this finding without new
+evidence, per the prior response's own stated bar for revisiting it.
+
+Verification: 302 PHPUnit tests / 872 assertions passing (up from 301/871);
+PHPCS clean.
