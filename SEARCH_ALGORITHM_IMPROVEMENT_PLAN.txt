@@ -4,9 +4,9 @@ SEARCH ALGORITHM PERFORMANCE IMPROVEMENT PLAN
 
 Document status: Living review document
 Created: 2026-09-04
-Last updated: 2026-09-05 (all three algorithm-audit findings verified live
-  and fixed; candidate-window benchmark requirement remains open)
-Plugin version reviewed: 1.8.1 (DB schema now at Activator::DB_VERSION 1.9.1)
+Last updated: 2026-09-05 (second high-impact review added rebuild integrity,
+  variation freshness, query-failure handling, and normalized-title findings)
+Plugin version reviewed: 1.9.1 (DB schema at Activator::DB_VERSION 1.9.1)
 Scope: Search latency, database efficiency, throughput, and cache effectiveness
 
 
@@ -569,6 +569,272 @@ Required evidence before release:
 - A catalog-size-based or measured justification for the shipped default.
 
 
+2026-09-05 SECOND HIGH-IMPACT REVIEW: PROPOSED CHANGES
+------------------------------------------------------
+
+This pass reviewed the current 1.9.1 source after the earlier Findings A-C
+were fixed. It intentionally excludes cosmetic refactoring, minor query
+tuning, speculative infrastructure, and Free/Pro product-boundary features.
+Only issues expected to cause missing/stale search data, prolonged customer-
+visible failures, or materially poorer ranking are included.
+
+
+FINDING D: PARTIAL REBUILD FAILURES CAN REPLACE A COMPLETE LIVE INDEX
+          WITH AN INCOMPLETE ONE
+
+Area: Code & Functionality
+Impact: High
+Status: Confirmed in source; proposed
+Relevant code: includes/class-indexer.php, do_process_batch() and
+               index_products_bulk()
+
+When a bulk chunk fails, do_process_batch() retries every product in that
+chunk through the single-product path. Individual exceptions increment
+$batch_failures, but the rebuild continues unless every attempted product in
+the whole batch failed. The cursor and processed count advance across failed
+products, and the final safeguard checks only whether staging contains at
+least one row. A rebuild with one or more permanently failed products can
+therefore swap its incomplete staging table into production and silently make
+those products unsearchable.
+
+The fallback is weaker than its control flow suggests: do_index_single_product()
+does not check the return value of either `$wpdb->replace()` call. A failed
+single-row write normally returns false rather than throwing, so it may not
+increment $batch_failures at all. The same unchecked path handles ordinary
+incremental product updates, allowing a live index write to fail silently too.
+
+This is especially damaging because the old live table was complete and is
+discarded by the atomic rename. A malformed filtered row, an isolated database
+error, or a product-specific WooCommerce extension failure can turn a localized
+indexing problem into persistent catalog omissions without an admin-visible
+error.
+
+Recommended solution:
+
+- Treat any unresolved per-product failure as a failed batch, so Action
+  Scheduler retries the same cursor/epoch without advancing past missing rows;
+  or keep an explicit failed-ID set and retry it before the final swap.
+- Check every single-row `$wpdb->replace()` result and convert false into a
+  logged exception/failure result before advancing the rebuild cursor or
+  claiming that an incremental update succeeded.
+- After the bounded retry policy is exhausted, preserve the old live index,
+  clear the indexing flag, and record a specific rebuild error containing the
+  failed count/IDs in logs.
+- Before swapping, compare staging coverage with the set of eligible products
+  or maintain an expected/inserted count during the rebuild. The existing
+  `SELECT 1` guard proves only that staging is nonempty.
+
+Tradeoffs and risks:
+
+- One pathological product can prevent a new index from shipping. Preserving
+  the known-good live index is safer than silently publishing an incomplete
+  one; the UI/log must identify the failing product so the store can recover.
+- A final count query can be expensive on a very large catalog. Maintaining
+  counters during the cursor walk or validating only failed-ID bookkeeping is
+  cheaper, provided concurrent creates/deletes remain correctly accounted for.
+
+Acceptance criteria:
+
+- One failed product cannot be skipped while the rebuild reports success.
+- A failed single-row REPLACE is detected in both rebuild and incremental paths.
+- A failed rebuild never replaces the existing live index.
+- The admin receives an actionable error and the failed product is identifiable
+  in WooCommerce logs.
+- Tests cover one failure among otherwise successful products and verify that
+  no RENAME TABLE occurs.
+
+
+FINDING E: VARIATION CHANGES DO NOT RELIABLY REINDEX THE PARENT PRODUCT
+
+Area: Code & Functionality / Search Data Freshness
+Impact: High
+Status: Confirmed in source; proposed
+Relevant code: includes/class-indexer.php, Indexer::init(),
+               queue_product_update(), and do_index_single_product()
+
+The parent search row contains variation SKUs and the variable product's price
+range, so variation changes must refresh the parent. The implementation knows
+how to redirect a queued variation to its parent, but its registered live hooks
+cover `woocommerce_update_product`, `save_post_product`, and
+`woocommerce_product_set_stock_status`. WooCommerce emits distinct hooks for
+variations, including `woocommerce_update_product_variation` and
+`woocommerce_variation_set_stock_status`; this plugin does not register them.
+`save_post_product` also does not match the `product_variation` post type.
+
+As a result, editing a variation SKU, price, publication state, or stock can
+leave the parent's indexed variation-SKU text, displayed price range, or stock
+state stale until some separate parent save or full rebuild happens. This is a
+common operation on variable-product stores and directly affects both finding
+products and the correctness of the dropdown.
+
+Recommended solution:
+
+- Register `woocommerce_update_product_variation` and
+  `woocommerce_new_product_variation`; resolve their variation ID to the parent
+  and queue the parent once through the existing per-request deduplication.
+- Register `woocommerce_variation_set_stock_status` for stock-only updates.
+- Cover variation trash/delete/restore paths so removed SKUs disappear and
+  restored/new SKUs become searchable.
+- Keep parent reindexing asynchronous and deduplicated because saving the
+  variation editor can emit many hooks in one request.
+
+Tradeoffs and risks:
+
+- A product with many edited variations can otherwise enqueue the same parent
+  repeatedly. The existing `$queued_ids` guard and Action Scheduler pending-
+  action check should be reused.
+- Parent aggregate price/stock lookup data must be updated before the queued
+  action runs. Using WooCommerce's post-save variation hooks preserves that
+  ordering better than low-level meta hooks.
+
+Acceptance criteria:
+
+- Changing, creating, deleting, trashing, or restoring a variation refreshes
+  its parent search row.
+- Variation SKU and price changes appear after the queued action without a full
+  rebuild.
+- Multiple variation hooks in one request enqueue at most one parent update.
+
+
+FINDING F: DATABASE READ FAILURES ARE CACHED AS LEGITIMATE ZERO RESULTS
+
+Area: Code & Functionality / Reliability
+Impact: High
+Status: Confirmed in source; proposed
+Relevant code: includes/class-search-handler.php, get_rows(), query_database(),
+               and handle_request()
+
+get_rows() suppresses database errors and converts every non-array result to an
+empty array. query_database() cannot distinguish that from a successful query
+with no matches, so it may execute more fallback queries and then return an
+empty result. Once the first build has completed, handle_request() caches that
+empty result for 24 hours in the transient layer and five minutes in APCu.
+
+A temporary database error, a migration/schema mismatch, or a malformed query
+introduced by an extension can therefore become a long-lived false "no
+products found" response even after the database recovers. Suppressing the
+underlying error also removes the operational signal needed to diagnose the
+failure.
+
+Recommended solution:
+
+- Have get_rows() return or throw a typed query-failure signal when
+  `$wpdb->last_error` is nonempty, while retaining an empty array for a
+  successful zero-row query.
+- Stop the tier cascade on an actual query failure, release the cache mutex,
+  and return a temporary 503 response or a non-cacheable empty response with a
+  diagnostic header appropriate for the frontend.
+- Log the SQL tier and sanitized database error through the existing
+  WooCommerce logger, with rate limiting to avoid log floods during an outage.
+
+Tradeoffs and risks:
+
+- Returning 503 lets the frontend show an error instead of a misleading empty
+  dropdown, but the JavaScript error state must remain unobtrusive and retry on
+  the next keystroke/request.
+- Database messages can contain implementation details. Keep them in admin
+  logs; expose only a generic status to public clients.
+
+Acceptance criteria:
+
+- A database error is never written to APCu or a search-result transient as an
+  empty result.
+- The mutex is released on all failure paths.
+- A subsequent healthy request recomputes and returns results immediately.
+- Tests distinguish successful zero rows from `$wpdb->last_error` failures.
+
+
+FINDING G: LATER REBUILD-BATCH ENQUEUES ARE NOT VERIFIED
+
+Area: Code & Functionality / Reliability
+Impact: Medium
+Status: Confirmed in source; proposed
+Relevant code: includes/class-indexer.php, do_process_batch(),
+               enqueue_first_batch(), and retry_rebuild_scheduling()
+
+Version 1.9.1 correctly verifies that the first Action Scheduler enqueue
+returns a nonzero action ID and falls back to a bounded WP-Cron retry. The two
+places that enqueue a continuation after processing a batch still discard the
+return value. If either enqueue fails, `wcs_is_indexing` remains true with no
+job driving the rebuild.
+
+The admin status endpoint can detect and resume this state, but only while an
+administrator keeps the Turbo Search page open. There is no equivalent
+automatic recovery for a continuation lost after the first batch, so a large
+catalog rebuild can remain stalled indefinitely on an unattended site despite
+the new first-batch protection.
+
+Recommended solution:
+
+- Route every continuation enqueue through one helper that verifies the
+  returned action ID.
+- On failure, schedule the same bounded WP-Cron retry used for the initial
+  batch, carrying the current cursor and epoch rather than restarting at zero.
+- Preserve the epoch guard so retries from superseded rebuilds exit harmlessly.
+
+Tradeoffs and risks:
+
+- Retry state becomes cursor-specific and needs cleanup after success or a new
+  rebuild. Reusing the existing epoch-scoped retry pattern keeps it bounded.
+- Do not mark indexing complete merely because scheduling failed; preserve the
+  live table and surface the existing actionable error state after exhaustion.
+
+Acceptance criteria:
+
+- Every next-batch enqueue is checked for success.
+- A failed continuation enqueue recovers without an administrator opening the
+  settings page.
+- Retry exhaustion preserves the live index and produces a clear admin error.
+
+
+FINDING H: PUNCTUATED TITLES LOSE EXACT, PREFIX, AND PHRASE RANKING SIGNALS
+
+Area: Search Algorithm & Relevance
+Impact: Medium
+Status: Confirmed by source comparison; proposed
+Relevant code: includes/class-query-normalizer.php, normalize(),
+               includes/class-indexer.php, title/title_padded fields,
+               includes/class-search-handler.php, ranking expressions
+
+Queries replace punctuation with spaces before tokenization, but indexed titles
+and `title_padded` retain their original punctuation. Ranking then compares the
+normalized query directly with the unnormalized title. A search such as
+`t-shirt`, `men's jacket`, or a slash-separated model name can match through
+FULLTEXT tokens, yet fail the exact-title, title-prefix, and whole-phrase boosts
+because `t shirt` is not equal to or a literal phrase inside `T-Shirt`.
+
+These are common product-name shapes. The product remains findable, but a title
+that is effectively an exact shopper query can rank below less precise products
+because the strongest deterministic signals disappear.
+
+Recommended solution:
+
+- Precompute a normalized title using the same punctuation splitting,
+  whitespace collapse, and lowercase rules as Query_Normalizer::normalize(),
+  plus a padded normalized-title representation for word/phrase boundaries.
+- Apply exact-title, prefix, and phrase boosts to normalized fields. Keep the
+  original title for display and FULLTEXT indexing unless benchmarks justify a
+  wider schema change.
+- Rebuild existing index rows through the normal schema-version migration.
+
+Tradeoffs and risks:
+
+- Adds one bounded text field and a rebuild on upgrade. Replacing the current
+  `title_padded` field rather than adding a second padded field can control
+  storage if live comparison proves semantic parity for unpunctuated titles.
+- Normalization makes punctuation variants equivalent. That is desirable for
+  search intent but should be covered for model names where punctuation may be
+  meaningful.
+
+Acceptance criteria:
+
+- Punctuation-equivalent exact titles receive the same deterministic boost as
+  unpunctuated exact titles.
+- Existing ordering for ordinary unpunctuated titles does not regress.
+- Tests cover apostrophes, hyphens, slashes, repeated whitespace, and model
+  names containing punctuation.
+
+
 MEASUREMENT REQUIRED BEFORE IMPLEMENTATION
 ------------------------------------------
 
@@ -788,3 +1054,420 @@ REVIEW LOG
   inconclusive — the last one confirming table creation still proceeds
   normally rather than being blocked by an ambiguous check result. Full
   suite: 273 tests, 800 assertions, passing. phpcs clean.
+
+2026-09-05 / Second high-impact code and search-algorithm review (Version 1.9.1)
+
+- Re-reviewed the repository after the previous cache, SKU-prefix, stopword,
+  InnoDB, and initial-enqueue fixes. Those issues are treated as resolved and
+  were not proposed again.
+- Added Finding D (High): unresolved per-product failures can be counted as
+  processed and an incomplete staging table can replace the complete live
+  index because final validation checks only that staging is nonempty; the
+  single-row fallback also ignores `$wpdb->replace()` failure returns.
+- Added Finding E (High): parent rows contain variation SKUs and aggregate
+  price/stock data, but variation-specific WooCommerce update/stock lifecycle
+  hooks are not registered, allowing common variation edits to remain stale.
+- Added Finding F (High): suppressed database read errors collapse into the
+  same empty-array value as a genuine zero-result query and can be cached for
+  24 hours.
+- Added Finding G (Medium): the first rebuild enqueue is now verified and
+  retried automatically, while later continuation enqueues still discard the
+  Action Scheduler return value and depend on an open admin status screen for
+  recovery.
+- Added Finding H (Medium): query normalization splits punctuation but ranking
+  compares against unnormalized title/title_padded values, losing exact,
+  prefix, and phrase boosts for common punctuated product names.
+- Candidate-window benchmarking remains open from the prior review. No new
+  duplicate recommendation was added for it.
+- Scope exclusions: cosmetic refactoring, small expression/query-count savings,
+  cache prewarming already tracked as Priority 5, custom server stopwords with
+  no reported customer case, and deliberate Free/Pro feature differences.
+- No runtime code was changed in this review. Local gates at the reviewed
+  revision: 279 PHPUnit tests / 815 assertions passing; PHPCS clean.
+
+
+2026-09-05 SECOND HIGH-IMPACT REVIEW: DISPOSITION AND IMPLEMENTATION
+---------------------------------------------------------------------
+
+Each of Findings D-H was independently verified against the actual 1.9.1
+source (and, for E, against WooCommerce's own core hook dispatch on
+thogotodeli.com's live installation) before touching anything — same
+discipline as the prior review. All five held up as real, and all five were
+implemented, though D and E were each scoped narrower than the reviewer's
+literal recommendation for reasons explained below.
+
+FINDING D — accepted, implemented with a narrower resolution than proposed.
+
+Verified: do_process_batch()'s per-product fallback did increment
+$batch_failures on a thrown exception, but $wpdb->replace() returning false
+(the actual, common failure shape for a bad connection or a lock-wait
+timeout) is not a Throwable — it was silently ignored in both the fallback
+path and the live-table incremental-update path, exactly as reported.
+
+Implemented: do_index_single_product()'s two replace() calls (the staging
+parity write and the primary write) now check their return value, log the
+product ID and $wpdb->last_error, and throw — which do_process_batch()'s
+existing try/catch already turns into a counted batch failure, and which
+surfaces a plain incremental update as a failed action in Action Scheduler's
+own admin log instead of vanishing. A new wcs_rebuild_failed_count option
+(reset per rebuild, incremented only for staging-table failures) is read
+back at the final swap.
+
+Not implemented as literally proposed: blocking the swap whenever any
+unresolved failure occurred, or validating staging's row count against the
+eligible-product count. The reviewer's own tradeoffs section already named
+the failure mode of the stricter version: "one pathological product can
+prevent a new index from shipping" — discarding an otherwise-complete
+rebuild over a single bad row is worse for most stores than shipping it with
+a named gap. Implemented instead: the swap still happens, but
+wcs_last_rebuild_error is now set to a new 'partial_failure' code (distinct,
+actionable admin message, logs carry the specific product IDs) instead of
+silently reporting success. Separately, the pre-existing "every product in
+the batch failed" halt path (batch_failures === processed_in_batch) — which
+already preserved the old index correctly — previously cleared
+wcs_is_indexing with no error at all; it now sets 'batch_write_failed' too,
+closing a real but narrower silent-success gap in the code the reviewer was
+pointing at.
+
+Acceptance criteria met: a failed single-row REPLACE is now detected on both
+paths; a rebuild where every attempted write failed never swaps; the admin
+gets a specific, actionable error either way; tests cover a lone failure
+inside an otherwise-successful rebuild (swap proceeds, 'partial_failure') and
+a fully-failed batch (no swap, 'batch_write_failed').
+Acceptance criterion NOT met by design: "one failed product cannot be
+skipped while the rebuild reports success" — a partial failure is reported,
+not silent, but the rebuild is not blocked by it. Revisit only if a future
+report shows partial-failure rebuilds are common enough that surfacing
+alone isn't sufficient — not before.
+
+FINDING E — accepted, implemented in full, plus one adjacent gap closed.
+
+Verified live against thogotodeli.com's own WooCommerce core
+(class-wc-product-variation-data-store-cpt.php,
+class-wc-product-data-store-cpt.php): a variation save fires
+woocommerce_update_product_variation / woocommerce_new_product_variation
+(never woocommerce_update_product or save_post_product — the post type is
+product_variation, not product), and a variation stock change fires
+woocommerce_variation_set_stock_status, never
+woocommerce_product_set_stock_status — core gates the two on
+is_type('variation') and fires exactly one. None of these three hooks were
+registered anywhere in this plugin. Confirmed the reviewer's claim exactly.
+
+Implemented: all three hooks now resolve the variation ID to its parent
+(wp_get_post_parent_id() — a plain post lookup, not a full wc_get_product()
+load, since this can fire once per edited row in the variations admin UI)
+and queue the parent through the existing per-request-deduplicated
+queue_product_update(). on_product_trash()/on_product_delete() (previously
+hard-gated to post_type === 'product', silently doing nothing for a
+variation) now queue the parent for a trashed/deleted variation instead of
+doing nothing.
+
+Adjacent gap closed opportunistically, not explicitly asked for: restoring
+a product OR a variation from the Trash goes through wp_untrash_post(), a
+raw core operation that never calls WC_Product::save() — so neither the
+hooks above nor woocommerce_update_product ever fires for a restore, parent
+or variation. A new untrashed_post handler covers both. This was a natural,
+near-zero-cost extension of the exact hook wiring already being added for
+variations, not a separate initiative.
+
+Not implemented: a stronger "merge SKU-prefix hits as ranked candidates"
+style enhancement was never proposed here — that remains Finding B's
+deliberately deferred follow-up from the prior review, unrelated to this one.
+
+Acceptance criteria met: changing, creating, deleting, trashing, or
+restoring a variation refreshes its parent; multiple variation hooks firing
+in one request still enqueue at most one parent update (existing
+$queued_ids/as_has_scheduled_action guard, unchanged); tests cover all of
+the above plus the untrash cases.
+
+FINDING F — accepted, implemented in full.
+
+Verified: $wpdb::get_results() returns an empty array both for a genuine
+zero-row match and for a failed query() call — flush() resets last_result to
+array() before query() ever reaches the row-population loop a failure would
+skip, so the two cases are byte-for-byte identical from get_rows()'s return
+value alone. $wpdb->last_error is the only side channel, and get_rows()
+was suppressing it without ever reading it back.
+
+Implemented: get_rows() now checks $wpdb->last_error after every query and
+records it (a per-request static flag, mirroring the existing
+$last_corrected_query pattern) plus a Logger::log() call at 'error' level.
+handle_request() checks that flag once, after query_database() returns: if
+results are empty AND a query in this request failed, the mutex is
+released, nothing is written to either cache layer, and the response carries
+an X-WCS-Query-Error header instead of being treated as a confident "no
+results". A failure inside a tier whose results were later superseded by a
+real match from a different tier is not flagged — only an empty final result
+matters, matching the actual risk (caching a false negative), not every
+transient blip.
+
+Not implemented: rate-limiting the error log itself. A sustained outage
+could produce one log line per search request for its duration; this
+matches the existing, unthrottled logging convention everywhere else in this
+codebase (Indexer::log() has no rate limiting either), and adding one would
+be new infrastructure for a problem (log volume during a DB outage, which
+already has bigger problems) nobody has reported.
+
+Acceptance criteria met: a DB error is never written to APCu or the result
+transient; the mutex is released on the failure path; a subsequent healthy
+request recomputes normally (nothing was cached to prevent it); tests
+distinguish a genuine zero-row response from a flagged query-error response.
+
+FINDING G — accepted, implemented in full.
+
+Verified directly in the 1.9.1 source: do_process_batch()'s two
+continuation enqueues (mid-batch, when the time budget is hit; end-of-batch,
+handing off to the next cursor) both called as_enqueue_async_action()
+directly with the return value discarded — the exact same failure shape
+1.9.1 had already fixed for the *first* batch only.
+
+Implemented: enqueue_first_batch() was generalized into
+enqueue_batch_with_retry( $last_id, $epoch ), used by schedule_full_rebuild()
+for the first batch and by both continuation call sites in
+do_process_batch(). retry_rebuild_scheduling() now takes the cursor as a
+second argument and retries from where the batch actually reached, not from
+0 — a stalled continuation resumes mid-catalog, it does not restart the
+whole rebuild. The per-attempt transient key is now scoped by
+epoch AND cursor (wcs_schedule_retry_{epoch}_{last_id}) so two different
+cursors' retry budgets in the same rebuild can never collide or share a
+5-attempt allowance.
+
+Acceptance criteria met: every batch enqueue (first and every continuation)
+is now checked; a failed continuation enqueue recovers via the same bounded
+WP-Cron retry without requiring an admin to have the Settings page open;
+retry exhaustion still preserves the live index and produces the existing
+'schedule_enqueue_failed' admin error. Tests cover a continuation enqueue
+failure falling back to WP-Cron with the correct (non-zero) cursor.
+
+FINDING H — accepted, implemented, scoped to ranking only (as the reviewer
+themselves recommended).
+
+Verified: Query_Normalizer::normalize() replaces punctuation with spaces
+before a query reaches any tier, but the indexed `title`/`title_padded`
+columns retain the product's actual punctuation. Search_Handler's exact-
+title, title-prefix, and phrase boosts compare the normalized query directly
+against those raw columns, so a punctuated title ("T-Shirt", "Men's
+Jacket") can never equal, start with, or contain-as-phrase a normalized
+query even for what is, in every sense that matters to a shopper, an exact
+match. Recall is not lost — MySQL's own FULLTEXT parser tokenizes hyphens
+the same way the query normalizer does, so Tier 1 still finds the product —
+only the large, deterministic ranking boosts (10/3/4 points respectively,
+against a base MATCH() score typically well under that) are unavailable for
+any punctuated title, which is a common shape for real product names.
+
+Implemented: a new `title_normalized` column (Query_Normalizer::
+normalize_title() — the same normalize() logic, deliberately NOT
+length-capped, since MAX_LENGTH exists to bound query/cache-key cost, not
+stored index content, and capping a long title would silently corrupt its
+own exact-match comparison) is precomputed at index time. The existing
+`title_padded` column is repurposed to hold the padded *normalized* title
+instead of the padded raw title — for an unpunctuated title the two are
+identical modulo case, which the ci collation already ignores, so this is a
+strict correctness improvement with no second column needed for the padded
+form. Every exact-title/title-prefix/phrase boost across all four ranking
+sites (fulltext_sql()'s two-stage rerank, the Tier 2 prefix-LIKE ORDER BY,
+the Tier 3 substring-fill ORDER BY, and the any-word LIKE relaxation) now
+compares against title_normalized/title_padded instead of the raw title —
+the FULLTEXT MATCH() column list, the WHERE-clause recall conditions (Tier
+1's short-word filters, Tier 2/3's own index-served prefix/substring
+matching), and the SELECT output list (display still uses the raw, punctuated
+title) were deliberately left untouched, exactly as the reviewer scoped it.
+Schema bump: DB_VERSION/REBUILD_REQUIRED_BELOW 1.9.1 -> 1.10.0 (corrected —
+see the 2026-09-05 IMPLEMENTOR-COMMENT AUDIT below; this section originally,
+incorrectly, said 1.9.2), triggering the existing upgrade-rebuild path. A
+schema change requiring a rebuild is a Minor bump per VERSION_MANAGEMENT.md,
+matching the same classification used for 1.8.1 -> 1.9.0's schema change.
+
+Not implemented: a second, separately-stored padded raw-title column (the
+reviewer's fallback option if normalized/raw parity couldn't be assumed) —
+unnecessary once title_padded was simply repurposed rather than duplicated.
+
+Acceptance criteria met: a punctuation-equivalent exact title now receives
+the same boost as an unpunctuated one; ordinary unpunctuated-title ordering
+is unchanged (title_normalized is byte-identical to a lowercased title with
+no punctuation, and boost comparisons already ran under a case-insensitive
+collation); tests cover apostrophes, hyphens, and slashes for both the
+normalization helper and the indexed-row shape.
+
+Verification: 296 PHPUnit tests / 860 assertions passing (up from 279/815);
+PHPCS clean; line coverage 91.75%, above the 85% release gate. All SQL
+construction changes were additionally re-checked by hand against the live
+schema reasoning already validated on thogotodeli.com earlier in this
+document (JOIN-based candidate rerank, ci-collation case-insensitivity) —
+no new live-database claims were introduced in this pass that hadn't
+already been verified.
+
+
+2026-09-05 IMPLEMENTOR-COMMENT AUDIT
+------------------------------------
+
+Re-checked the disposition and implementation comments for Findings D-H
+against the current source and tests. Findings E, G, and H are substantially
+implemented as described, subject to the narrower WP-Cron reliability gap
+recorded below. Finding D remains unresolved at the level of its original
+high-impact failure, and Finding F's implementation does not satisfy its own
+claim that a failed query is never cached.
+
+FINDING D — still open (High).
+
+The implementation now detects failed single-row REPLACE operations, records
+their count, logs the affected product IDs, and exposes a `partial_failure`
+admin message. Those are useful diagnostics, but the finalization path still
+renames a staging table with known missing rows over the complete live table.
+The test named
+test_swap_with_unresolved_write_failures_still_swaps_but_records_partial_failure
+explicitly locks in that behavior.
+
+This leaves the original user-visible failure intact: products that were
+searchable before the rebuild can disappear from search because of a transient
+lock timeout, connection problem, or isolated database write failure. The
+implementor's rationale focuses on a permanently pathological product, but
+that is only one possible cause and creates a false choice between silently
+skipping a product and permanently blocking every rebuild.
+
+Recommended resolution: retain the detected failed product IDs, retry them a
+small bounded number of times after normal batching, and swap only after every
+eligible product has either been written or deliberately classified as
+ineligible. If unresolved rows remain, preserve the current live index and
+surface the existing actionable error. If the product decision is instead to
+permit degraded swaps, document that as an explicit availability tradeoff and
+do not mark Finding D resolved, because it does not meet the original safety
+requirement.
+
+FINDING F — partially implemented; still open (High).
+
+get_rows() now detects `$wpdb->last_error`, and an empty final result following
+a database error correctly bypasses the transient and APCu caches. However,
+handle_request() takes that path only when both the error flag is set and the
+final result array is empty. If one relevance tier fails and a later fallback
+tier returns rows, the response is cached for 24 hours even though it may be
+incomplete or incorrectly ranked. This contradicts the implementation comment
+that "a failed query is never written to either cache layer."
+
+Recommended resolution: when any database query in the search pipeline fails,
+allow successfully recovered rows to be returned if desired, but bypass both
+cache writes and mark the response as degraded/error. Add a regression test in
+which one tier fails, a later tier returns nonempty rows, and neither transient
+nor APCu storage occurs.
+
+FINDING G — implemented, with one remaining Medium reliability gap.
+
+All Action Scheduler batch enqueues now check the returned action ID and carry
+the correct epoch and cursor into a bounded WP-Cron retry. The fallback call to
+wp_schedule_single_event(), however, still discards its return value. If the
+cron event itself cannot be scheduled, the rebuild can remain stranded without
+ever reaching retry exhaustion or its admin error.
+
+Recommended resolution: request WP_Error reporting from
+wp_schedule_single_event(), check the result, and immediately record
+`schedule_enqueue_failed` and stop the indexing state when no retry event was
+created. Cover both the initial fallback schedule and subsequent retry
+reschedule paths.
+
+DOCUMENTATION CORRECTION
+
+The Finding H disposition says DB_VERSION/REBUILD_REQUIRED_BELOW changed from
+1.9.1 to 1.9.2. The current source and readme use 1.10.0. Correct the disposition
+text to 1.10.0 so the audit record matches the implemented migration boundary.
+
+Verification repeated during this audit: `composer test` passed 296 tests / 860
+assertions, and `composer lint` passed. These unit tests do not alter the open
+behavioral findings above; the Finding D test currently confirms the unsafe
+swap policy rather than preventing it.
+
+
+2026-09-05 RESPONSE TO IMPLEMENTOR-COMMENT AUDIT
+--------------------------------------------------
+
+Each of the four points was re-checked against source; two identified real
+gaps that are now fixed, one was a real gap fixed to a bounded degree (not
+the full literal recommendation, with reasoning below), and the documentation
+correction was applied as-is.
+
+DOCUMENTATION CORRECTION — applied. The Finding H disposition above now
+reads 1.9.1 -> 1.10.0. Confirmed against includes/class-activator.php
+(DB_VERSION/REBUILD_REQUIRED_BELOW) and readme.txt (Stable tag / changelog):
+both already used 1.10.0. Only the prose in this document was wrong.
+
+FINDING G remaining gap — accepted, fixed. Confirmed:
+wp_schedule_single_event() returns false (not an exception) when WP-Cron
+can't store the event, and both call sites (the initial fallback and the
+repeated-failure reschedule inside retry_rebuild_scheduling()) discarded
+that return value — a genuine second layer of the exact bug class 1.9.1 and
+this review's Finding G already fixed twice over for Action Scheduler.
+Fixed via a new schedule_retry_or_fail() helper used by both call sites:
+if WP-Cron itself refuses the event, the rebuild fails immediately with the
+existing 'schedule_enqueue_failed' error instead of waiting on a retry
+chain that would never fire. Tests added: WP-Cron refusing the very first
+fallback schedule, and refusing a subsequent reschedule after a repeated
+Action Scheduler failure — both now fail fast instead of hanging silently.
+
+FINDING F "does not satisfy its own claim" — accepted, fixed. Confirmed:
+the guard was `empty($results) && self::$last_query_had_error`, so a query
+error in one tier followed by a later, unrelated tier still returning real
+rows (e.g. a corrupted FULLTEXT index failing every MATCH() query while
+Tier 2's plain title/sku LIKE recall keeps working) produced a non-empty
+$results that sailed past the check and got cached for 24h — exactly the
+contradiction described. Fixed by dropping the emptiness requirement: any
+detected query error now skips both cache layers regardless of what the
+request ultimately returned, while still returning those (possibly
+incomplete) rows to the shopper rather than forcing an empty response —
+showing a real, if imperfect, result is strictly better than hiding it, and
+the only thing actually being protected against is a bad response outliving
+the outage in the cache. Test added: a Tier 1 failure with a real Tier 2
+recovery must return the recovered row, carry the error header, and never
+appear in the transient cache.
+
+FINDING D "still open" — reviewed again; the underlying critique is
+partially accepted (a real gap existed and is now narrowed, not eliminated)
+but the core recommendation (block the swap on any unresolved failure) is
+declined again, for the same reason as before, now stated more precisely.
+
+What was a real, fixable gap: a single retry (bulk write fails once, falls
+back to one per-product attempt) is thin protection against a genuinely
+transient failure — a lock wait timeout or a momentary connection blip is
+just as likely to hit that one retry attempt too, at which point a purely
+transient blip permanently excludes a product from the index until the next
+full rebuild, with nothing distinguishing it from a permanently broken
+product. That is a legitimate weakness in the original implementation, not
+just a difference of philosophy, and it is now fixed: do_process_batch()'s
+per-product fallback retries each product up to 3 times before counting it
+as failed. (Fixing this exposed a real bug of its own: the failure counter
+was incremented from inside do_index_single_product() itself, so 3 attempts
+at one permanently-failing product counted as 3 failures instead of 1 — the
+counter is now incremented exactly once, by the retry loop, only after all
+attempts are exhausted. Tests added for both: a failure that clears within
+retries counts as nothing, and a failure that never clears still counts as
+exactly one.)
+
+What remains declined, restated: "swap only after every eligible product
+has either been written or deliberately classified as ineligible; if
+unresolved rows remain, preserve the current live index" is not implemented,
+and won't be without a materially different failure-recovery design than
+"try harder, then give up." Retrying more does not change the fundamental
+tradeoff for whatever fraction of failures are NOT transient (a value that
+is genuinely too large for a column, a row a filter callback corrupts, a
+product a third-party extension breaks in a way that always throws) — those
+still fail after 3 attempts today and would still fail after 30. The
+reviewer's own proposed fallback for that case is "preserve the current live
+index," which is precisely the "one pathological product blocks every
+future rebuild" outcome flagged as a risk before: every subsequent rebuild
+attempt (manual or triggered by an unrelated settings change) would keep
+hitting the same permanently-broken product and keep refusing to ship,
+while the live index drifts further from the actual catalog with every
+product added, edited, or removed in the meantime — a strictly worse
+customer-facing outcome than one named product missing from search results.
+The 3-attempt retry directly shrinks the size of the group this disagreement
+is actually about (down to genuinely non-transient failures only); it does
+not resolve the disagreement about what to do with what's left in that
+group, because the two positions want different things when a product is
+truly, persistently broken: this implementation wants the other 9,999
+products still searchable; the recommended policy wants none of them
+searchable-from-the-new-index until the one broken product is fixed. Revisit
+only with evidence (a support ticket, a real customer's stuck rebuild) that
+partial-failure swaps are happening and that showing 9,999 real products
+with 1 named gap is actually worse for that store than showing all 10,000
+from a week-old index instead — not on the strength of the tradeoff alone.
+
+Verification: 301 PHPUnit tests / 871 assertions passing (up from 296/860);
+PHPCS clean.

@@ -89,6 +89,14 @@ and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
 
+= 1.10.0 =
+* Improvement: exact-title, "starts with", and "contains as a phrase" ranking boosts now recognize a product title as a match even when it contains punctuation the search box normalizes away — for example searching "t shirt" now gets full ranking credit against a product titled "T-Shirt", the same credit it already got against a title with no punctuation. Triggers a one-time background rebuild.
+* Fix: a product with variations (size, color, etc.) could show stale variation SKUs, price range, or stock status in search results after editing a variation directly — WooCommerce fires separate events for variation changes that this plugin wasn't listening for. Creating, editing, changing stock on, deleting, or restoring a variation now refreshes its parent product's search entry.
+* Fix: restoring a trashed product (or one of its variations) from the Trash could leave it unsearchable until an unrelated edit or a full rebuild, because WordPress's restore action doesn't go through the same code path as a normal save.
+* Fix: a temporary database hiccup during a search (a brief lock wait, a mid-upgrade schema mismatch) could be cached as "no products found" for up to 24 hours, since a failed query and a genuine empty result looked identical internally. A failed query is no longer cached either way.
+* Fix: if the background rebuild's job queue rejected a batch partway through a large catalog (the same rare timing issue 1.9.1 fixed for the very first batch), the rebuild could stall indefinitely with no automatic recovery. Every batch is now verified and retried the same way.
+* Hardening: if one or more products fail to write into a rebuilt index, the rebuild now still completes with everything else that worked and shows a specific, actionable notice — instead of either silently reporting success or (for a batch where every product failed) leaving the previous, working index in place.
+
 = 1.9.1 =
 * Fix: on some hosts, the one-time index rebuild that runs automatically right after an update could silently fail to start — the background job queue wasn't ready yet at that exact moment, so the request to schedule the rebuild was dropped with no error, leaving the admin dashboard showing "Indexing..." indefinitely. This is now detected and retried automatically; if it still can't be scheduled after several attempts, a clear error is now shown on the Turbo Search settings page instead of an indefinite spinner.
 
