@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.1
+Stable tag:        1.11.2
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,10 @@ OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozu
 
 == Changelog ==
 
+= 1.11.2 =
+* Fix: on a Multisite network, deactivating or removing this Free edition on one site could delete the small companion file another site's Free or Pro edition still depends on for fast-path search caching, because the check only ever looked at the CURRENT site's own active plugins. The file is now also automatically restored the next time any admin page loads on a site that still has it installed, rather than only when that site's own stored version number happened to change.
+* Fix: deleting the plugin with "Delete data on uninstall" enabled removed a shopper-facing admin notice's dismissed state even when a still-active Pro edition on the same site depended on it, because that specific cleanup step wasn't covered by the existing Pro-safety check used everywhere else in uninstall. It's now protected the same way.
+
 = 1.11.1 =
 * Fix: if a product's search update couldn't be scheduled at all — both the normal background queue and its own retry safety-net were rejected in the same moment, a rare double failure — the update could previously be lost until that product was saved again or a full rebuild ran. It's now remembered and automatically resubmitted by the plugin's existing daily maintenance task.
 
@@ -102,7 +106,7 @@ OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozu
 * Security: on a server that hosts more than one WordPress site with APCu enabled (common on shared hosting, and on any Multisite network), two different sites could occasionally see each other's cached search results — product titles, prices, links, images — if their settings and search term happened to match, because the shared search-result cache was not kept separate per site. Same fix applied to the per-visitor search rate limit, which could previously also be shared across sites on the same server. Both are now kept strictly separate per site.
 * Change: the optional "check for announcements" feature (an occasional dismissible notice on the Settings page) is now off by default and only ever contacts OzuLabs' server after an administrator turns it on. Turning it off again immediately stops further checks and clears any notice already shown.
 * Fix: on a Multisite network, deleting the plugin with "Delete data on uninstall" enabled removed every site's search data based only on whichever site's own copy of that setting WordPress happened to check — even a site that had explicitly left the setting off. Each site's own choice is now respected individually.
-* Fix: switching from this Free edition to Pro on the same site (or on a Multisite network where another site still uses either edition) could break Pro's fast-path search caching, because deactivating or removing Free unconditionally deleted a small companion file both editions share. It's now left in place whenever another active edition still needs it.
+* Fix: switching from this Free edition to Pro on the same site could break Pro's fast-path search caching, because deactivating or removing Free unconditionally deleted a small companion file both editions share. It's now left in place whenever the same site still has another active edition that needs it.
 * Fix: deactivating or uninstalling the plugin could leave a small number of background scheduling tasks behind — retries for an in-progress rebuild or a single product's search update/removal that hadn't finished yet. These are now always cleared, the same way other background tasks already were.
 * Housekeeping: documented that "Recent Searches" (on by default) stores a shopper's own past searches only in their own browser, never on the server — see the FAQ.
 

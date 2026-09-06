@@ -1,0 +1,129 @@
+Turbo Search Free — review of fixes from WORDPRESS_ORG_REVIEW_1.10.2.txt
+Date: 2026-09-06
+Reviewed: clean working tree at c1d9e70, version 1.11.1, and
+dist/turbo-search-for-woocommerce-1.11.1.zip.
+
+VERDICT
+
+The major cache/privacy fixes are present and shipped. The earlier report
+should no longer be read as describing seven wholly unfixed issues.
+However, shared-resource cleanup is only partially fixed. Two remaining
+issues below prevent closing that finding completely. This is a focused
+recheck of the reported fixes and nearby changes, not a new exhaustive
+audit or an official WordPress.org approval.
+
+REMAINING FINDINGS
+
+1. MEDIUM — Free can still delete another site's shared MU companion.
+
+   includes/class-activator.php:642-675
+   includes/class-activator.php:282-283
+   uninstall.php:154-160
+   readme.txt:104
+
+   remove_mu_plugin() and the top-level uninstall removal guard only check
+   whether Pro is active on the CURRENT site. On a multisite network, site
+   A can deactivate Free while site B still runs Free or Pro. Site A's
+   Pro check is false, and cleanup deletes the one network-wide
+   wcs-cache-bypass.php file used by site B. Normal REST search remains
+   available, but the advertised fast path disappears for the other site.
+
+   The code comment explicitly acknowledges this limitation, then claims
+   activate()/init() will restore the file. init() actually calls the
+   installer only when is_admin() and wcs_mu_version != WCS_VERSION. An
+   already-current site retains its version option after another site
+   deletes the file, so ordinary admin page loads do not repair it.
+   Reactivation or a future version change is needed with the current code.
+
+   The 1.11.0 changelog included in readme.txt claims this also protects a
+   network where another site still uses either edition. That exceeds what
+   the implementation does. WORDPRESS_ORG_COMPLIANCE.md likewise calls
+   this protection complete and all seven findings closed prematurely.
+
+   Fix: preserve the companion while ANY site still needs it, or adopt a
+   conservative ownership policy that leaves the harmless inactive
+   companion on multisite. If automatic repair is part of the design,
+   check file existence as well as the version marker. Test two blogs
+   with independently active editions and a current wcs_mu_version.
+
+   Evidence: source trace of the removal and repair predicates; no live
+   multisite server was changed or tested in this session.
+
+2. LOW — Uninstall still deletes Pro's shared notice preferences.
+
+   uninstall.php:130-150
+   tests/phpunit/tests/UninstallTest.php:87 onward
+
+   wcs_uninstall_single_site() correctly returns without dropping shared
+   tables/settings when Pro is active. But the subsequent top-level
+   usermeta DELETE block is gated only by the initial delete_data flag.
+   It still removes wcs_notice_mu_bypass_dismissed,
+   wcs_notice_no_cache_dismissed and promo dismissals used by Pro.
+   Previously dismissed notices can return after deleting inactive Free.
+   On multisite, this block also acts on network-shared usermeta using
+   just the initiating site's preference, outside the per-site gates.
+
+   Reproduced with the existing test bootstrap: set Pro active and
+   wcs_delete_data_on_uninstall=true, then execute uninstall.php itself.
+   No tables were dropped, but both shared-user-meta DELETE queries ran.
+   The current Pro-protection test calls only wcs_uninstall_single_site(),
+   so it cannot catch this top-level side effect.
+
+   Fix: protect shared usermeta at the whole-uninstall level and define
+   appropriate network-wide ownership for these global preferences.
+   Add a separate-process test that executes the complete uninstall file
+   with Pro active, not just its cleanup helper.
+
+STATUS OF THE ORIGINAL SEVEN FINDINGS
+
+1. APCu site isolation: FIXED. Query_Normalizer::cache_key() incorporates
+   site_scope(), which combines blog ID and a hash of home_url(). Both
+   REST and MU use that shared constructor. Rate_Limiter::allow() adds
+   the scope itself, covering callers centrally. Site-ID regression test
+   is present. No live shared-APCu test was run.
+
+2. Promo consent: FIXED. wcs_show_promo defaults off, is registered with
+   a boolean sanitizer and has an explicit settings control. Promo::get()
+   checks consent before either cache access or HTTP. Opt-out suppresses
+   cached notices as well as further requests. The transient is retained
+   until expiry rather than deleted; that documented implementation choice
+   does not reopen the unauthorized-request finding.
+
+3. Per-site uninstall preference: FIXED FOR TABLES/OPTIONS. Network
+   dispatch now visits every site and the helper checks that site's
+   own preference. Shared usermeta remains the exception in finding 2.
+
+4. Free/Pro resources: PARTIALLY FIXED. Same-site active Pro now protects
+   the tables/options and MU file. Cross-site MU ownership and top-level
+   shared-user-meta deletion remain as described above.
+
+5. Missing cron fix in ZIP: FIXED. The shipped 1.11.1 artifact contains
+   clear_dynamic_cron_hooks() and its cleanup calls. It enumerates actual
+   event arguments for rebuild, product-update and product-delete retries.
+
+6. Recent-search disclosure: SUBSTANTIALLY ADDRESSED. The FAQ now explains
+   localStorage, the default-on setting, count-based history, the Clear
+   control and the fact that disabling does not remove existing history.
+   No new retention behavior or privacy-policy suggestion hook was added;
+   explicitly stating that there is no automatic expiry would improve the
+   disclosure. This is not treated as a new submission blocker.
+
+7. Readme size: FIXED. Source and ZIP readme are 8,790 bytes, below the
+   repository's approximately 10 KB guidance.
+
+CHECKS
+
+- composer lint: passed with repository configuration.
+- PHPUnit: 343 tests, 943 assertions, all passed on PHP 8.3.33.
+- ZIP: 24 files, correct turbo-search-for-woocommerce root; every packaged
+  file matches source. No internal review, test, build or vendor paths.
+- PHP syntax: every PHP file inside the ZIP passed.
+- Source/package versions and cron-fix presence verified.
+- Isolated full-uninstall reproduction:
+  /tmp/search-uninstall-recheck.php (existing fake WordPress/database;
+  no live database queries or production effects).
+
+Official Plugin Check, Readme Validator, live browser behavior and real
+multisite/APCu integration were not run in this session. The existing
+compliance document records prior live verification; those claims were
+not independently re-certified here. No plugin code or ZIP was changed.

@@ -109,25 +109,33 @@ function wcs_uninstall_single_site(): void {
 	\WCS\Search\Activator::clear_dynamic_cron_hooks();
 }
 
-// Perform cleanup across all sites in Multisite or the current single site.
-// Paginates via Activator::each_network_site() (get_sites() in bounded
-// pages, restoring blog context even if a site's cleanup throws) so a
-// network of any size is fully cleaned up, not just its first 1,000 sites.
-//
-// Multisite always dispatches to every site regardless of $delete_data —
-// wcs_uninstall_single_site() checks each site's OWN preference itself
-// after switch_to_blog() (see its docblock); gating the dispatch on this
-// file's single top-level read would apply just one site's value network-
-// wide. Single-site has only the one preference to check, so the top-level
-// $delete_data (already that site's own value) gates it directly, same as
-// before.
-if ( is_multisite() ) {
-	\WCS\Search\Activator::each_network_site( 'wcs_uninstall_single_site' );
-} elseif ( $delete_data ) {
-	wcs_uninstall_single_site();
-}
+/**
+ * Delete this plugin's own per-user notice-dismissal preferences.
+ *
+ * A separate function (rather than folded into wcs_uninstall_single_site())
+ * because these three meta keys are user-level state stored once per
+ * install, not per-site table/option state — it must run at most once
+ * regardless of how many sites each_network_site() walks on a Multisite
+ * network, unlike the per-site cleanup above.
+ *
+ * wcs_notice_mu_bypass_dismissed and wcs_notice_no_cache_dismissed record a
+ * user's own dismissal of notices about the shared MU cache-bypass file and
+ * the shared no-persistent-object-cache warning — both concerns apply
+ * identically to a still-active Pro install on this same site, not just to
+ * Free. Wiping them out while Pro is active would silently reset Pro's own
+ * already-dismissed notices back to "not dismissed" for every admin, purely
+ * because Free was the edition being removed. Same principle already
+ * applied to wcs_uninstall_single_site()'s table/option cleanup and to the
+ * MU file itself below: an opt-in to delete Free's own data is not consent
+ * to touch state a retained Pro install still relies on.
+ */
+function wcs_delete_notice_dismissals(): void {
+	global $wpdb;
 
-if ( true === $delete_data ) {
+	if ( \WCS\Search\Activator::is_pro_edition_active() ) {
+		return;
+	}
+
 	// 6. Delete all wcs_notice_*_dismissed user meta.
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 	$wpdb->query(
@@ -149,6 +157,28 @@ if ( true === $delete_data ) {
 			$wpdb->esc_like( 'wcs_notice_promo_' ) . '%' . $wpdb->esc_like( '_dismissed' )
 		)
 	);
+}
+
+// Perform cleanup across all sites in Multisite or the current single site.
+// Paginates via Activator::each_network_site() (get_sites() in bounded
+// pages, restoring blog context even if a site's cleanup throws) so a
+// network of any size is fully cleaned up, not just its first 1,000 sites.
+//
+// Multisite always dispatches to every site regardless of $delete_data —
+// wcs_uninstall_single_site() checks each site's OWN preference itself
+// after switch_to_blog() (see its docblock); gating the dispatch on this
+// file's single top-level read would apply just one site's value network-
+// wide. Single-site has only the one preference to check, so the top-level
+// $delete_data (already that site's own value) gates it directly, same as
+// before.
+if ( is_multisite() ) {
+	\WCS\Search\Activator::each_network_site( 'wcs_uninstall_single_site' );
+} elseif ( $delete_data ) {
+	wcs_uninstall_single_site();
+}
+
+if ( true === $delete_data ) {
+	wcs_delete_notice_dismissals();
 }
 
 // 5. Remove the MU plugin file — but not out from under a still-active Pro

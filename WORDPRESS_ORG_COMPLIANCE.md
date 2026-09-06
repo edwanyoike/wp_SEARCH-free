@@ -1072,3 +1072,46 @@ Live verification beyond source/artifact inspection: plugin active at 1.11.0 on 
 entries. Full suite at time of this confirmation: 336 PHPUnit tests / 929 assertions, PHPCS clean
 (343/943 after the separate incremental-update pending-set fix landed in the same session — see
 `SEARCH_ALGORITHM_IMPROVEMENT_PLAN.txt`'s 2026-09-06 entry — not yet cut into a release).
+
+## Correction, 2026-09-06 (later the same day): "all 7 closed" above was premature
+
+An independent recheck (`WORDPRESS_ORG_RECHECK_1.11.1.txt`) against 1.11.1 found the section above
+overstated Finding 4's closure and missed a real gap it directly caused. Both are now fixed in 1.11.2;
+recorded here honestly rather than silently rewriting the "all 7 closed" claim above.
+
+**Finding 4 was same-site-only, not network-wide, and the code's own comment overclaimed the
+difference.** `remove_mu_plugin()` and the top-level uninstall MU-file guard both check only whether
+Pro is active on the CURRENT site — exactly as documented in their own docblocks, which this document
+read as a minor, acceptable limitation. What this document got wrong: it did not catch that the
+adjacent comment claiming "the file simply gets reinstalled the next time any site's activate()/
+init() runs" was **false** for the common case. `init()`'s repair check compared only
+`wcs_mu_version` against `WCS_VERSION` — a site that never needed reinstalling still has its own
+matching version stored, so its own admin page loads would never notice or repair a file another
+site's deactivation had just deleted out from under it. This is the same class of bug `$table_missing`
+was already written to guard against for the DB table two lines above this exact check — the fix
+applies that identical pattern here: `init()` now also reinstalls when the file is simply missing,
+regardless of the stored version. This closes the repair gap for any site running Free; a site running
+only Pro still depends on Pro's own codebase having an equivalent check, which is out of scope for
+this repository. The 1.11.0 changelog line claiming multisite-wide protection has been corrected in
+`readme.txt` to state what the code actually does (same-site only).
+
+**A real, previously-unfound gap: uninstall still deleted shared notice-dismissal preferences while
+Pro was active.** `wcs_uninstall_single_site()` correctly refuses to touch shared tables/options when
+Pro is active — but the notice-dismissal usermeta cleanup (`wcs_notice_mu_bypass_dismissed`,
+`wcs_notice_no_cache_dismissed`, `wcs_notice_promo_*_dismissed`) lived in uninstall.php's top-level
+code, gated only by `$delete_data`, with no Pro check of its own. This was missed in every earlier pass
+of this document, including the "Correction" section above about Finding 4 — that correction fixed
+the tables/options half of shared-resource protection but never noticed this separate top-level block
+existed. Fixed by extracting it into its own function, `wcs_delete_notice_dismissals()`, gated the same
+way as every other shared resource in this file. Verified two ways: a direct unit test of the function
+in isolation, and — because the recheck specifically noted that testing only the helper function
+doesn't prove the file's actual top-level dispatch wires the gate in correctly — a second test
+(`UninstallFullDispatchTest`, using PHPUnit's `#[RunInSeparateProcess]` to get a truly fresh process)
+that requires the complete `uninstall.php` file end-to-end with Pro active and asserts zero queries
+run. That test was confirmed to actually catch the regression by temporarily reverting the fix and
+observing it fail with the exact two leaked `DELETE FROM wp_usermeta` queries the recheck reported.
+
+Verification: 348 PHPUnit tests / 951 assertions (up from 343/943), PHPCS clean, `git diff --check`
+clean. Shipped as 1.11.2 — see this repo's own commit/push/deploy history for confirmation it was
+actually cut and deployed, not just fixed in the working tree (the same distinction Finding 5 was
+originally about).

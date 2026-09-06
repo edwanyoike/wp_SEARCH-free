@@ -94,4 +94,32 @@ final class UninstallTest extends TestCase {
 
 		$this->assertSame( array(), $this->wpdb->queries, 'must not touch shared tables/options while Pro is active, even with explicit opt-in' );
 	}
+
+	public function test_wcs_delete_notice_dismissals_runs_when_pro_is_not_active(): void {
+		wcs_delete_notice_dismissals();
+
+		$sql = implode( "\n", $this->wpdb->queries );
+		$this->assertStringContainsString( 'wp_usermeta', $sql );
+		$this->assertStringContainsString( 'wcs_notice_mu_bypass_dismissed', $sql );
+	}
+
+	/**
+	 * Regression: wcs_notice_mu_bypass_dismissed and wcs_notice_no_cache_
+	 * dismissed record dismissal of notices about concerns (the shared MU
+	 * file, the shared no-persistent-object-cache warning) that apply
+	 * identically to a still-active Pro install on this same site. This
+	 * block used to run unconditionally whenever wcs_delete_data_on_
+	 * uninstall was enabled, with no Pro check at all — unlike every other
+	 * shared resource this file protects (tables/options via
+	 * wcs_uninstall_single_site(), the MU file itself below it) — so
+	 * removing Free after migrating to Pro would silently reset Pro's own
+	 * already-dismissed notices back to "not dismissed" for every admin.
+	 */
+	public function test_wcs_delete_notice_dismissals_does_nothing_when_pro_is_active(): void {
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		wcs_delete_notice_dismissals();
+
+		$this->assertSame( array(), $this->wpdb->queries, 'must not touch shared notice-dismissal user meta while Pro is active' );
+	}
 }

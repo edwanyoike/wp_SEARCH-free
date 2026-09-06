@@ -236,15 +236,51 @@ final class ActivatorTest extends TestCase {
 		$this->assertFileEquals( WCS_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php', WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
 	}
 
-	public function test_current_mu_version_skips_file_operations(): void {
+	/**
+	 * Regression: a version-only check can't tell "the file needs no work"
+	 * apart from "the file is gone but wcs_mu_version happens to still
+	 * match" — remove_mu_plugin() deliberately only checks the CURRENT
+	 * site's own is_pro_edition_active() and admits it does not scan the
+	 * rest of a Multisite network for another site still depending on the
+	 * shared file (see its docblock). So Free's own deactivation on one
+	 * site can delete the file out from under a different site whose own
+	 * wcs_mu_version option never changed, and the old version-only check
+	 * would never notice or repair it. Mirrors $table_missing's identical
+	 * reasoning for the DB table two lines above this check in init().
+	 */
+	public function test_current_mu_version_still_reinstalls_a_missing_file(): void {
 		$GLOBALS['wcs_test_is_admin'] = true;
+		update_option( 'wcs_mu_version', WCS_VERSION ); // matches — version alone would wrongly skip
+		update_option( 'wcs_db_version', '99.0.0' );
+		$this->healthyTables();
+
+		Activator::init();
+
+		$this->assertFileExists( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php', 'a missing file must be repaired even when the stored version already matches' );
+	}
+
+	public function test_current_mu_version_and_present_file_leaves_it_untouched(): void {
+		$GLOBALS['wcs_test_is_admin'] = true;
+		update_option( 'wcs_mu_version', 'old-version' );
+		update_option( 'wcs_db_version', '99.0.0' );
+		$this->healthyTables();
+		Activator::init(); // installs the file once
+		update_option( 'wcs_mu_version', WCS_VERSION );
+
+		Activator::init(); // steady state: version current, file already present
+
+		$this->assertFileEquals( WCS_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php', WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+	}
+
+	public function test_frontend_requests_do_not_repair_a_missing_mu_file(): void {
+		$GLOBALS['wcs_test_is_admin'] = false;
 		update_option( 'wcs_mu_version', WCS_VERSION );
 		update_option( 'wcs_db_version', '99.0.0' );
 		$this->healthyTables();
 
 		Activator::init();
 
-		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php', 'the file-existence probe is admin-only, same as the version check it augments' );
 	}
 
 	public function test_frontend_requests_never_touch_the_mu_file(): void {

@@ -279,7 +279,18 @@ class Activator {
 		// missing the cache on every fast-path request. Steady-state cost: one
 		// autoloaded-option comparison; install_mu_plugin() itself md5-skips
 		// when the file is already identical.
-		if ( is_admin() && get_option( 'wcs_mu_version' ) !== WCS_VERSION ) {
+		//
+		// Also repair a missing file even when the version already matches —
+		// mirroring $table_missing above for the identical reason: a stored
+		// version can survive the resource it describes being gone.
+		// remove_mu_plugin() deliberately only checks the CURRENT site's own
+		// is_pro_edition_active() and does not scan the rest of a Multisite
+		// network (see its docblock) — so Free's own deactivation on one site
+		// can delete the shared file out from under a different site that
+		// still needs it, while that other site's wcs_mu_version option never
+		// changed. A version-only check would then never notice or repair it.
+		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php' );
+		if ( is_admin() && ( get_option( 'wcs_mu_version' ) !== WCS_VERSION || $mu_file_missing ) ) {
 			self::install_mu_plugin();
 		}
 
