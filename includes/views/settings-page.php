@@ -26,6 +26,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<a href="https://ozulabs.com" target="_blank" rel="noopener">Ozulabs</a>
 		&nbsp;&middot;&nbsp;
 		<a href="mailto:support@ozulabs.com">support@ozulabs.com</a>
+		&nbsp;&middot;&nbsp;
+		<?php
+		/* translators: %s: plugin version number, e.g. "1.11.4" */
+		echo esc_html( sprintf( __( 'Version %s', 'turbo-search-for-woocommerce' ), WCS_VERSION ) );
+		?>
 	</p>
 
 	<h2 class="nav-tab-wrapper" style="margin-top: 20px;">

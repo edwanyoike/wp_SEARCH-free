@@ -454,6 +454,19 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertStringContainsString( 'settings_fields:wcs_settings_group', $html );
 	}
 
+	/**
+	 * The version renders once, in the shared page shell (settings-page.php)
+	 * that every tab includes — not per-tab — so this single assertion
+	 * covers every tab, not just whichever one happens to be active.
+	 */
+	public function test_settings_page_shows_the_plugin_version(): void {
+		ob_start();
+		Admin_Settings::render_settings_page();
+		$html = ob_get_clean();
+
+		$this->assertStringContainsString( 'Version ' . WCS_VERSION, $html );
+	}
+
 	public function test_settings_tab_shows_a_single_compact_pro_card_below_the_form(): void {
 		ob_start();
 		Admin_Settings::render_settings_page();

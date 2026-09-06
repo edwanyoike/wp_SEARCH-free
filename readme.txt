@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.4
+Stable tag:        1.11.5
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,9 @@ further requests and stops showing any already-cached announcement. The service 
 OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.11.5 =
+* Housekeeping: the installed plugin version now shows on every tab of the Turbo Search settings page, next to the support contact info.
 
 = 1.11.4 =
 * Fix: on a Multisite network, deleting the plugin with "Delete data on uninstall" enabled could still remove a shopper-facing admin notice's dismissed state, or the small companion file another site depends on, even when a still-active Pro or Free edition on a DIFFERENT site in the network needed them — the previous fix only checked the site being uninstalled. Both are now protected network-wide during uninstall.
