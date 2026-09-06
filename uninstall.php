@@ -113,7 +113,7 @@ function wcs_uninstall_single_site(): void {
  * Delete this plugin's own per-user notice-dismissal preferences.
  *
  * A separate function (rather than folded into wcs_uninstall_single_site())
- * because these three meta keys are user-level state stored once per
+ * because these meta keys are user-level state stored once per
  * install, not per-site table/option state — it must run at most once
  * regardless of how many sites each_network_site() walks on a Multisite
  * network, unlike the per-site cleanup above.
@@ -153,18 +153,6 @@ function wcs_delete_notice_dismissals(): void {
 			"DELETE FROM {$wpdb->usermeta} WHERE meta_key IN (%s, %s)",
 			'wcs_notice_mu_bypass_dismissed',
 			'wcs_notice_no_cache_dismissed'
-		)
-	);
-	// Promo banners use a server-driven, per-promo dismiss_id
-	// (Admin_Settings::render_admin_notices()), so the exact key can't be
-	// enumerated above — 'wcs_notice_promo_%_dismissed' is specific enough
-	// not to risk the broad-prefix collision this file's own tests guard
-	// against (see CleanupCoverageTest::test_no_broad_prefix_deletes...).
-	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-	$wpdb->query(
-		$wpdb->prepare(
-			"DELETE FROM {$wpdb->usermeta} WHERE meta_key LIKE %s",
-			$wpdb->esc_like( 'wcs_notice_promo_' ) . '%' . $wpdb->esc_like( '_dismissed' )
 		)
 	);
 }

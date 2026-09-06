@@ -38,13 +38,8 @@ class Admin_Settings {
 
 		$notice_id = isset( $_POST['notice_id'] ) ? sanitize_key( $_POST['notice_id'] ) : '';
 
-		// Promo notice ids are server-driven (derived from the promo content —
-		// see Promo::get()), not a fixed enum, so they're matched by a bounded
-		// pattern instead of an exact allow-list entry. sanitize_key() above
-		// already restricts to [a-z0-9_-], so this only bounds the length.
-		$allowed  = array( 'wcs_notice_mu_bypass', 'wcs_notice_no_cache' );
-		$is_promo = (bool) preg_match( '/^wcs_notice_promo_[a-z0-9]{1,20}$/', $notice_id );
-		if ( ! $is_promo && ! in_array( $notice_id, $allowed, true ) ) {
+		$allowed = array( 'wcs_notice_mu_bypass', 'wcs_notice_no_cache' );
+		if ( ! in_array( $notice_id, $allowed, true ) ) {
 			wp_send_json_error( 'invalid_notice', 400 );
 		}
 
@@ -71,26 +66,6 @@ class Admin_Settings {
 		}
 
 		$user_id = get_current_user_id();
-
-		// ── Notice: promo banner (server-driven content, see Promo::get()) ───
-		$promo = Promo::get();
-		if ( null !== $promo ) {
-			$promo_notice_id = 'wcs_notice_promo_' . $promo['dismiss_id'];
-			if ( ! get_user_meta( $user_id, $promo_notice_id . '_dismissed', true ) ) {
-				?>
-				<div class="notice notice-info is-dismissible" data-wcs-notice="<?php echo esc_attr( $promo_notice_id ); ?>">
-					<p>
-						<?php echo wp_kses_post( $promo['message'] ); ?>
-						<?php if ( '' !== $promo['link_url'] ) : ?>
-							<a href="<?php echo esc_url( $promo['link_url'] ); ?>" target="_blank" rel="noopener">
-								<?php echo esc_html( '' !== $promo['link_text'] ? $promo['link_text'] : $promo['link_url'] ); ?>
-							</a>
-						<?php endif; ?>
-					</p>
-				</div>
-				<?php
-			}
-		}
 
 		// ── Notice -1: schema creation failed (e.g. MySQL rejected the DDL) ──
 		$schema_error = (string) get_option( 'wcs_schema_error', '' );
@@ -321,14 +296,6 @@ class Admin_Settings {
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
-		) );
-		// Off by default: Promo::get() must not contact ozupay.com at all
-		// unless an administrator has explicitly opted in here — see that
-		// method's own gate and the "External services" section of readme.txt.
-		register_setting( 'wcs_settings_group', 'wcs_show_promo', array(
-			'type'              => 'boolean',
-			'sanitize_callback' => 'rest_sanitize_boolean',
-			'default'           => false,
 		) );
 		// Own settings group (not wcs_settings_group) — it lives on the App Data
 		// tab's own <form>, and options.php resets every registered option in a

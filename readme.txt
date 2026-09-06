@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.6
+Stable tag:        1.11.7
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,21 +79,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 1. Live search dropdown showing instant results as a customer types, on a real store selling in KES.
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
-== External services ==
-
-This plugin can optionally request a promotional announcement from OzuPay's API at
-`https://ozupay.com/wp-json/ozls/v1/promo`. **This is off by default and never contacts the service
-until an administrator turns on "Occasional Announcements" on the Settings tab.** Once enabled, the
-request is made when an administrator visits the Turbo Search settings screen and the locally cached
-response has expired. The only application data sent is the static plugin-edition identifier
-`turbo_search_free`; the request never includes administrator details, product data, search queries,
-or usage telemetry. As with any outbound WordPress HTTP API request, the standard `User-Agent` header
-(which includes this site's URL) is present, since it is not overridden. Successful responses are
-cached for 12 hours and failed responses for 1 hour. Turning the setting back off immediately stops
-further requests and stops showing any already-cached announcement. The service is provided by
-OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozupay.com/privacy-policy/).
-
 == Changelog ==
+
+= 1.11.7 =
+* Removed: the optional "Occasional Announcements" feature (an off-by-default check for a promotional notice from OzuLabs) has been removed entirely. This edition now makes no outbound network requests of any kind.
 
 = 1.11.6 =
 * Housekeeping: escaped a product ID in an internal error-log message flagged by the official WordPress Plugin Check tool (no user-facing behavior change — this text is never shown to shoppers).

@@ -60,7 +60,6 @@ class Activator {
 		'wcs_search_sku',
 		'wcs_search_content',
 		'wcs_search_taxonomy',
-		'wcs_show_promo',
 		'wcs_delete_data_on_uninstall',
 		'wcs_rate_limit_requests',
 		'wcs_rate_limit_window',

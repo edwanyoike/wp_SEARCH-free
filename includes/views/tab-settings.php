@@ -207,23 +207,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 				</fieldset>
 			</td>
 		</tr>
-		<tr>
-			<th scope="row">
-				<?php esc_html_e( 'Occasional Announcements', 'turbo-search-for-woocommerce' ); ?>
-					<div class="wcs-tooltip">
-						<span class="wcs-tooltip-icon">?</span>
-						<span class="wcs-tooltip-text"><?php esc_html_e( 'When enabled, this settings page occasionally checks OzuLabs for an optional announcement (e.g. a new feature or an upgrade offer) and shows it here as a dismissible notice. Off by default: nothing is contacted unless you turn this on. See "External services" in the plugin readme for exactly what is, and is not, sent.', 'turbo-search-for-woocommerce' ); ?></span>
-					</div>
-				</th>
-				<td>
-					<fieldset>
-						<label for="wcs_show_promo">
-							<input name="wcs_show_promo" type="checkbox" id="wcs_show_promo" value="1" <?php checked( 1, (int) get_option( 'wcs_show_promo', 0 ), true ); ?> />
-							<?php esc_html_e( 'Occasionally check for announcements from OzuLabs and show them on this page.', 'turbo-search-for-woocommerce' ); ?>
-						</label>
-					</fieldset>
-				</td>
-			</tr>
 	</table>
 	<?php submit_button(); ?>
 </form>
