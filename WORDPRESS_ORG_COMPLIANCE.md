@@ -1164,3 +1164,90 @@ site).
 
 Verification: 353 PHPUnit tests / 959 assertions (up from 348/951), PHPCS clean, `git diff --check`
 clean.
+
+## Packaged for submission, 2026-09-06: 1.11.6, verdict READY
+
+Since the follow-up recheck above (1.11.2), four more releases shipped: 1.11.3 (tooltip-positioning
+fix), 1.11.4 (this document's own network-wide MU/usermeta fix), 1.11.5 (version number now visible
+on every settings-page tab), and 1.11.6 (a Plugin Check finding, below). This section is the actual
+pre-submission packaging pass for 1.11.6 — the first time this document can cite a real tool run
+against the *exact* shipped artifact rather than "not independently verified this session."
+
+**The official Plugin Check tool was run for real, against a live install, for the first time.**
+Installed 1.11.5 on `demo_ozupay` (WordPress 7.1, WooCommerce 11.1.0 — a real, active WooCommerce
+site with the official `plugin-check` WP-CLI tool already present) and ran
+`wp plugin check turbo-search-for-woocommerce`. It found exactly one issue:
+
+- **ERROR — `WordPress.Security.EscapeOutput.ExceptionNotEscaped`**, `class-indexer.php:951`: an
+  internal `RuntimeException` message concatenated `$product_id` without an escaping function. The
+  parameter is declared `int` in `do_index_single_product( int $product_id, ... )` so it can never
+  carry unsafe content, and the message is never rendered as HTML (it surfaces in Action Scheduler's
+  own admin log or a `WC_Logger` entry, not to a shopper) — but Plugin Check's sniff has no type-flow
+  awareness and will keep flagging it as a submission-blocking error regardless. Fixed by wrapping it
+  in `esc_html( (string) $product_id )`, matching the pattern already used for `$db_error` on the same
+  line. Shipped as 1.11.6.
+
+Redeployed 1.11.6 to `demo_ozupay` and reran the exact same command: **`Success: Checks complete. No
+errors found.`** This is the first time this compliance document can report a zero-finding run of the
+actual official tool against the actual shipped artifact, rather than a source-reading approximation
+of what the tool would likely find. It supersedes several long-standing "not independently verified"
+entries in §16 that fall within Plugin Check's own coverage — `enqueued_scripts_size`/
+`enqueued_styles_size` (measured directly too: `admin.js` 6,239 B, `search.js` 32,318 B, `admin.css`
+2,095 B, `search.css` 8,316 B — all trivially small), `performant_wp_query_params`,
+`wp_functions_compatibility`, and `file_type` are now confirmed clean by the tool itself, not by
+inference. What Plugin Check does *not* cover — WordPress.org's own live directory state (tag
+uniqueness, contributor username validity) — remains genuinely unverifiable from this environment; see
+below.
+
+**§14.17 (trademarks) — the citation in §16 pointed at a subsection that was never actually written.**
+Corrected here rather than left as a dangling reference: `Turbo Search for WooCommerce` uses the
+"X for WooCommerce" construction — the standard, widely-used safe pattern for third-party WooCommerce
+extensions (WooCommerce is not the first word, and nothing in the name reads as an official
+Automattic/WooCommerce product). Grepped `readme.txt`, the plugin header, and every view template for
+"official"/"endorsed"/"affiliated"/"partner" — the only hit is the 1.11.6 changelog line referring to
+*WordPress.org's own* "official ... Plugin Check tool," not a claim about this plugin. No affiliation
+claim exists anywhere in the package. Clean.
+
+**Slug availability confirmed — this is a first submission, not an update.** Fetched
+`https://wordpress.org/plugins/turbo-search-for-woocommerce/` live: it resolves to a *search results*
+page (no exact-slug plugin page exists), confirming no plugin is currently live under this slug. This
+answers §20's open question directly — proceed as a first submission, and per the shared handbook's
+slug-permanence warning, `turbo-search-for-woocommerce` becomes permanent the moment it's accepted, so
+confirm this is the intended slug before uploading (it already matches the plugin's own folder name,
+text domain, and every internal reference — changing it later would need all of those updated too).
+
+**Screenshot naming — already fixed since §18 was written, confirmed now.** `screenshot-1.png`
+(1030×582) and `screenshot-2.png` (1300×593) exist at the repo root with the exact `screenshot-N.png`
+naming the SVN `assets/` directory requires, and `readme.txt`'s `== Screenshots ==` section has exactly
+two numbered entries matching them in order. `icon-128x128.png`/`icon-256x256.png`/
+`banner-772x250.png`/`banner-1544x500.png` all verified via `file` to be real PNGs at their exact
+named dimensions. None of these five files ship inside the plugin zip itself (correctly — `build.sh`'s
+rsync excludes `/icon-*`, `/banner-*`, `/*.png`); they're what gets uploaded separately to the SVN
+`assets/` directory at actual submission time, which this git repo doesn't control.
+
+**Final package verification, against the exact zip that would be uploaded**
+(`dist/turbo-search-for-woocommerce-1.11.6.zip`):
+- 33 files, one correctly-named root directory (`turbo-search-for-woocommerce/`), extracted and
+  diffed file-by-file against the source tree — byte-identical, nothing stale.
+- Every `.php` file passed `php -l` with zero syntax errors.
+- No `.git`, `vendor/`, `tests/`, `.md`, `composer.*`, `phpcs.xml`, `phpunit.xml.dist`, or internal
+  `WORDPRESS_ORG_*.txt`/`SEARCH_ALGORITHM_*.txt` audit files present — only `readme.txt` and
+  `changelog.txt` at the root, matching the positive allowlist `build.sh` enforces.
+- Version in sync across all three required places: plugin header `Version: 1.11.6`, `WCS_VERSION`
+  constant, and `readme.txt`'s `Stable tag: 1.11.6`.
+- `.pot` translation file present and current (regenerated by this release's own `build.sh` run).
+
+**What remains — genuinely outside what this repo/environment can verify or do:**
+- Tag uniqueness (§17: whether `search`/`product search`/`live search`/`ajax search` collide with
+  another plugin's tags) and the `ozulabs` contributor username's actual validity on WordPress.org —
+  both need a live WordPress.org account/API session this environment doesn't have.
+- The actual submission itself: creating/using a WordPress.org account, agreeing to the plugin
+  guidelines, and uploading the zip via `https://wordpress.org/plugins/developers/add/` is a
+  human/account action this session cannot perform. Once uploaded, the Plugins Team's own review
+  (which can take days to weeks and may raise findings beyond automated Plugin Check) is the actual
+  approval gate — a clean local Plugin Check run is necessary, not sufficient, for that.
+
+**Verdict: READY.** Every check this environment has the tools and access to run is clean against the
+exact artifact that would be uploaded. Nothing outstanding is a known defect — what's left is either a
+live-.org-account action only the user can take, or a live-.org-state check (tag/username) this
+environment cannot reach.
