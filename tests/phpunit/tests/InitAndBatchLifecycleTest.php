@@ -299,6 +299,10 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		update_option( 'wcs_rebuild_epoch', 42 );
 		update_option( 'wcs_is_indexing', 1 );
 		update_option( 'wcs_cache_version', 1 );
+		// A product could have been sitting here from an earlier incremental-
+		// update failure (see IndexerTest's pending-product-update coverage);
+		// a full rebuild reindexes everything, so this must be cleared too.
+		update_option( 'wcs_pending_product_updates', array( 7 => true ) );
 		$this->endOfCatalogHandler( true );
 
 		$fired = 0;
@@ -314,6 +318,7 @@ final class InitAndBatchLifecycleTest extends TestCase {
 		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
 		$this->assertSame( 2, get_option( 'wcs_cache_version' ), 'swap must bust the result cache' );
 		$this->assertSame( 1, $fired, 'wcs_index_rebuild_complete must fire exactly once' );
+		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'a full rebuild already reindexed everything — stale pending retries must not linger' );
 
 		$optimize = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_optimize_index' === $c['hook'] );
 		$this->assertCount( 1, $optimize, 'OPTIMIZE must be dispatched async, never inline' );

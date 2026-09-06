@@ -1046,3 +1046,29 @@ or the setting is re-enabled. Functionally equivalent (nothing is ever shown whi
 literally "cleared" as worded — noted here so this document doesn't overstate what was actually done.
 
 Re-verified after this correction: 336 PHPUnit tests / 929 assertions, PHPCS clean.
+
+## Release confirmation, 2026-09-06: all 7 findings shipped and live
+
+`WORDPRESS_ORG_REVIEW_1.10.2.txt` is now closed end to end, not merely fixed in the working tree.
+1.11.0 was cut via `build.sh`, committed, tagged `v1.11.0`, pushed to `origin/main` and the tag, and
+deployed to thogotodeli.com (installed, ownership verified, cache flushed, nginx reloaded). Re-checked
+every finding directly against current source rather than trusting the sections above, plus the
+shipped artifact itself for Finding 5:
+
+- **1 (APCu site isolation), 2 (promo opt-in), 3 (multisite uninstall preference), 4 (Free/Pro shared
+  resources), 6 (recent-search disclosure):** re-grepped current source; all five fixes are present
+  exactly as described above.
+- **5 (ZIP didn't contain the pending cron-cleanup fix):** this finding's own precondition — "cut an
+  authorized release containing it" — is now literally true. Extracted
+  `includes/class-activator.php` and `uninstall.php` directly from
+  `dist/turbo-search-for-woocommerce-1.11.0.zip` and confirmed `clear_dynamic_cron_hooks()` is present
+  in both, not just in the working tree this finding originally flagged as insufficient.
+- **7 (readme.txt size):** `wc -c readme.txt` reads 8,394 bytes — under the ~10KB guidance, and this
+  time confirmed on the actual file shipped in 1.11.0, not a snapshot from mid-editing.
+
+Live verification beyond source/artifact inspection: plugin active at 1.11.0 on thogotodeli.com, no
+`wcs_last_rebuild_error`/`wcs_schema_error`, front-end config reports `version:1.11.0`, and a live
+`/wp-json/wcs/v1/search` request returned correctly ranked results with no new WooCommerce log
+entries. Full suite at time of this confirmation: 336 PHPUnit tests / 929 assertions, PHPCS clean
+(343/943 after the separate incremental-update pending-set fix landed in the same session — see
+`SEARCH_ALGORITHM_IMPROVEMENT_PLAN.txt`'s 2026-09-06 entry — not yet cut into a release).

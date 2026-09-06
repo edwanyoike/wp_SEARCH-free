@@ -2313,3 +2313,70 @@ Acceptance criteria:
 Verification repeated during this audit: 323 PHPUnit tests / 915 assertions,
 PHPCS, `node --check assets/js/search.js`, and `git diff --check` all pass. No
 additional defect was found in the revised logical-target deletion retry.
+
+
+2026-09-06 RESPONSE TO AUDIT OF RESPONSE TO FINDING L FOLLOW-UP
+------------------------------------------------------------------
+
+Accepted and implemented. Re-read queue_product_update() and
+retry_product_enqueue() directly before touching anything, rather than
+trusting this document's own prior "requires five consecutive failures"
+claim: the audit is correct that both functions contain one call site each
+where an Action Scheduler rejection is immediately followed by a
+wp_schedule_single_event() call whose own failure ends the chain on the
+spot — in queue_product_update() this is the very first attempt, before
+retry_product_enqueue()'s 5-attempt loop ever starts; inside
+retry_product_enqueue() itself it is the reschedule at the end of whichever
+attempt is currently running. Neither path depends on reaching attempt 5.
+
+Implemented the audit's own recommended proportional resolution, not a
+larger one: a new bounded option, wcs_pending_product_updates (added to
+Activator::PLUGIN_OPTIONS, capped at 500 entries, FIFO-trimmed if a site
+somehow keeps hitting this), records a product ID exactly when both
+schedulers reject the same enqueue attempt. A new
+Indexer::drain_pending_product_updates() resubmits every recorded ID via
+as_enqueue_async_action() (skipping any ID Action Scheduler already has
+pending independently) and clears an ID once it enqueues successfully. It
+is called from the START of run_transient_gc() — already wired to both the
+daily wcs_daily_transient_gc cron and every cache-bust, including the one a
+successful full rebuild fires on its own — rather than adding a new
+schedule, exactly as the audit suggested. A full rebuild also explicitly
+clears the whole option immediately after a successful swap, since it just
+reindexed every product and any pending entries are now moot rather than
+merely redundant.
+
+No new settings-page panel, no new admin-visible UI, no new cron schedule —
+this stays inside the existing "retry, then let periodic maintenance catch
+what falls through" shape already used elsewhere in this file, matching
+what was proportionate to accept versus what was declined in the previous
+round for Points 2 and 3 (which remain declined; nothing about this fix
+reopens that reasoning — a permanently-failing physical DELETE is a
+different, already-explicitly-accepted residual risk from a
+schedule-then-forget enqueue that a later drain can always still resubmit).
+
+Testing: two new IndexerTest cases reproduce the exact double-rejection at
+each call site and assert the product ID lands in
+wcs_pending_product_updates; a control test confirms the ordinary
+single-scheduler-fails-but-WP-Cron-succeeds path does NOT record anything
+(no behavior change for the common case); three new drain tests cover a
+successful resubmit-and-clear, a failed attempt left pending for the next
+drain, and an ID already covered by an independently-scheduled action being
+dropped without a duplicate enqueue; one InitAndBatchLifecycleTest case
+seeds a pending entry before a full-rebuild swap and asserts it is cleared.
+
+Acceptance criteria from the audit, checked directly against the tests
+above:
+- One Action Scheduler rejection followed by one WP-Cron scheduling
+  rejection leaves durable pending work rather than only a log line — met
+  (test_first_attempt_double_rejection_records_a_pending_update,
+  test_mid_chain_double_rejection_records_a_pending_update).
+- The existing maintenance path resubmits the ID without another product
+  save — met (test_drain_pending_product_updates_resubmits_and_clears_on_
+  success runs independently of queue_product_update()/any product save).
+- A successful enqueue or covering full rebuild clears the pending ID — met
+  for both cases (drain-success test; the InitAndBatchLifecycleTest swap
+  test).
+
+Verification: 343 PHPUnit tests / 943 assertions (up from 336/929), PHPCS
+clean, `git diff --check` clean. Not yet committed/released as part of this
+pass — see this repo's own commit/push/deploy workflow for when this ships.

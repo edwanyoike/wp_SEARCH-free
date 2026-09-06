@@ -406,6 +406,92 @@ final class IndexerTest extends TestCase {
 	}
 
 	/**
+	 * Regression (2026-09-05 audit of the response to the Finding L
+	 * follow-up): the earlier fix only logged a warning when BOTH Action
+	 * Scheduler and its own WP-Cron fallback rejected an enqueue in the same
+	 * call — a case the plan document had assumed always needed five
+	 * consecutive failures over ~2.5 minutes, but which can actually happen
+	 * on the very first attempt, before retry_product_enqueue()'s 5-attempt
+	 * chain ever gets a chance to run. A pure log line meant the only update
+	 * for that product was silently lost. It must now also be recorded in
+	 * wcs_pending_product_updates so drain_pending_product_updates() can
+	 * resubmit it later without requiring another product save.
+	 */
+	public function test_first_attempt_double_rejection_records_a_pending_update(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::queue_product_update( 7 );
+
+		$pending = get_option( 'wcs_pending_product_updates' );
+		$this->assertIsArray( $pending );
+		$this->assertArrayHasKey( 7, $pending );
+	}
+
+	/**
+	 * Same terminal condition, reached instead through a later attempt of
+	 * the bounded retry chain: Action Scheduler rejects the retry AND the
+	 * next WP-Cron reschedule also fails.
+	 */
+	public function test_mid_chain_double_rejection_records_a_pending_update(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
+		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+
+		Indexer::retry_product_enqueue( 7 );
+
+		$pending = get_option( 'wcs_pending_product_updates' );
+		$this->assertIsArray( $pending );
+		$this->assertArrayHasKey( 7, $pending );
+	}
+
+	public function test_ordinary_wp_cron_fallback_does_not_record_a_pending_update(): void {
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true; // WP-Cron scheduling itself still succeeds
+
+		Indexer::queue_product_update( 7 );
+
+		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'a normal, successfully-scheduled WP-Cron retry needs no pending-set fallback' );
+	}
+
+	public function test_drain_pending_product_updates_resubmits_and_clears_on_success(): void {
+		update_option( 'wcs_pending_product_updates', array( 7 => true, 8 => true ) );
+
+		Indexer::drain_pending_product_updates(); // default stub: as_enqueue_async_action succeeds
+
+		$queued = array_column( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) ), 'args' );
+		$this->assertContains( array( 'product_id' => 7 ), $queued );
+		$this->assertContains( array( 'product_id' => 8 ), $queued );
+		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'every entry enqueued successfully — the option must be cleared, not left as an empty array' );
+	}
+
+	public function test_drain_pending_product_updates_leaves_failed_ids_pending(): void {
+		update_option( 'wcs_pending_product_updates', array( 7 => true ) );
+		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+
+		Indexer::drain_pending_product_updates();
+
+		$pending = get_option( 'wcs_pending_product_updates' );
+		$this->assertIsArray( $pending );
+		$this->assertArrayHasKey( 7, $pending, 'a drain attempt that fails again must leave the ID for the next drain' );
+	}
+
+	public function test_drain_pending_product_updates_skips_an_id_already_scheduled_elsewhere(): void {
+		update_option( 'wcs_pending_product_updates', array( 7 => true ) );
+		$GLOBALS['wcs_test_as_has_scheduled'] = true;
+
+		Indexer::drain_pending_product_updates();
+
+		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) );
+		$this->assertSame( array(), $queued, 'must not enqueue a duplicate action when one is already pending for this product' );
+		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'already covered by an existing pending action — the record is no longer needed' );
+	}
+
+	public function test_drain_pending_product_updates_does_nothing_when_the_set_is_empty(): void {
+		Indexer::drain_pending_product_updates();
+
+		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
+	}
+
+	/**
 	 * Regression (follow-up audit of Finding L, point 5): retry_product_
 	 * enqueue() returned early without clearing wcs_product_retry_{id} when
 	 * it found an action already scheduled (e.g. the product was saved

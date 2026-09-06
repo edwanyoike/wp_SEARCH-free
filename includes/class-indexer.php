@@ -44,6 +44,14 @@ class Indexer {
 	private const BATCH_TIME_BUDGET = 120;
 
 	/**
+	 * Cap for the wcs_pending_product_updates option (see
+	 * add_pending_product_update()) — bounds worst-case autoloaded-option
+	 * growth if a site somehow keeps hitting the "both schedulers rejected
+	 * this enqueue" gap repeatedly, rather than letting it grow unbounded.
+	 */
+	private const PENDING_UPDATE_CAP = 500;
+
+	/**
 	 * Product IDs already queued for update within this request, keyed by ID.
 	 * Prevents multiple as_has_scheduled_action() DB queries for the same product
 	 * when several hooks fire on the same product save.
@@ -252,6 +260,7 @@ class Indexer {
 			// or a full rebuild, same as if this whole fallback didn't exist.
 			if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
 				Logger::log( sprintf( 'WP-Cron also refused to schedule the incremental-update retry for product %d — it will resync on its next save or a full rebuild', $product_id ), 'warning' );
+				self::add_pending_product_update( $product_id );
 			}
 		}
 	}
@@ -671,6 +680,13 @@ class Indexer {
 				delete_option( 'wcs_last_rebuild_error' );
 			}
 			delete_option( 'wcs_rebuild_failed_count' );
+
+			// A full rebuild just reindexed every product, including any that
+			// were sitting in wcs_pending_product_updates because both
+			// schedulers rejected their incremental-update enqueue — those
+			// entries are now moot and would otherwise wait for the next
+			// drain to enqueue a redundant update for an already-current row.
+			delete_option( 'wcs_pending_product_updates' );
 
 			self::execute_cache_bust();
 			do_action( 'wcs_index_rebuild_complete' );
@@ -1744,6 +1760,84 @@ class Indexer {
 		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
 		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
 			Logger::log( sprintf( 'WP-Cron refused to reschedule the incremental-update retry for product %d (attempt %d/5) — it will resync on its next save or a full rebuild', $product_id, $attempts + 1 ), 'warning' );
+			self::add_pending_product_update( $product_id );
+		}
+	}
+
+	/**
+	 * Record a product whose incremental-update enqueue was just rejected by
+	 * BOTH Action Scheduler and its own WP-Cron fallback in the same call —
+	 * queue_product_update() and retry_product_enqueue() each hit this when
+	 * as_enqueue_async_action() returns 0 AND the wp_schedule_single_event()
+	 * meant to retry it also returns false. Neither scheduler's own bounded
+	 * retry chain ever gets a chance to run in that case, so without this the
+	 * product silently stays stale until its next save or a full rebuild.
+	 *
+	 * Drained by drain_pending_product_updates(), which runs from
+	 * run_transient_gc() — already wired to both the daily
+	 * wcs_daily_transient_gc cron and every cache-bust (including a
+	 * successful full rebuild's own execute_cache_bust() call) — rather than
+	 * a new dedicated schedule.
+	 *
+	 * @param int $product_id Product to remember.
+	 */
+	private static function add_pending_product_update( int $product_id ): void {
+		$pending = get_option( 'wcs_pending_product_updates', array() );
+		if ( ! is_array( $pending ) ) {
+			$pending = array();
+		}
+
+		// Re-inserting moves the key to the end — PHP arrays preserve
+		// insertion order, so the first key is always the longest-pending
+		// entry, which is what the cap below trims.
+		unset( $pending[ $product_id ] );
+		$pending[ $product_id ] = true;
+
+		while ( count( $pending ) > self::PENDING_UPDATE_CAP ) {
+			reset( $pending );
+			unset( $pending[ key( $pending ) ] );
+		}
+
+		update_option( 'wcs_pending_product_updates', $pending, false );
+	}
+
+	/**
+	 * Resubmit every product recorded by add_pending_product_update() that
+	 * isn't already scheduled. Called from run_transient_gc().
+	 */
+	public static function drain_pending_product_updates(): void {
+		if ( ! function_exists( 'as_enqueue_async_action' ) || ! function_exists( 'as_has_scheduled_action' ) ) {
+			return;
+		}
+
+		$pending = get_option( 'wcs_pending_product_updates', array() );
+		if ( ! is_array( $pending ) || empty( $pending ) ) {
+			return;
+		}
+
+		$remaining = $pending;
+		foreach ( array_keys( $pending ) as $product_id ) {
+			$product_id = (int) $product_id;
+
+			if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+				unset( $remaining[ $product_id ] );
+				continue;
+			}
+
+			if ( as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' ) ) {
+				unset( $remaining[ $product_id ] );
+			}
+			// Left in $remaining on failure — picked up again at the next drain.
+		}
+
+		if ( $remaining === $pending ) {
+			return;
+		}
+
+		if ( empty( $remaining ) ) {
+			delete_option( 'wcs_pending_product_updates' );
+		} else {
+			update_option( 'wcs_pending_product_updates', $remaining, false );
 		}
 	}
 
@@ -1928,6 +2022,8 @@ class Indexer {
 	 */
 	public static function run_transient_gc(): void {
 		global $wpdb;
+
+		self::drain_pending_product_updates();
 
 		// Prune stale rate-limit rows. Shared by both editions — search abuse
 		// protection isn't a Pro feature. Each key is upserted in place (never

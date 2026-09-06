@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.0
+Stable tag:        1.11.1
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,9 @@ further requests and stops showing any already-cached announcement. The service 
 OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.11.1 =
+* Fix: if a product's search update couldn't be scheduled at all — both the normal background queue and its own retry safety-net were rejected in the same moment, a rare double failure — the update could previously be lost until that product was saved again or a full rebuild ran. It's now remembered and automatically resubmitted by the plugin's existing daily maintenance task.
 
 = 1.11.0 =
 * Security: on a server that hosts more than one WordPress site with APCu enabled (common on shared hosting, and on any Multisite network), two different sites could occasionally see each other's cached search results — product titles, prices, links, images — if their settings and search term happened to match, because the shared search-result cache was not kept separate per site. Same fix applied to the per-visitor search rate limit, which could previously also be shared across sites on the same server. Both are now kept strictly separate per site.
