@@ -788,3 +788,261 @@ All fixes verified: `composer lint` (0 findings), `./vendor/bin/phpunit` (253 te
 coverage` (90.40%, threshold 85%), `composer audit` (no advisories), a full `php -l` sweep (clean),
 and a rebuilt zip whose `readme.txt`/`changelog.txt`/main plugin file hashes match source exactly
 and whose contents no longer include either internal review report.
+
+---
+
+## Re-audit, 2026-09-06 (started against Version 1.10.2, fixes shipped as 1.11.0 —
+see the independent-review response section further below for why the target
+version moved from a planned 1.10.3 to 1.11.0)
+
+**Everything above is a 1.1.2–1.6.0 snapshot.** 34 commits and eight releases (1.6.1 through
+1.10.2) shipped between that snapshot and this re-audit — candidate-then-rerank search ranking,
+precomputed/normalized title matching, WooCommerce variation-lifecycle hooks, a `turbo_search_button`
+shortcode alias, and several rounds of rebuild/incremental-sync reliability hardening (bounded
+retries around every Action Scheduler and WP-Cron call this plugin makes). None of that had been
+checked against the handbook until now. Two real, concrete gaps were found and fixed; everything
+else re-verified against the current source held up.
+
+**1. Cron cleanup gap — real, fixed.** The reliability work added three WP-Cron single-event hooks
+scheduled with *dynamic*, per-call arguments — `wcs_retry_rebuild_scheduling` (epoch + cursor),
+`wcs_retry_product_enqueue` (product ID), `wcs_retry_product_delete` (product ID) — as fallbacks for
+when Action Scheduler itself rejects an enqueue. `deactivate_single_site()` and `uninstall.php` only
+ever unscheduled the one static recurring cron (`wcs_daily_transient_gc`); none of the three dynamic
+hooks were touched on deactivation or uninstall. This isn't cosmetic: `wp_next_scheduled()` and
+`wp_unschedule_event()` both require knowing a specific pending event's exact arguments, and any
+number of distinct instances (different products, different rebuilds) can be pending at once — there
+was no way to clear "every pending instance of this hook" with the tools already in use here. This
+plugin's own Action-Scheduler-based jobs (`wcs_rebuild_index_batch`, `wcs_optimize_index`,
+`wcs_update_single_product`, `wcs_debounce_cache_bust`) were never at risk — `as_unschedule_all_actions(
+null, array(), 'turbo-search-for-woocommerce' )` clears an entire *group* regardless of hook or args,
+which is why only the WP-Cron side had this gap.
+
+Fixed: `Activator::DYNAMIC_CRON_HOOKS` (public const, listing all three) plus
+`Activator::clear_dynamic_cron_hooks()`, which reads the raw cron array via `_get_cron_array()` (the
+WordPress-core-sanctioned way to enumerate a hook's dynamically-argumented pending events — the same
+technique WooCommerce itself and other plugins use for exactly this case) and calls
+`wp_unschedule_event()` for every matching entry regardless of its arguments. Called from both
+`deactivate_single_site()` (unconditional, matching how the daily GC hook is already handled there)
+and `wcs_uninstall_single_site()` (gated behind `wcs_delete_data_on_uninstall`, matching how the
+Action Scheduler and daily-GC cleanup already sitting in that same function are gated). A new
+`CleanupCoverageTest::test_every_dynamic_cron_hook_is_registered_for_cleanup()` statically scans every
+`wp_schedule_single_event()` call site in the shipped source and fails if a hook name is missing from
+`DYNAMIC_CRON_HOOKS` — the same "scan the source, fail until the cleanup list is updated" pattern
+`test_every_written_option_is_in_the_cleanup_list()` already uses for options, extended to cover this
+different kind of orphanable state. `ActivatorTest` covers the sweep behavior directly (multiple
+pending instances of the same hook with different args all cleared; an unrelated recurring hook left
+alone).
+
+**2. readme.txt size drift — real, fixed, exactly as predicted.** The 2026-09-03 snapshot above
+explicitly flagged this as a recurring risk ("worth watching for the same drift here... per the
+handbook's explicit 'recurring gap, not one-time' warning") after fixing it once at 6,082 bytes.
+Eight more releases of full changelog entries grew it back to **13,725 bytes** — over the ~10KB
+guidance threshold. Fixed the same way as before: entries for 1.10.0 down through 1.6.3 moved into
+`changelog.txt` (which already ships in the release zip — reconfirmed via `unzip -Z1` against the
+actual 1.10.2 artifact), `readme.txt`'s own `== Changelog ==` kept to only the current release and
+the immediately previous one, matching the handbook's stated guidance exactly. This repo's own fix
+for the cron-cleanup gap above was originally going to ship as its own 1.10.3 patch release; it
+ended up folded into 1.11.0 instead once the independent review below landed more findings before
+that release was actually cut (see that section). The changelog was re-trimmed again after that
+consolidation — see the independent-review response section for the final byte count, since more
+entries were added after this paragraph was originally written. This will drift again after enough
+future releases regardless of the exact count at any one snapshot — that isn't a defect to "finish
+fixing," it's the nature of an appended changelog, and the
+fix is the same trim each time it crosses the threshold.
+
+**Re-verified and found still compliant, no changes needed:**
+- **Release zip hygiene**: `unzip -Z1 dist/turbo-search-for-woocommerce-1.10.2.zip` shows only
+  `readme.txt` and `changelog.txt` at the root alongside the real plugin files — no compliance docs,
+  review reports, `phpcs.xml`, `.kiro/`, or other dev-only paths. The positive-allowlist guard in
+  `build.sh`/`hooks/post-commit` (added after the 1.6.0-era incident) is still doing its job across
+  eight further releases.
+- **New shortcode alias** (`turbo_search_button`, added 1.7.0, `class-frontend.php`): registered
+  correctly, returns rather than echoes, same acceptable-distinctiveness reasoning as the existing
+  `turbo_search` tag (§12 above) — not a generic word, reads as this plugin's own term, matches Pro's
+  tag intentionally for cross-edition compatibility.
+- **New admin-facing error strings** (`partial_failure`, `batch_write_failed`, `batch_fetch_failed`,
+  `rebuild_setup_failed`, `swap_failed` in `class-admin-settings.php::rebuild_error_labels()`): all use
+  `__()` with the literal `'turbo-search-for-woocommerce'` text domain, no embedded variables, no
+  string concatenation — spot-checked each one directly rather than trusting the pattern from a
+  distance.
+- **Translation template currency**: `languages/turbo-search-for-woocommerce.pot`'s
+  `Project-Id-Version`/`POT-Creation-Date` match the 1.10.2 build, and the new error-label strings
+  above are present in it (`build.sh`'s automatic `wp i18n make-pot` regeneration, noted in the
+  2026-09-03 pass, is still running on every release).
+- **New DB column** (`title_normalized`, added 1.10.0): derived, non-personal search text (a
+  normalized copy of the product title already stored in the same row) — no new privacy-audit
+  question beyond what the existing `title`/`content` columns already answered in §13.
+- **Header/version sync**: `Version` (plugin header) / `Stable tag` (readme) / `WCS_VERSION` (main
+  file constant) all read `1.10.2`; `Tested up to: 7.1` and `Requires PHP: 8.0` consistent between
+  plugin header and readme; `WC tested up to: 10.8` unchanged since the 1.6.3 live-verification
+  entry — not re-tested this pass, no WooCommerce-facing behavior changed since then.
+
+**Not re-verified this pass** (would need the same live tooling the 2026-09-01 snapshot already
+flagged as unavailable in this environment — nothing has changed about that access): a real Plugin
+Check tool run against the release zip, the WordPress.org MCP server's Validate Readme tool, the live
+tag-directory uniqueness check, and live-listing/asset-sync verification. These were open items
+before this pass and remain open after it — re-run them against the actual 1.11.0 upload artifact
+before submission, not this or any other source-only audit.
+
+All fixes verified: `composer lint` (0 findings), `./vendor/bin/phpunit` (327 tests, 919 assertions —
+see the independent-review response section below for the final count after that review's own
+fixes), `composer coverage` (91%+, threshold 85%), a full `php -l` sweep (clean), and a direct
+`unzip -Z1` inspection of the already-published 1.10.2 zip confirming the pre-existing hygiene guard
+(§16 `write_file` fix's later positive-allowlist follow-up) still holds after eight further releases.
+The 1.11.0 zip containing this pass's own two fixes plus the independent review's fixes had not been
+cut at the time this section was written — apply the same `unzip -Z1` spot-check to it once
+`build.sh` produces it, rather than assuming it inherits 1.10.2's clean result automatically.
+
+---
+
+## Response to independent review, WORDPRESS_ORG_REVIEW_1.10.2.txt (2026-09-06)
+
+An independently-produced review (`WORDPRESS_ORG_REVIEW_1.10.2.txt`, kept in this repo per the same
+audit-trail convention as `WORDPRESS_ORG_REVIEW_1.5.1.txt`/`WORDPRESS_ORG_DEEP_REVIEW_1.6.0.txt` —
+excluded from the release ZIP by `build.sh`'s positive `.txt` allowlist, same as those) landed while
+the re-audit above was already underway, against the same 1.10.2 baseline. Every finding was verified
+against source before acting — one policy claim was checked against the actual live guideline text
+rather than either document's paraphrase. All six findings held up; all six are fixed or documented
+below. This is why the target release moved from a planned 1.10.3 patch to 1.11.0: two of these are
+real security/privacy fixes plus one new user-facing opt-in setting, which is Minor-level scope, not
+a patch.
+
+**1. HIGH — APCu cache/rate-limit keys were not site-scoped. Confirmed and fixed.**
+
+Verified exactly as reported: `Query_Normalizer::cache_key()` (`includes/class-query-normalizer.php`)
+built keys from only cache version, currency, and an MD5 of the query — no site/blog component at
+all — and both `Search_Handler::handle_request()` and the MU cache-bypass plugin call
+`apcu_fetch()`/`apcu_store()` directly with that key, bypassing WordPress's own cache API (which
+namespaces `wp_cache_*()`/`get_transient()` per blog under Multisite automatically). `Rate_Limiter::
+allow()`'s APCu counter path had the identical gap, keyed only by an IP hash. Because APCu is shared
+at the PHP-FPM-pool/server level — not just across blogs in one Multisite network, but across
+entirely separate WordPress installations on the same shared host — two different sites whose cache
+version, currency, and search query happened to match could read each other's cached product rows
+(title, price, permalink, image) straight out of shared memory, and one site's visitor could exhaust
+a completely different site's search rate limit.
+
+Fixed with a single shared `Query_Normalizer::site_scope()` (`get_current_blog_id() . '_' .
+md5( home_url() )` — blog ID alone doesn't distinguish separate single-site installs, which all
+report blog ID 1; `home_url()` is what actually differs between any two sites regardless of hosting),
+folded into `cache_key()` and into `Rate_Limiter::allow()` itself (not left to each call site to
+remember, so a future new caller can't reintroduce the gap). Tests added: `QueryNormalizerTest::
+test_cache_key_varies_by_site()`, `RateLimiterTest::test_same_key_on_different_sites_is_tracked_
+independently()`; every existing test asserting an exact key literal was updated to account for the
+new prefix (`CacheKeyParityTest`, `RateLimiterTest`, `QueryNormalizerTest`).
+
+**2. HIGH — promotional HTTP requests had no opt-in gate. Confirmed and fixed.**
+
+The existing §7 section above concluded this didn't trigger the handbook's "tracking requires opt-in"
+citation because it's a content *fetch*, not a data *send*. Checked the actual current guideline text
+directly (`https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/`,
+Guideline 7) rather than trusting either paraphrase: **"Plugins may not contact external servers
+without explicit and authorized consent"** — the live text draws no fetch-vs-send distinction at all,
+and the SaaS-implied-consent carve-out it does make (Twitter, Amazon CDN, Akismet) applies to
+functionality the plugin depends on to do its stated job, not an optional marketing banner. The
+existing §7 reasoning was accurate about what data is sent, but wrong about whether that mattered —
+the guideline is about the *contact itself*.
+
+Fixed: a new `wcs_show_promo` setting (`class-admin-settings.php`, Settings tab), off by default,
+matching this plugin's existing `wcs_delete_data_on_uninstall` off-by-default pattern. `Promo::get()`
+now checks it FIRST — before the transient read, not just before `wp_remote_get()` — so disabling the
+setting also stops showing an already-cached announcement, not just new fetches. `readme.txt`'s
+"External services" section and the settings-page tooltip both state plainly that nothing is
+contacted until this is turned on. Tests added: `PromoTest::test_disabled_by_default_never_contacts_
+the_service()`, `test_disabling_after_a_promo_was_cached_stops_showing_it()`.
+
+**3. HIGH — Multisite uninstall could delete data against a site's own preference. Confirmed and
+fixed.**
+
+Verified: `$delete_data = get_option( 'wcs_delete_data_on_uninstall', ... )` was read exactly once, at
+the top of `uninstall.php`, in whichever site's context WordPress happened to run the file in — then
+applied uniformly to every site `Activator::each_network_site()` iterates. A main site left opted out
+could skip cleaning a subsite that had explicitly opted in; a main site opted in could delete a
+subsite's data against that subsite's own explicit choice to keep it. This directly contradicts a
+capability this plugin's own readme claims ("Does it work on WordPress Multisite? Yes. Each site in
+the network gets its own search index table.") — per-site tables imply per-site preferences should be
+respected too.
+
+Fixed: the preference check moved INTO `wcs_uninstall_single_site()` itself, which
+`each_network_site()` only ever calls after `switch_to_blog()` has already run — so in real
+WordPress, `get_option()` inside that function reads the site currently switched into, not the
+initiating site's value. The top-level single-site dispatch keeps working exactly as before (there's
+only one site's preference to check, and the top-level read already is that site's own value).
+Test added: `UninstallTest.php` (new file) — requires `uninstall.php` once (its top-level code and
+function declaration can only run once per process) with the top-level dispatch deliberately a no-op,
+then calls `wcs_uninstall_single_site()` directly to verify its own internal gate in isolation. This
+test harness's fakes don't model per-site option storage, so the true cross-site scenario (site A
+enabled, site B disabled, only A cleaned) is verified by code inspection of `each_network_site()`'s
+real `switch_to_blog()` semantics rather than by a multi-site integration test — documented here
+rather than silently assumed.
+
+**4. HIGH — removing Free could damage a retained Pro installation. Confirmed and fixed.**
+
+Verified: `wp-content/mu-plugins/` is a single, network-wide directory, not per-site, and Free/Pro
+both install and use the identical `wcs-cache-bypass.php`. `Activator::remove_mu_plugin()` (called
+unconditionally from `deactivate()`) and `uninstall.php`'s own MU-removal block both deleted that file
+with no check for whether the OTHER edition was still active and needed it. Migrating Free to Pro on
+the same site is a supported, expected path — Free's own activation guard refuses to run alongside
+Pro — so deactivating the now-redundant Free copy after installing Pro silently broke Pro's fast-path
+cache-bypass.
+
+Fixed: both call sites now check `Activator::is_pro_edition_active()` (already existed, used at
+activation time for the identical mutual-exclusion question) before deleting, and skip if Pro is
+active. Documented, not silently accepted: this check is single-site scoped, the same scope
+`is_pro_edition_active()` already had — a Multisite network where a *different* site is the one still
+depending on the file isn't covered, since answering that would need a full network scan to decide
+whether to delete one shared file, judged disproportionate for how rarely deactivation races a
+cross-site dependency. In that uncovered case the file is simply reinstalled the next time any site's
+`activate()`/`init()` runs (`install_mu_plugin()` is already idempotent and version-checked). Tests
+added: `ActivatorTest::test_deactivate_does_not_remove_the_shared_mu_file_when_pro_is_still_active()`,
+`test_deactivate_removes_the_mu_file_when_pro_is_not_active()`.
+
+**5. MEDIUM — the release ZIP didn't contain the pending cron-cleanup fix. Accepted as accurate for
+its moment; resolved by this section's own consolidation.**
+
+This finding was about process sequencing, not a source defect — it correctly observed that the
+`clear_dynamic_cron_hooks()` fix (§ above) existed only as uncommitted working-tree changes at review
+time, not in any cut release. That fix, plus every fix in this section, ships together in 1.11.0 —
+see the version-bump note at the top of this response.
+
+**6. MEDIUM — recent-search browser storage undisclosed. Confirmed and fixed.**
+
+Verified: "Recent Searches" (`wcs_enable_recent_searches`, on by default) stores a shopper's own past
+searches in `localStorage['wcs_recent_searches']` (`assets/js/search.js`) — client-side only, never
+sent to the server, already has a per-shopper Clear control and a configurable count cap — but none
+of this was mentioned in `readme.txt`. Fixed: a new FAQ entry ("Does the search box remember what a
+shopper searched for?") states plainly what's stored, where, that it's never transmitted or shared
+between shoppers/devices, and how a shopper clears it. This is a transparency fix, not a behavior
+change — nothing about the underlying feature needed to change, only its disclosure.
+
+**readme.txt size after this section's own additions:** the new FAQ entry and the expanded "External
+services" paragraph pushed the file back up from the 5,797-byte figure recorded earlier in this
+document; check the current byte count directly (`wc -c readme.txt`) rather than trusting either
+number in this document, since both are point-in-time snapshots and the changelog entries this
+section itself added are exactly the kind of growth §17's "recurring gap" note warns about.
+
+Verification: full `composer lint` and `./vendor/bin/phpunit` suite run clean after every fix above
+(see the test counts in this repo's own commit history for the exact numbers at release time, since
+this document is not updated per-commit); `php -l` clean across every changed file.
+
+**Correction, same day: Finding 4 was only half-fixed on the first pass.** Asked directly whether the
+fixes actually matched the report, a line-by-line re-verification against current source (not memory
+of having fixed it) found that Finding 4's MU-file protection was real and complete, but its other
+half was missed entirely: `wcs_uninstall_single_site()` still unconditionally dropped
+`wcs_search_index`/`wcs_search_index_stage`/`wcs_rate_limits` and deleted every
+`Activator::PLUGIN_OPTIONS` entry whenever `wcs_delete_data_on_uninstall` was enabled, with no check
+for Pro being active — the more consequential half of the finding, since a dropped search index
+breaks Pro's actual search, not just a caching optimization the way the MU file did. Fixed with the
+same principle already applied to the MU file: `wcs_uninstall_single_site()` now returns immediately
+if `Activator::is_pro_edition_active()`, before any table/option/transient cleanup, regardless of the
+delete-data opt-in — that opt-in is consent to remove Free's own footprint, not consent to delete
+data a migrated-to Pro install now depends on. Test added:
+`UninstallTest::test_wcs_uninstall_single_site_does_nothing_when_pro_is_active()`.
+
+Also worth recording precisely rather than glossing over: Finding 2's suggested fix said disabling
+the promo setting should "clear its cached payload." The actual fix checks the setting before even
+reading the `wcs_promo_cache` transient, so a stale cached payload is never surfaced again — but the
+transient row itself is not actively deleted, only left unreachable until its normal 12h TTL expires
+or the setting is re-enabled. Functionally equivalent (nothing is ever shown while disabled), but not
+literally "cleared" as worded — noted here so this document doesn't overstate what was actually done.
+
+Re-verified after this correction: 336 PHPUnit tests / 929 assertions, PHPCS clean.

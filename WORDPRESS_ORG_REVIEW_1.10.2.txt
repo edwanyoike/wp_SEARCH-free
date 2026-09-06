@@ -1,0 +1,164 @@
+Turbo Search Free — WordPress.org submission review
+Review completed: 2026-09-06 (Africa/Nairobi)
+Verdict: NOT READY TO SUBMIT
+
+Scope: working tree at c54f597 plus existing uncommitted changes, and
+dist/turbo-search-for-woocommerce-1.10.2.zip. Policy baseline:
+../WORDPRESS_ORG_HANDBOOK.md, with the product's WORDPRESS_ORG_COMPLIANCE.md
+and older reviews used as history, not proof of current compliance.
+Official guidelines checked during this review:
+https://developer.wordpress.org/plugins/wordpress-org/detailed-plugin-guidelines/
+
+This is a static submission-readiness review plus local automated checks,
+not a live WordPress integration test or an official Plugins Team decision.
+No plugin code was changed. Keep this internal report out of release ZIPs.
+
+FINDINGS (highest priority first)
+
+1. HIGH: APCu search results are not isolated by site.
+   includes/class-query-normalizer.php:265-266
+   includes/class-search-handler.php:122-129
+   mu-plugin/wcs-cache-bypass.php:246-249
+
+   cache_key() uses only cache version, currency and an MD5 of the query.
+   Both request paths read raw APCu entries using that key and immediately
+   return the cached product rows. Unlike WordPress transients, these APCu
+   calls do not add a blog/site namespace. Two sites sharing APCu with equal
+   cache versions, currencies and queries can return each other's products,
+   URLs and prices. A multisite installation is a concrete affected setup.
+   Rate_Limiter::allow() similarly uses unscoped APCu IP-counter keys, so one
+   site's requests can consume another site's limit.
+
+   Fix: add installation and blog identity to shared APCu keys, consistently
+   across the REST and MU paths, including rate counters. Test two blogs with
+   identical query/currency/version but different catalogs and limits.
+   Basis: handbook sections 2 and 14.2 (security/developer responsibility).
+   Confirmed by source data flow; not reproduced on a live multisite server.
+
+2. HIGH: Promotional HTTP requests have no opt-in gate.
+   includes/class-admin-settings.php:75-76
+   includes/class-promo.php:97-113
+   readme.txt:83 onward
+
+   Visiting the settings screen on a cold/expired cache automatically calls
+   OzuPay's promotional endpoint. There is no consent setting or explicit
+   fetch action. The readme itself confirms the site's URL is included in
+   WordPress's default User-Agent. Disclosure and caching do not establish
+   explicit consent. This is an optional marketing service, not a service
+   required to perform the plugin's local product search.
+
+   Fix: use a local announcement, or require a default-off opt-in before any
+   remote request. Disabling it should prevent further fetches and clear its
+   cached payload. Keep the service disclosure accurate.
+   Basis: handbook section 14.7; official Guideline 7 explicitly requires
+   authorized consent before contacting external servers.
+
+3. HIGH: Multisite uninstall can delete data contrary to site preferences.
+   uninstall.php:23-24, 78-85
+
+   The deletion preference is read once from the current blog. If enabled,
+   each_network_site() invokes destructive cleanup on every blog without
+   checking each blog's preference. If disabled, all blogs are skipped,
+   including those that requested deletion. A main site opting in therefore
+   causes deletion on a subsite that explicitly retained the default opt-out.
+
+   Fix: evaluate each site's preference after switching to that site, or
+   implement a separately documented and explicitly authorized network-wide
+   deletion policy. Verify mixed preferences in both directions.
+   Basis: handbook sections 1, 9 and 13 (uninstall, options, user control).
+
+4. HIGH: Removing Free can damage a retained Pro installation.
+   uninstall.php:37-46, 121 onward
+   includes/class-activator.php:642-651
+
+   Free and Pro share wcs_search_index, several settings, and the same
+   mu-plugins/wcs-cache-bypass.php companion. Free's uninstall does not check
+   whether Pro needs those resources. After switching to Pro, deleting
+   inactive Free removes the shared MU file even with data deletion disabled;
+   with deletion enabled it also drops shared search tables/settings.
+   Free's deactivation likewise removes the shared MU file unconditionally,
+   including on a network where another blog still uses it.
+
+   Fix: preserve shared resources while another edition/site needs them;
+   distinguish edition ownership from whole-product data deletion. Verify
+   Free-to-Pro migration followed by deleting Free, including multisite.
+   Basis: handbook sections 1 and 14.2 (safe lifecycle/developer responsibility).
+
+5. MEDIUM: The release ZIP does not include pending cron-cleanup fixes.
+   includes/class-activator.php:100-138, 243
+   uninstall.php:71-77
+   ZIP: same files differ from the working tree.
+
+   The ZIP lacks clear_dynamic_cron_hooks(), while Indexer schedules
+   wcs_retry_rebuild_scheduling, wcs_retry_product_enqueue and
+   wcs_retry_product_delete with dynamic arguments. The shipped deactivation
+   path leaves these events scheduled. The user's existing uncommitted
+   changes address deactivation cleanup and opted-in uninstall, but are not
+   present in the artifact a reviewer would receive.
+
+   Fix: complete/review the pending lifecycle work and cut an authorized
+   release containing it. Recheck the final ZIP, not just the source checkout.
+   Basis: handbook sections 6 and 14.2.
+
+6. MEDIUM: Recent-search browser storage is absent from privacy disclosure.
+   includes/class-frontend.php:57-59
+   assets/js/search.js:486-505, 522
+
+   Recent searches are enabled by default and stored under
+   localStorage['wcs_recent_searches']. There is a count cap and a Clear
+   button, but no expiry. The public readme does not describe this storage,
+   its purpose, retention, removal, or the setting that disables it.
+
+   Fix: document the browser-only history, default behavior, retention and
+   clearing controls; provide suitable privacy-policy suggested text for
+   merchants. Assess expiry/disable cleanup. This is a transparency finding,
+   not a claim that browser-only search history is remote telemetry or that
+   a particular jurisdiction mandates a consent banner.
+   Basis: handbook section 13.
+
+7. LOW: Readme exceeds the repository's recorded size guidance again.
+   readme.txt:97 onward
+
+   readme.txt is 13,725 bytes and retains releases 1.6.3 through 1.10.2 in
+   addition to pointing to changelog.txt. The previous changelog split has
+   regressed. Handbook section 17 warns that readmes over about 10 KB may
+   cause errors and recommends retaining only the current release notes.
+
+   Fix: move older entries to changelog.txt and validate the final readme.
+   This is a recorded readiness issue, not a demonstrated automatic rejection.
+
+CHECKS AND POSITIVE EVIDENCE
+
+- composer lint: passed using the repository's configured rules/exclusions.
+- PHPUnit on PHP 8.3.33: 325 tests, 917 assertions, all passed.
+- PHP syntax check of every PHP entry in the release ZIP: passed.
+- ZIP: 24 files, one correctly named turbo-search-for-woocommerce root;
+  no tests, vendor tree, internal reviews or build scripts shipped.
+- Compared every packaged file against its source counterpart: differences
+  only in includes/class-activator.php and uninstall.php, as described above.
+- Main header, version constant, readme stable tag and POT identify 1.10.2.
+- Text domain and ZIP directory match; GPL declaration and dependency
+  metadata are present. Asset authorship/licensing was not independently
+  established; absence of a standalone LICENSE is not treated here as proof
+  that the declared GPL license is invalid.
+- Reviewed privileged AJAX handlers have nonce and manage_options checks.
+- Public search uses normalization and rate limiting; a guest nonce is not
+  treated as authorization to private records.
+- No product-count paywall was found; the previous quota issue remains fixed.
+- Promotion rendering is confined to the plugin settings screen. No global
+  admin-notice suppression or public powered-by link injection was found.
+
+VALIDATION LIMITS / REMAINING RELEASE GATES
+
+The official Plugin Check tool and WordPress.org Readme Validator were not
+run against 1.10.2 in this session. A historic 1.6.3 changelog claim of a live
+Plugin Check pass does not certify this version. No live site was modified,
+no server deployment was performed, and no stopped local Docker environment
+was started. PHP 8.0 runtime, real MySQL behavior, browser execution,
+multisite isolation and full lifecycle integration were not exercised.
+Compatibility metadata was checked for consistency, not newly certified.
+
+Before submission: resolve the high findings, complete the pending lifecycle
+fix, update privacy/readme documentation, then test and run official checks
+against the exact new release ZIP. Do not infer submission approval from the
+passing unit suite or the older compliance snapshot.

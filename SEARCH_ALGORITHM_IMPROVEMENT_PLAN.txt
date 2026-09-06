@@ -2261,3 +2261,55 @@ source-inspection finding) shows this bound is actually being hit.
 
 Verification: 323 PHPUnit tests / 915 assertions passing (up from 322/913);
 PHPCS clean.
+
+
+2026-09-05 AUDIT OF RESPONSE TO FINDING L FOLLOW-UP
+----------------------------------------------------
+
+The physical-table deletion retry race identified in the prior audit is now
+fixed correctly. retry_product_delete() no longer accepts a captured table
+name; it resolves the current live table on every attempt and additionally
+targets staging only while a rebuild is active. This makes an intervening
+atomic swap safe by construction. The new test verifies the important
+post-swap target selection.
+
+The decision not to add persistent unresolved-removal UI after eight failed
+DELETE attempts (three immediate plus five delayed retries) is a documented
+product tradeoff. Given this plan's high-impact-only scope, further machinery
+for that exhausted path should wait for production evidence unless the project
+adopts a stricter policy for restricted-product visibility. The residual risk
+remains real and is now explicitly accepted rather than accidentally silent.
+
+One Medium reliability issue remains in the response's reasoning and code:
+lost incremental product updates do not always require five failures over
+roughly 2.5 minutes. In queue_product_update(), the very first Action Scheduler
+enqueue can return zero and the immediately following
+wp_schedule_single_event() can return false. That is one rejection by each
+scheduler in a single request. No retry callback will ever run, so none of the
+five later Action Scheduler attempts exists and the only product update is
+lost. The new warning log detects this outcome but does not recover it.
+
+The same terminal condition can occur during retry_product_enqueue(): after an
+Action Scheduler rejection, failure to schedule the next WP-Cron event ends
+the chain at its current attempt rather than after the stated bounded window.
+Consequently, the response's assertion that both declined points require five
+consecutive WP-Cron-driven failures is incorrect for the incremental-update
+case.
+
+Recommended proportional resolution: when both schedulers reject an
+incremental update, store the product ID in a small bounded pending set and
+drain that set from the already-existing daily maintenance hook or the next
+successful indexer initialization. This needs no new settings-page panel. Log
+when an ID enters or leaves the set, cap its size, and allow a full rebuild to
+clear entries it has covered.
+
+Acceptance criteria:
+
+- One Action Scheduler rejection followed by one WP-Cron scheduling rejection
+  leaves durable pending work rather than only a log line.
+- The existing maintenance path resubmits the ID without another product save.
+- A successful enqueue or covering full rebuild clears the pending ID.
+
+Verification repeated during this audit: 323 PHPUnit tests / 915 assertions,
+PHPCS, `node --check assets/js/search.js`, and `git diff --check` all pass. No
+additional defect was found in the revised logical-target deletion retry.
