@@ -137,6 +137,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_as_has_scheduled'] = false;
 	$GLOBALS['wcs_test_cron_schedule_fails'] = false;
 	$GLOBALS['wcs_test_active_plugins']       = array();
+	$GLOBALS['wcs_test_active_plugins_by_site'] = array();
 	$GLOBALS['wcs_test_deactivated_plugins']  = array();
 	$GLOBALS['wcs_test_primed']        = array();
 	$GLOBALS['wcs_test_on_sale_ids']   = array();
@@ -377,8 +378,27 @@ function wp_verify_nonce( $nonce, $action = -1 ) {
 function wp_using_ext_object_cache(): bool {
 	return ! empty( $GLOBALS['wcs_test_ext_cache'] );
 }
+// Per-site override: $GLOBALS['wcs_test_active_plugins_by_site'][site_id]
+// takes priority over the flat wcs_test_active_plugins global when set, so
+// a test can simulate "Pro is active on site 2 but not the current site" —
+// something a single flat list can't express. Falls back to the flat list
+// (as every existing test already expects) whenever no per-site override
+// exists for the site currently switched to.
 function is_plugin_active( string $plugin ): bool {
+	$stack        = $GLOBALS['wcs_test_current_blog_stack'] ?? array();
+	$current_site = empty( $stack ) ? null : end( $stack );
+	$by_site      = $GLOBALS['wcs_test_active_plugins_by_site'] ?? array();
+	if ( null !== $current_site && array_key_exists( $current_site, $by_site ) ) {
+		return in_array( $plugin, $by_site[ $current_site ], true );
+	}
 	return in_array( $plugin, $GLOBALS['wcs_test_active_plugins'] ?? array(), true );
+}
+// Simplified stand-in for WP core's plugin_basename(): real WordPress strips
+// the plugins-directory prefix; this fake just needs to be internally
+// consistent (folder-name/file.php) so a test can compute the same string
+// it puts into wcs_test_active_plugins to simulate "Free is active".
+function plugin_basename( string $file ): string {
+	return basename( dirname( $file ) ) . '/' . basename( $file );
 }
 function deactivate_plugins( $plugins ): void {
 	$GLOBALS['wcs_test_deactivated_plugins'] = array_merge(

@@ -561,6 +561,57 @@ class Activator {
 	}
 
 	/**
+	 * Whether a genuinely network-wide shared resource is still needed by
+	 * this install — same-site check on an ordinary (non-Multisite) site,
+	 * whole-network scan on Multisite.
+	 *
+	 * Only two resources this plugin creates are actually shared across an
+	 * entire Multisite network rather than per-site: the MU cache-bypass
+	 * file (wp-content/mu-plugins/ is one directory, not one per site) and
+	 * the wcs_notice_*_dismissed usermeta rows (WordPress's users/usermeta
+	 * tables are network-wide, unlike wp_options — which switch_to_blog()
+	 * already makes per-site). The search-index tables and every option in
+	 * PLUGIN_OPTIONS are already correctly scoped per-site by wpdb's own
+	 * blog-prefixed table names and per-site options table, so
+	 * wcs_uninstall_single_site()'s existing same-site is_pro_edition_active()
+	 * check needs no change — this method is for the other two only.
+	 *
+	 * Deliberately used ONLY from uninstall.php, never from
+	 * remove_mu_plugin()'s deactivation-time check: uninstall is a
+	 * deliberate, one-time, hard-to-reverse action, unlike routine,
+	 * reversible deactivation — a full network scan (switch_to_blog() +
+	 * is_plugin_active() per site, paginated the same way
+	 * each_network_site() already does its per-site table/option cleanup)
+	 * is justified there in a way it would not be on every deactivate()
+	 * call across a large network. Deactivation's same-site-only check,
+	 * plus init()'s file-existence self-heal on any site still running
+	 * Free, remains the accepted, documented tradeoff for that path.
+	 */
+	public static function is_shared_network_resource_still_needed(): bool {
+		if ( ! is_multisite() ) {
+			return self::is_pro_edition_active();
+		}
+
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		$free_basename = plugin_basename( dirname( __DIR__ ) . '/turbo-search-for-woocommerce.php' );
+		$found         = false;
+
+		self::each_network_site( static function () use ( $free_basename, &$found ) {
+			if ( $found ) {
+				return; // already confirmed on an earlier site — skip the rest
+			}
+			if ( is_plugin_active( $free_basename ) || is_plugin_active( self::PRO_EDITION_BASENAME ) ) {
+				$found = true;
+			}
+		} );
+
+		return $found;
+	}
+
+	/**
 	 * Copy the cache-bypass MU plugin into wp-content/mu-plugins/.
 	 *
 	 * Called on plugin activation. The source file ships inside the plugin

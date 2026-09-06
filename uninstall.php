@@ -121,18 +121,28 @@ function wcs_uninstall_single_site(): void {
  * wcs_notice_mu_bypass_dismissed and wcs_notice_no_cache_dismissed record a
  * user's own dismissal of notices about the shared MU cache-bypass file and
  * the shared no-persistent-object-cache warning — both concerns apply
- * identically to a still-active Pro install on this same site, not just to
- * Free. Wiping them out while Pro is active would silently reset Pro's own
- * already-dismissed notices back to "not dismissed" for every admin, purely
- * because Free was the edition being removed. Same principle already
- * applied to wcs_uninstall_single_site()'s table/option cleanup and to the
- * MU file itself below: an opt-in to delete Free's own data is not consent
- * to touch state a retained Pro install still relies on.
+ * identically to a still-active Pro install, not just to Free. Wiping them
+ * out would silently reset Pro's own already-dismissed notices back to "not
+ * dismissed" for every admin, purely because Free was the edition being
+ * removed. Same principle already applied to wcs_uninstall_single_site()'s
+ * table/option cleanup and to the MU file below: an opt-in to delete Free's
+ * own data is not consent to touch state a retained Pro install still
+ * relies on.
+ *
+ * Unlike wcs_uninstall_single_site()'s table/option cleanup (already
+ * correctly per-site via switch_to_blog()'s effect on wpdb/get_option()),
+ * WordPress's users/usermeta tables are network-wide on Multisite — a
+ * single shared table, not one per site — so a same-site-only check here
+ * would miss Pro running on a DIFFERENT site in the network. Uses
+ * Activator::is_shared_network_resource_still_needed(), which scans the
+ * whole network on Multisite and falls back to the same-site check
+ * everywhere else — see its own docblock for why this differs from the
+ * intentionally same-site-only check at deactivation time.
  */
 function wcs_delete_notice_dismissals(): void {
 	global $wpdb;
 
-	if ( \WCS\Search\Activator::is_pro_edition_active() ) {
+	if ( \WCS\Search\Activator::is_shared_network_resource_still_needed() ) {
 		return;
 	}
 
@@ -182,12 +192,15 @@ if ( true === $delete_data ) {
 }
 
 // 5. Remove the MU plugin file — but not out from under a still-active Pro
-// install: mu-plugins/ is a single, network-wide directory (not per-site),
-// and Free/Pro both install and use the exact same wcs-cache-bypass.php.
-// Uninstalling Free after migrating to Pro is a supported, expected path;
-// see Activator::remove_mu_plugin()'s docblock for the identical check and
-// its documented Multisite cross-site scope limitation.
-if ( defined( 'WPMU_PLUGIN_DIR' ) && ! \WCS\Search\Activator::is_pro_edition_active() ) {
+// (or, on Multisite, Free) install anywhere in the network: mu-plugins/ is
+// a single, network-wide directory (not per-site), and Free/Pro both
+// install and use the exact same wcs-cache-bypass.php. Uninstalling Free
+// after migrating to Pro is a supported, expected path. Unlike
+// remove_mu_plugin()'s deactivation-time check (deliberately same-site-only
+// — see its docblock), uninstall is a one-time, hard-to-reverse action, so
+// the whole-network scan in is_shared_network_resource_still_needed() is
+// justified here.
+if ( defined( 'WPMU_PLUGIN_DIR' ) && ! \WCS\Search\Activator::is_shared_network_resource_still_needed() ) {
 	$mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 	if ( file_exists( $mu_file ) || is_link( $mu_file ) ) {
 		if ( ! function_exists( 'get_filesystem_method' ) || ! function_exists( 'WP_Filesystem' ) ) {

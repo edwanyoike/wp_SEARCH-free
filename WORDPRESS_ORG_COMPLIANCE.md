@@ -1115,3 +1115,52 @@ Verification: 348 PHPUnit tests / 951 assertions (up from 343/943), PHPCS clean,
 clean. Shipped as 1.11.2 — see this repo's own commit/push/deploy history for confirmation it was
 actually cut and deployed, not just fixed in the working tree (the same distinction Finding 5 was
 originally about).
+
+## Follow-up recheck, 2026-09-06 (same day): two more precise gaps, both closed
+
+`WORDPRESS_ORG_RELEASE_REVIEW_1.11.2.txt` rechecked 1.11.2 and found no new high-severity blocker, but
+correctly pushed back on two remaining points instead of accepting the "Correction" above as the final
+word — exactly the kind of re-verification this document is supposed to invite, not resist.
+
+**1. MEDIUM — network-wide MU ownership was still not protected; the fix only self-healed Free's own
+copy.** Confirmed accurate: `init()`'s new file-existence repair (from the Correction above) runs on
+any site still running Free, but does nothing for a Pro-only site, and does nothing to *prevent*
+removal in the first place — Free's own deactivation/uninstall on one site could still delete the
+network-wide MU file out from under a different site. The reviewer also correctly flagged that Pro's
+own repository (`../wp_search/`) still only checks its version marker, not file existence — that is a
+separate product/repo and out of scope for this fix; flagged to the user rather than silently edited.
+
+**2. LOW — shared usermeta protection was current-site only, same as the MU file's original gap.**
+Confirmed: `wcs_delete_notice_dismissals()`'s same-site `is_pro_edition_active()` check (from the
+correction above) cannot see Pro running on a *different* site in a Multisite network, because
+WordPress's users/usermeta tables are network-wide — one shared table, not one per site, unlike the
+search-index tables and `PLUGIN_OPTIONS`, which `switch_to_blog()` already makes correctly per-site.
+
+**Fix for both:** a new `Activator::is_shared_network_resource_still_needed()` — same-site check on an
+ordinary install, whole-network scan (reusing the existing `each_network_site()` pagination) on
+Multisite, checking whether either edition is active on *any* site. Wired into both the MU-file removal
+block and `wcs_delete_notice_dismissals()` in `uninstall.php`. Deliberately used ONLY at uninstall time,
+not at plugin deactivation: uninstall is a one-time, hard-to-reverse action, so a full-network scan is
+justified there; deactivation is routine and reversible, and stays same-site-only (with the
+file-existence self-heal from the Correction above as its accepted mitigation) — a full network scan on
+every deactivate() call across a potentially large network would be disproportionate. This line is
+recorded explicitly, matching the reviewer's own request not to describe this as "complete cross-site
+protection" — it is complete for the two destructive, hard-to-reverse actions this repo controls
+(uninstall's MU-file removal and usermeta cleanup), not for deactivation, and not for Pro's own
+codebase's version-only repair check.
+
+Testing: the first attempt at a regression test for this was worthless and I want that recorded rather
+than smoothed over — a flat `$GLOBALS['wcs_test_active_plugins']` global can't distinguish "Pro active
+on site 2" from "Pro active on the site running uninstall," so a naive isolated-process test passed
+under the OLD buggy code too, proving nothing. Fixed by adding genuine per-site plugin-state support to
+the test bootstrap (`wcs_test_active_plugins_by_site`, keyed by whichever site `switch_to_blog()` last
+switched into) and rewriting the test around a scenario where site 1 (no Pro, opted in) legitimately
+gets its own tables dropped while site 2 (Pro active) is what protects the shared usermeta — then
+confirmed this version of the test actually fails against the reverted code (leaking the exact two
+`DELETE FROM wp_usermeta` queries) before confirming it passes with the fix restored. Four new
+`ActivatorTest` cases cover `is_shared_network_resource_still_needed()` directly (same-site fallback,
+Pro detected elsewhere, Free detected elsewhere, returns false only after genuinely scanning every
+site).
+
+Verification: 353 PHPUnit tests / 959 assertions (up from 348/951), PHPCS clean, `git diff --check`
+clean.

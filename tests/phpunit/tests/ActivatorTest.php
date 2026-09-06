@@ -427,6 +427,52 @@ final class ActivatorTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['wcs_test_current_blog_stack'], 'no blog context should remain switched after the loop finishes' );
 	}
 
+	// ── Network-wide shared-resource check (MU file, notice usermeta) ───────
+	// Regression: is_pro_edition_active() alone is same-site only, which is
+	// correct for the search-index tables/options (already per-site via
+	// switch_to_blog()'s effect on wpdb/get_option()) but wrong for the two
+	// resources that are genuinely network-wide on Multisite — the MU file
+	// (one shared directory) and notice-dismissal usermeta (one shared
+	// users/usermeta table). is_shared_network_resource_still_needed() adds
+	// a whole-network scan for those two call sites only.
+
+	public function test_network_resource_check_falls_back_to_same_site_outside_multisite(): void {
+		$GLOBALS['wcs_test_is_multisite'] = false;
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		$this->assertTrue( Activator::is_shared_network_resource_still_needed() );
+
+		$GLOBALS['wcs_test_active_plugins'] = array();
+
+		$this->assertFalse( Activator::is_shared_network_resource_still_needed() );
+	}
+
+	public function test_network_resource_check_detects_pro_active_on_another_site(): void {
+		$GLOBALS['wcs_test_is_multisite']   = true;
+		$GLOBALS['wcs_test_all_site_ids']   = array( 1, 2, 3 );
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		$this->assertTrue( Activator::is_shared_network_resource_still_needed(), 'Pro active anywhere in the network must be detected, not just on the current site' );
+	}
+
+	public function test_network_resource_check_detects_free_active_on_another_site(): void {
+		$GLOBALS['wcs_test_is_multisite'] = true;
+		$GLOBALS['wcs_test_all_site_ids'] = array( 1, 2, 3 );
+		$free_basename                    = plugin_basename( WCS_PLUGIN_DIR . 'turbo-search-for-woocommerce.php' );
+		$GLOBALS['wcs_test_active_plugins'] = array( $free_basename );
+
+		$this->assertTrue( Activator::is_shared_network_resource_still_needed(), 'Free active anywhere in the network must be detected too, not just Pro' );
+	}
+
+	public function test_network_resource_check_scans_every_site_and_returns_false_when_nowhere_active(): void {
+		$GLOBALS['wcs_test_is_multisite']   = true;
+		$GLOBALS['wcs_test_all_site_ids']   = array( 1, 2, 3 );
+		$GLOBALS['wcs_test_active_plugins'] = array();
+
+		$this->assertFalse( Activator::is_shared_network_resource_still_needed() );
+		$this->assertSame( array( 1, 2, 3 ), $GLOBALS['wcs_test_switched_blogs'], 'must actually check every site before concluding nothing needs it' );
+	}
+
 	public function test_each_network_site_restores_blog_context_even_when_callback_throws(): void {
 		$GLOBALS['wcs_test_all_site_ids'] = array( 1, 2, 3 );
 
