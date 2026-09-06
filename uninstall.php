@@ -19,14 +19,47 @@ global $wpdb;
 // Activator directly for its canonical option / transient-prefix lists.
 require_once __DIR__ . '/includes/class-activator.php';
 
-// Check if data deletion on uninstall is enabled.
+// Check if data deletion on uninstall is enabled — for the top-level
+// single-site/network-wide dispatch below; each_network_site() re-checks
+// each site's OWN stored value after switching into it (see
+// wcs_uninstall_single_site()'s docblock), since this top-level read
+// reflects only whichever site's context WordPress happened to run
+// uninstall.php in, not a network-wide setting.
 $delete_data = (bool) get_option( 'wcs_delete_data_on_uninstall', false );
 
 /**
  * Clean up a single site's tables, options, transients, and background tasks.
+ *
+ * Re-checks wcs_delete_data_on_uninstall itself, scoped to whichever site
+ * is currently active — each_network_site() calls this once per site,
+ * after switch_to_blog(), so get_option() here reads THAT site's own
+ * stored preference. Without this, the single top-level read at the top of
+ * this file (necessarily just one site's value — the one WordPress
+ * happened to run uninstall.php in) would apply uniformly to every site in
+ * the network: a main site left opted out could skip a subsite that
+ * explicitly opted in, or a main site opted in could delete a subsite's
+ * data against that subsite's own explicit choice to keep it.
+ *
+ * Also refuses to run at all while Pro is active on this site: the search
+ * index tables and several settings options below are shared with Pro (see
+ * PORTING.md), not Free-exclusive state, so an admin's explicit opt-in to
+ * "delete data on uninstall" is about removing FREE's own footprint when
+ * Free is genuinely being removed — it was never consent to drop the
+ * search index (and the rate-limit table, and every shared setting) out
+ * from under a Pro install that migrated onto that exact same data. This
+ * is the same principle the MU-file check below already applies to their
+ * other shared resource, just for tables/options instead of a file.
  */
 function wcs_uninstall_single_site(): void {
 	global $wpdb;
+
+	if ( ! (bool) get_option( 'wcs_delete_data_on_uninstall', false ) ) {
+		return;
+	}
+
+	if ( \WCS\Search\Activator::is_pro_edition_active() ) {
+		return;
+	}
 
 	// 1. Drop the custom search index tables (main + staging) and the
 	// rate-limit counters. Typo-correction vocabulary (wcs_search_terms*),
@@ -67,19 +100,34 @@ function wcs_uninstall_single_site(): void {
 	if ( $timestamp ) {
 		wp_unschedule_event( $timestamp, 'wcs_daily_transient_gc' );
 	}
+
+	// 5b. Clear any pending dynamically-argumented WP-Cron retries (a
+	// product-update/removal retry, or a rebuild-scheduling retry) — these
+	// are keyed by product ID or rebuild epoch, not a fixed argument list,
+	// so wp_next_scheduled()/wp_unschedule_event() alone can't target them;
+	// see Activator::clear_dynamic_cron_hooks()'s docblock.
+	\WCS\Search\Activator::clear_dynamic_cron_hooks();
+}
+
+// Perform cleanup across all sites in Multisite or the current single site.
+// Paginates via Activator::each_network_site() (get_sites() in bounded
+// pages, restoring blog context even if a site's cleanup throws) so a
+// network of any size is fully cleaned up, not just its first 1,000 sites.
+//
+// Multisite always dispatches to every site regardless of $delete_data —
+// wcs_uninstall_single_site() checks each site's OWN preference itself
+// after switch_to_blog() (see its docblock); gating the dispatch on this
+// file's single top-level read would apply just one site's value network-
+// wide. Single-site has only the one preference to check, so the top-level
+// $delete_data (already that site's own value) gates it directly, same as
+// before.
+if ( is_multisite() ) {
+	\WCS\Search\Activator::each_network_site( 'wcs_uninstall_single_site' );
+} elseif ( $delete_data ) {
+	wcs_uninstall_single_site();
 }
 
 if ( true === $delete_data ) {
-	// Perform cleanup across all sites in Multisite or the current single site.
-	// Paginates via Activator::each_network_site() (get_sites() in bounded
-	// pages, restoring blog context even if a site's cleanup throws) so a
-	// network of any size is fully cleaned up, not just its first 1,000 sites.
-	if ( is_multisite() ) {
-		\WCS\Search\Activator::each_network_site( 'wcs_uninstall_single_site' );
-	} else {
-		wcs_uninstall_single_site();
-	}
-
 	// 6. Delete all wcs_notice_*_dismissed user meta.
 	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 	$wpdb->query(
@@ -103,8 +151,13 @@ if ( true === $delete_data ) {
 	);
 }
 
-// 5. Remove the MU plugin file
-if ( defined( 'WPMU_PLUGIN_DIR' ) ) {
+// 5. Remove the MU plugin file — but not out from under a still-active Pro
+// install: mu-plugins/ is a single, network-wide directory (not per-site),
+// and Free/Pro both install and use the exact same wcs-cache-bypass.php.
+// Uninstalling Free after migrating to Pro is a supported, expected path;
+// see Activator::remove_mu_plugin()'s docblock for the identical check and
+// its documented Multisite cross-site scope limitation.
+if ( defined( 'WPMU_PLUGIN_DIR' ) && ! \WCS\Search\Activator::is_pro_edition_active() ) {
 	$mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 	if ( file_exists( $mu_file ) || is_link( $mu_file ) ) {
 		if ( ! function_exists( 'get_filesystem_method' ) || ! function_exists( 'WP_Filesystem' ) ) {

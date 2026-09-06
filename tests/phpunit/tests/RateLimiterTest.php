@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
+use WCS\Search\Query_Normalizer;
 use WCS\Search\Rate_Limiter;
 
 /**
@@ -15,12 +16,41 @@ final class RateLimiterTest extends TestCase {
 		wcs_tests_reset();
 	}
 
+	/**
+	 * Rate_Limiter::allow() folds Query_Normalizer::site_scope() into every
+	 * key itself now (so one site's visitor can't exhaust another's limit
+	 * when APCu is shared across a PHP-FPM pool) — tests that inspect the
+	 * DB fallback's stored row by literal key must account for that prefix.
+	 */
+	private function scopedKey( string $key ): string {
+		return Query_Normalizer::site_scope() . '_' . $key;
+	}
+
 	public function test_allows_up_to_max_then_denies(): void {
 		for ( $i = 1; $i <= 5; $i++ ) {
 			$this->assertTrue( Rate_Limiter::allow( 'k', 5, 60 ), "request $i should be allowed" );
 		}
 		$this->assertFalse( Rate_Limiter::allow( 'k', 5, 60 ) );
 		$this->assertFalse( Rate_Limiter::allow( 'k', 5, 60 ) );
+	}
+
+	/**
+	 * Regression: raw apcu_inc()/apcu_store() calls (the fast path just
+	 * below the DB fallback this file otherwise exercises) share one flat
+	 * key space across every site a PHP-FPM pool serves — not just blogs in
+	 * one Multisite network, but entirely separate WordPress installations
+	 * on the same host, a standard shared-hosting pattern. An unscoped key
+	 * built only from an IP hash would let one site's visitor exhaust a
+	 * completely different site's rate limit. Verifies two different sites
+	 * (different blog IDs, the Multisite case) get independently-tracked
+	 * counters for what would otherwise be an identical key.
+	 */
+	public function test_same_key_on_different_sites_is_tracked_independently(): void {
+		$GLOBALS['wcs_test_blog_id'] = 1;
+		Rate_Limiter::allow( 'shared-ip-hash', 1, 60 );
+
+		$GLOBALS['wcs_test_blog_id'] = 2;
+		$this->assertTrue( Rate_Limiter::allow( 'shared-ip-hash', 1, 60 ), 'a different site must not inherit another site\'s exhausted limit' );
 	}
 
 	public function test_keys_are_independent(): void {
@@ -41,7 +71,7 @@ final class RateLimiterTest extends TestCase {
 		Rate_Limiter::allow( 'k', 1, 60 );
 		Rate_Limiter::allow( 'k', 1, 60 ); // denied
 		Rate_Limiter::allow( 'k', 1, 60 ); // denied
-		$this->assertSame( 3, $GLOBALS['wcs_test_rate_limits']['k']['hits'] );
+		$this->assertSame( 3, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
 	}
 
 	public function test_window_start_is_bucketed_to_wall_clock_time(): void {
@@ -51,13 +81,13 @@ final class RateLimiterTest extends TestCase {
 		// the identical window boundary independently, with no coordination.
 		Rate_Limiter::allow( 'k', 10, 100 );
 		$expected = (int) floor( time() / 100 ) * 100;
-		$this->assertSame( $expected, $GLOBALS['wcs_test_rate_limits']['k']['window_start'] );
+		$this->assertSame( $expected, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['window_start'] );
 	}
 
 	public function test_a_new_window_resets_the_counter(): void {
-		$GLOBALS['wcs_test_rate_limits']['k'] = array( 'window_start' => 0, 'hits' => 999 );
+		$GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ] = array( 'window_start' => 0, 'hits' => 999 );
 		Rate_Limiter::allow( 'k', 10, 60 );
-		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits']['k']['hits'] );
+		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
 	}
 
 	// ── resolved_search_limit() ───────────────────────────────────────────────

@@ -53,6 +53,15 @@ final class CacheKeyParityTest extends TestCase {
 		return Query_Normalizer::cache_key( $normalized, $currency, 3 );
 	}
 
+	/**
+	 * Rate_Limiter::allow() folds Query_Normalizer::site_scope() into every
+	 * key itself now — tests that inspect the DB fallback's stored row by
+	 * literal key must account for that prefix.
+	 */
+	private function scopedRlKey( string $ip ): string {
+		return Query_Normalizer::site_scope() . '_wcs_rl_' . md5( $ip );
+	}
+
 	public function test_plain_query_produces_identical_keys(): void {
 		$_GET['q'] = 'hazina lamp';
 		$this->assertSame( $this->restKey( 'hazina lamp', 'USD' ), $this->interceptedKey() );
@@ -116,7 +125,7 @@ final class CacheKeyParityTest extends TestCase {
 		$_GET['q'] = 'lamp';
 		$this->interceptedKey();
 
-		$expected_key = 'wcs_rl_' . md5( '' ); // no REMOTE_ADDR set in this test environment
+		$expected_key = $this->scopedRlKey( '' ); // no REMOTE_ADDR set in this test environment
 		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 
 		// A second call within the window must increment the same counter,
@@ -133,7 +142,7 @@ final class CacheKeyParityTest extends TestCase {
 		$_GET['q']              = 'lamp';
 		$this->interceptedKey();
 
-		$expected_key = 'wcs_rl_' . md5( '203.0.113.7' );
+		$expected_key = $this->scopedRlKey( '203.0.113.7' );
 		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 	}
 
@@ -154,7 +163,7 @@ final class CacheKeyParityTest extends TestCase {
 
 	public function test_configured_max_above_sixty_does_not_reject_the_sixty_first_request(): void {
 		update_option( 'wcs_rate_limit_requests', 200 );
-		$GLOBALS['wcs_test_rate_limits']['wcs_rl_' . md5( '' )] = array(
+		$GLOBALS['wcs_test_rate_limits'][ $this->scopedRlKey( '' ) ] = array(
 			'window_start' => (int) floor( time() / MINUTE_IN_SECONDS ) * MINUTE_IN_SECONDS,
 			'hits'         => 60, // already at the OLD hardcoded limit
 		);
@@ -164,7 +173,7 @@ final class CacheKeyParityTest extends TestCase {
 
 		// Under the old hardcoded 60/minute this 61st hit would have been
 		// rejected; a configured 200 must still allow it.
-		$this->assertSame( 61, $GLOBALS['wcs_test_rate_limits'][ 'wcs_rl_' . md5( '' ) ]['hits'] ?? null );
+		$this->assertSame( 61, $GLOBALS['wcs_test_rate_limits'][ $this->scopedRlKey( '' ) ]['hits'] ?? null );
 	}
 
 	public function test_configured_window_is_passed_through_unchanged(): void {
@@ -176,7 +185,7 @@ final class CacheKeyParityTest extends TestCase {
 
 		$this->interceptedKey();
 
-		$expected_key = 'wcs_rl_' . md5( '' );
+		$expected_key = $this->scopedRlKey( '' );
 		$expected_window_start = (int) floor( time() / 3600 ) * 3600;
 		$this->assertSame( $expected_window_start, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['window_start'] ?? null );
 	}
@@ -188,7 +197,7 @@ final class CacheKeyParityTest extends TestCase {
 
 		$this->interceptedKey();
 
-		$expected_key           = 'wcs_rl_' . md5( '' );
+		$expected_key           = $this->scopedRlKey( '' );
 		$expected_window_start  = (int) floor( time() / MINUTE_IN_SECONDS ) * MINUTE_IN_SECONDS;
 		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['hits'] ?? null );
 		$this->assertSame( $expected_window_start, $GLOBALS['wcs_test_rate_limits'][ $expected_key ]['window_start'] ?? null );

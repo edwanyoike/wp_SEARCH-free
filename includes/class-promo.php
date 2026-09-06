@@ -88,6 +88,18 @@ class Promo {
 	 * @return array{dismiss_id:string,message:string,link_url:string,link_text:string}|null
 	 */
 	public static function get(): ?array {
+		// Explicit, off-by-default opt-in — WordPress.org Guideline 7 requires
+		// authorized consent before a plugin contacts any external server,
+		// with no carve-out for how little data the request sends; this is a
+		// promotional/marketing fetch, not functionality the plugin needs to
+		// perform a local product search. Checked before the transient read
+		// too, not just before the HTTP call: gating only the network request
+		// would still display an already-cached promo from before the admin
+		// disabled this, which isn't what turning it off is supposed to mean.
+		if ( ! (bool) get_option( 'wcs_show_promo', false ) ) {
+			return null;
+		}
+
 		try {
 			// get_transient() returns `false` for BOTH "never cached" and "value
 			// IS false" — so the cached payload always stores an array (with

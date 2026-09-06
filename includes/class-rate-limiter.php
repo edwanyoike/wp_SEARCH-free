@@ -57,12 +57,24 @@ class Rate_Limiter {
 	 * fallback's UPSERT atomic and portable: the same key always maps to the
 	 * same window boundary regardless of which worker is asking.
 	 *
-	 * @param string $key            Fully prefixed counter key (caller includes any IP hash).
+	 * @param string $key            Counter key (caller includes any IP hash); this method
+	 *                                folds in the site scope itself — see below.
 	 * @param int    $max_requests   Maximum requests allowed per window.
 	 * @param int    $window_seconds Window length in seconds.
 	 * @return bool True when this request is allowed, false when over the limit.
 	 */
 	public static function allow( string $key, int $max_requests, int $window_seconds ): bool {
+		// Folded in here, not left to each call site to remember: the APCu
+		// path below shares one flat key space across every site a PHP-FPM
+		// pool serves (see Query_Normalizer::site_scope()'s docblock), so an
+		// unscoped IP-hash key would let one site's visitor exhaust a
+		// completely different site's rate limit. The DB fallback is
+		// already implicitly scoped via $wpdb->prefix, but scoping
+		// unconditionally here keeps this a single, consistent key shape
+		// regardless of backend rather than two different ones to reason
+		// about.
+		$key = Query_Normalizer::site_scope() . '_' . $key;
+
 		if ( function_exists( 'apcu_inc' ) ) {
 			$success = false;
 			$count   = apcu_inc( $key, 1, $success );

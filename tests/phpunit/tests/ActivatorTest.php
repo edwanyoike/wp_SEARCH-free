@@ -273,6 +273,46 @@ final class ActivatorTest extends TestCase {
 		$this->assertSame( $first, $GLOBALS['wcs_test_cron']['wcs_daily_transient_gc'] );
 	}
 
+	// ── Dynamic (per-product/per-rebuild) WP-Cron cleanup ────────────────────
+
+	/**
+	 * Regression: the three WP-Cron retry hooks added across the rebuild-
+	 * reliability work (wcs_retry_rebuild_scheduling, wcs_retry_product_
+	 * enqueue, wcs_retry_product_delete) are all scheduled with dynamic,
+	 * per-call arguments (a product ID, or a rebuild epoch/cursor pair) —
+	 * unlike wcs_daily_transient_gc, wp_next_scheduled()/wp_unschedule_
+	 * event() can't clear "every pending instance" of them without already
+	 * knowing each instance's exact args, and any number of distinct
+	 * instances (different products, different rebuilds) can be pending at
+	 * once. Deactivation and uninstall used to leave these all behind.
+	 */
+	public function test_clear_dynamic_cron_hooks_removes_every_pending_instance_regardless_of_args(): void {
+		wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( 7 ) );
+		wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( 8 ) );
+		wp_schedule_single_event( time() + 30, 'wcs_retry_product_delete', array( 9 ) );
+		wp_schedule_single_event( time() + 45, 'wcs_retry_rebuild_scheduling', array( 42, 500 ) );
+
+		Activator::clear_dynamic_cron_hooks();
+
+		$this->assertSame( array(), _get_cron_array(), 'every pending instance across every dynamic hook and timestamp must be cleared' );
+	}
+
+	public function test_clear_dynamic_cron_hooks_leaves_unrelated_hooks_alone(): void {
+		update_option( 'wcs_db_version', '99.0.0' );
+		update_option( 'wcs_mu_version', WCS_VERSION );
+		$this->healthyTables();
+		Activator::init(); // schedules wcs_daily_transient_gc
+		wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( 7 ) );
+
+		Activator::clear_dynamic_cron_hooks();
+
+		$this->assertNotNull( $GLOBALS['wcs_test_cron']['wcs_daily_transient_gc'] ?? null, 'an unrelated recurring hook must survive' );
+		$remaining = _get_cron_array();
+		foreach ( $remaining as $hooks_at_timestamp ) {
+			$this->assertArrayNotHasKey( 'wcs_retry_product_enqueue', $hooks_at_timestamp );
+		}
+	}
+
 	// ── Mutual exclusivity with the Pro edition ──────────────────────────────
 
 	public function test_pro_edition_not_detected_when_absent(): void {
@@ -289,6 +329,34 @@ final class ActivatorTest extends TestCase {
 		$GLOBALS['wcs_test_active_plugins'] = array( 'woocommerce/woocommerce.php' );
 
 		$this->assertFalse( Activator::is_pro_edition_active() );
+	}
+
+	/**
+	 * Regression: wp-content/mu-plugins/ is a single, network-wide directory
+	 * — not per-site — and Free/Pro both install and use the exact same
+	 * wcs-cache-bypass.php file. deactivate() used to remove it
+	 * unconditionally, so migrating from Free to Pro on the same site (a
+	 * supported, expected path — Free's own activation guard refuses to run
+	 * alongside Pro) silently broke Pro's fast-path cache-bypass the moment
+	 * an admin deactivated the now-redundant Free copy.
+	 */
+	public function test_deactivate_does_not_remove_the_shared_mu_file_when_pro_is_still_active(): void {
+		$mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $mu, '<?php // placeholder' );
+		$GLOBALS['wcs_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		Activator::deactivate();
+
+		$this->assertFileExists( $mu, 'must not delete the MU file a still-active Pro install needs' );
+	}
+
+	public function test_deactivate_removes_the_mu_file_when_pro_is_not_active(): void {
+		$mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $mu, '<?php // placeholder' );
+
+		Activator::deactivate();
+
+		$this->assertFileDoesNotExist( $mu, 'a genuine removal (no other edition active) must still clean up' );
 	}
 
 	// ── Network site iteration (each_network_site) ───────────────────────────

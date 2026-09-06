@@ -98,6 +98,7 @@ define( 'WP_PLUGIN_DIR', $wcs_tests_plugin_dir );
 
 // ── Test-state stores ──────────────────────────────────────────────────────
 function wcs_tests_reset(): void {
+	$GLOBALS['wcs_test_blog_id']       = 1;
 	$GLOBALS['wcs_test_options']       = array();
 	$GLOBALS['wcs_test_transients']    = array();
 	$GLOBALS['wcs_test_filters']       = array();
@@ -129,6 +130,7 @@ function wcs_tests_reset(): void {
 	$GLOBALS['wcs_test_shortcode_atts_tags']      = array();
 	$GLOBALS['wcs_test_script_done']   = false;
 	$GLOBALS['wcs_test_cron']          = array();
+	$GLOBALS['wcs_test_cron_array']    = array();
 	$GLOBALS['wcs_test_single_events'] = array();
 	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
 	$GLOBALS['wcs_test_as_schedule_fails'] = false;
@@ -505,6 +507,9 @@ function admin_url( string $path = '' ): string {
 function home_url( string $path = '' ): string {
 	return 'https://example.test' . $path;
 }
+function get_current_blog_id(): int {
+	return (int) ( $GLOBALS['wcs_test_blog_id'] ?? 1 );
+}
 function site_url( string $path = '' ): string {
 	return 'https://example.test' . $path;
 }
@@ -730,15 +735,35 @@ function wp_schedule_single_event( int $timestamp, string $hook, array $args = a
 	}
 	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
 	$GLOBALS['wcs_test_single_events'][] = array( 'hook' => $hook, 'timestamp' => $timestamp, 'args' => $args );
+	// Mirrors WordPress's real cron array shape (timestamp => hook =>
+	// arg-hash => ['args' => ...]) so _get_cron_array() below can support
+	// multiple simultaneous pending instances of the SAME hook with
+	// different (dynamic, per-product/per-rebuild) args — the scenario
+	// Activator::clear_dynamic_cron_hooks() exists to sweep, which neither
+	// wp_next_scheduled() nor wp_unschedule_event() alone can target
+	// without already knowing each instance's exact args.
+	$key = md5( serialize( $args ) );
+	$GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ][ $key ] = array( 'args' => $args );
 	return true;
 }
 function wp_schedule_event( int $timestamp, string $recurrence, string $hook ): bool {
 	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
 	return true;
 }
-function wp_unschedule_event( int $timestamp, string $hook ): bool {
+function wp_unschedule_event( int $timestamp, string $hook, array $args = array() ): bool {
 	unset( $GLOBALS['wcs_test_cron'][ $hook ] );
+	$key = md5( serialize( $args ) );
+	unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ][ $key ] );
+	if ( empty( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ] ) ) {
+		unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ] );
+	}
+	if ( empty( $GLOBALS['wcs_test_cron_array'][ $timestamp ] ) ) {
+		unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ] );
+	}
 	return true;
+}
+function _get_cron_array() {
+	return $GLOBALS['wcs_test_cron_array'] ?? array();
 }
 function is_admin(): bool {
 	return ! empty( $GLOBALS['wcs_test_is_admin'] );

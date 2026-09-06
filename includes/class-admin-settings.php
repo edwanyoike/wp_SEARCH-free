@@ -322,6 +322,14 @@ class Admin_Settings {
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
+		// Off by default: Promo::get() must not contact ozupay.com at all
+		// unless an administrator has explicitly opted in here — see that
+		// method's own gate and the "External services" section of readme.txt.
+		register_setting( 'wcs_settings_group', 'wcs_show_promo', array(
+			'type'              => 'boolean',
+			'sanitize_callback' => 'rest_sanitize_boolean',
+			'default'           => false,
+		) );
 		// Own settings group (not wcs_settings_group) — it lives on the App Data
 		// tab's own <form>, and options.php resets every registered option in a
 		// group to null if its field isn't present in the submitted form, so it

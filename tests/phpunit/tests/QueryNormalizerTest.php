@@ -177,7 +177,7 @@ final class QueryNormalizerTest extends TestCase {
 
 	public function test_cache_key_shape_and_determinism(): void {
 		$key = Query_Normalizer::cache_key( 'abc 123', 'USD', 7 );
-		$this->assertSame( 'wcs_v7_USD_' . md5( 'abc 123' ), $key );
+		$this->assertSame( 'wcs_v7_' . Query_Normalizer::site_scope() . '_USD_' . md5( 'abc 123' ), $key );
 		$this->assertSame( $key, Query_Normalizer::cache_key( 'abc 123', 'USD', 7 ) );
 	}
 
@@ -186,6 +186,25 @@ final class QueryNormalizerTest extends TestCase {
 		$this->assertNotSame( $base, Query_Normalizer::cache_key( 'abd', 'USD', 1 ) );
 		$this->assertNotSame( $base, Query_Normalizer::cache_key( 'abc', 'EUR', 1 ) );
 		$this->assertNotSame( $base, Query_Normalizer::cache_key( 'abc', 'USD', 2 ) );
+	}
+
+	/**
+	 * Regression: cache_key() feeds Search_Handler's and the MU cache-bypass
+	 * plugin's raw apcu_fetch()/apcu_store() calls, which share one flat key
+	 * space across every site a PHP-FPM pool serves (see site_scope()'s
+	 * docblock) — unlike get_transient(), which WordPress itself namespaces
+	 * per blog. Two sites whose cache version, currency, and query happened
+	 * to match could otherwise read each other's cached product rows
+	 * straight out of shared memory.
+	 */
+	public function test_cache_key_varies_by_site(): void {
+		$GLOBALS['wcs_test_blog_id'] = 1;
+		$site1 = Query_Normalizer::cache_key( 'abc', 'USD', 1 );
+
+		$GLOBALS['wcs_test_blog_id'] = 2;
+		$site2 = Query_Normalizer::cache_key( 'abc', 'USD', 1 );
+
+		$this->assertNotSame( $site1, $site2 );
 	}
 
 	// ── Synonyms (Pro feature — always inert in this edition) ────────────────

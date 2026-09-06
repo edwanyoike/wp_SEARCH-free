@@ -112,6 +112,46 @@ final class CleanupCoverageTest extends TestCase {
 		$this->assertStringContainsString( 'Activator::TRANSIENT_PREFIXES', $src );
 	}
 
+	/** @return string[] Unique hook names passed to wp_schedule_single_event() anywhere in the source. */
+	private function dynamicCronHooksInSource(): array {
+		$found = array();
+		foreach ( $this->sourceFiles() as $file ) {
+			$src = (string) file_get_contents( $file );
+			preg_match_all( "/wp_schedule_single_event\(\s*[^,]+,\s*'(wcs_[a-z0-9_]+)'/", $src, $m );
+			$found = array_merge( $found, $m[1] );
+		}
+		sort( $found );
+		return array_values( array_unique( $found ) );
+	}
+
+	/**
+	 * Guards the same class of bug as test_every_written_option_is_in_the_
+	 * cleanup_list(), for a different kind of state: a WP-Cron hook
+	 * scheduled with dynamic, per-call arguments (a product ID, a rebuild
+	 * epoch) rather than a fixed argument list. wp_next_scheduled()/
+	 * wp_unschedule_event() can't clear "every pending instance" of one of
+	 * these without already knowing each instance's exact args — that's
+	 * what Activator::DYNAMIC_CRON_HOOKS + clear_dynamic_cron_hooks() exist
+	 * for. A new dynamically-argumented retry hook added to the source
+	 * without also being added to DYNAMIC_CRON_HOOKS would be left
+	 * scheduled forever after deactivation/uninstall, exactly like
+	 * wcs_retry_rebuild_scheduling/wcs_retry_product_enqueue/
+	 * wcs_retry_product_delete all were before that mechanism existed.
+	 */
+	public function test_every_dynamic_cron_hook_is_registered_for_cleanup(): void {
+		$missing = array_diff( $this->dynamicCronHooksInSource(), Activator::DYNAMIC_CRON_HOOKS );
+		$this->assertSame(
+			array(),
+			array_values( $missing ),
+			'wp_schedule_single_event() hooks missing from Activator::DYNAMIC_CRON_HOOKS — deactivation/uninstall would leave them scheduled forever: ' . implode( ', ', $missing )
+		);
+	}
+
+	public function test_uninstall_clears_dynamic_cron_hooks(): void {
+		$src = (string) file_get_contents( WCS_PLUGIN_DIR . 'uninstall.php' );
+		$this->assertStringContainsString( 'Activator::clear_dynamic_cron_hooks()', $src );
+	}
+
 	public function test_wcs_rate_limits_table_is_dropped_on_uninstall(): void {
 		// Tables aren't covered by the shared PLUGIN_OPTIONS/TRANSIENT_PREFIXES
 		// lists above, so a table added to create_tables() needs its own drop

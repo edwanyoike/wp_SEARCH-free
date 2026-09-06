@@ -59,6 +59,7 @@ class Activator {
 		'wcs_search_sku',
 		'wcs_search_content',
 		'wcs_search_taxonomy',
+		'wcs_show_promo',
 		'wcs_delete_data_on_uninstall',
 		'wcs_rate_limit_requests',
 		'wcs_rate_limit_window',
@@ -83,6 +84,53 @@ class Activator {
 		'wcs_product_retry_', // per-product incremental-update enqueue retry counters
 		'wcs_delete_retry_', // per-product removal retry counters
 	);
+
+	/**
+	 * WP-Cron single-event hooks this plugin schedules with per-call dynamic
+	 * arguments (a product ID, or a rebuild epoch/cursor pair) rather than a
+	 * fixed, predictable argument list. wp_next_scheduled()/wp_unschedule_
+	 * event() both require knowing the exact args a specific pending event
+	 * was scheduled with, so neither can clear "every pending instance of
+	 * this hook" the way wcs_daily_transient_gc (a single, argument-less
+	 * recurring event) is cleared below — any number of distinct instances,
+	 * for different products or rebuilds, can be pending at once. See
+	 * clear_dynamic_cron_hooks(), which reads the raw cron array instead
+	 * (the same technique Action Scheduler's own as_unschedule_all_actions()
+	 * achieves via its own storage, group-scoped rather than arg-scoped, for
+	 * this plugin's other background jobs).
+	 */
+	public const DYNAMIC_CRON_HOOKS = array(
+		'wcs_retry_rebuild_scheduling',
+		'wcs_retry_product_enqueue',
+		'wcs_retry_product_delete',
+	);
+
+	/**
+	 * Unschedule every pending WP-Cron event for any hook in
+	 * DYNAMIC_CRON_HOOKS, regardless of the arguments it was scheduled
+	 * with. See that constant's docblock for why wp_next_scheduled()/
+	 * wp_unschedule_event() alone can't do this. Public (not private) so
+	 * uninstall.php — a separate bootstrap context that already calls
+	 * each_network_site() and reads PLUGIN_OPTIONS/TRANSIENT_PREFIXES the
+	 * same way — can call it too.
+	 */
+	public static function clear_dynamic_cron_hooks(): void {
+		$crons = _get_cron_array();
+		if ( ! is_array( $crons ) ) {
+			return;
+		}
+
+		foreach ( $crons as $timestamp => $hooks_at_timestamp ) {
+			foreach ( self::DYNAMIC_CRON_HOOKS as $hook ) {
+				if ( empty( $hooks_at_timestamp[ $hook ] ) ) {
+					continue;
+				}
+				foreach ( $hooks_at_timestamp[ $hook ] as $event ) {
+					wp_unschedule_event( (int) $timestamp, $hook, $event['args'] ?? array() );
+				}
+			}
+		}
+	}
 
 	/**
 	 * Maximum site IDs requested from get_sites() per page while iterating a
@@ -192,6 +240,8 @@ class Activator {
 		if ( $timestamp ) {
 			wp_unschedule_event( $timestamp, 'wcs_daily_transient_gc' );
 		}
+
+		self::clear_dynamic_cron_hooks();
 	}
 
 	/**
@@ -591,6 +641,26 @@ class Activator {
 	 * @codeCoverageIgnore Deactivation context: filesystem-permission branches.
 	 */
 	private static function remove_mu_plugin(): void {
+		// wp-content/mu-plugins/ is a single, network-wide directory — not
+		// per-site — and Free/Pro both install and use the exact same
+		// wcs-cache-bypass.php file. Deactivating (or uninstalling) Free
+		// while Pro is still active — a supported, expected migration path
+		// this plugin's own mutual-exclusion guard treats as first-class —
+		// must not delete the companion file the still-active Pro edition
+		// needs. This checks the current site's active-plugin state, the
+		// same scope Activator::is_pro_edition_active() already uses for
+		// the identical question at activation time; a Multisite network
+		// where a DIFFERENT site is the one still using either edition is
+		// not covered by this check (a full network scan to answer "should
+		// I delete one shared file" was judged disproportionate for how
+		// rarely deactivation/uninstall race a cross-site dependency like
+		// that) — the file simply gets reinstalled the next time any site's
+		// activate()/init() runs, matching install_mu_plugin()'s existing
+		// idempotent, version-checked reinstall behavior.
+		if ( self::is_pro_edition_active() ) {
+			return;
+		}
+
 		$destination = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
 
 		if ( file_exists( $destination ) || is_link( $destination ) ) {

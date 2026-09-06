@@ -12,6 +12,46 @@ final class PromoTest extends TestCase {
 
 	protected function setUp(): void {
 		wcs_tests_reset();
+		// Promo::get() is off by default (WordPress.org Guideline 7: no
+		// external-server contact without explicit, authorized consent) —
+		// every test below except the gate tests themselves is exercising
+		// the fetch/cache/sanitize behavior once an admin has opted in.
+		update_option( 'wcs_show_promo', true );
+	}
+
+	/**
+	 * Regression: this is the actual point of the opt-in gate, not
+	 * incidental setup for the other tests. Confirmed no HTTP call is even
+	 * attempted, and that an already-cached promo from before the setting
+	 * was disabled does not keep showing.
+	 */
+	public function test_disabled_by_default_never_contacts_the_service(): void {
+		update_option( 'wcs_show_promo', false );
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => '',
+			'link_text'  => '',
+		) );
+
+		$this->assertNull( Promo::get() );
+	}
+
+	public function test_disabling_after_a_promo_was_cached_stops_showing_it(): void {
+		update_option( 'wcs_show_promo', true );
+		$GLOBALS['wcs_test_http_response'] = $this->http_ok( array(
+			'active'     => true,
+			'dismiss_id' => 'abc123',
+			'message'    => 'Hello',
+			'link_url'   => '',
+			'link_text'  => '',
+		) );
+		$this->assertNotNull( Promo::get() ); // fetched and cached while enabled
+
+		update_option( 'wcs_show_promo', false );
+
+		$this->assertNull( Promo::get(), 'turning the setting off must stop showing an already-cached promo, not just stop new fetches' );
 	}
 
 	private function http_ok( array $body ): array {

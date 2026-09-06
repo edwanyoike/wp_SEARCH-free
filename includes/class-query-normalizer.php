@@ -263,7 +263,35 @@ class Query_Normalizer {
 	 * @return string
 	 */
 	public static function cache_key( string $normalized, string $currency, int $cache_version ): string {
-		return 'wcs_v' . $cache_version . '_' . $currency . '_' . md5( $normalized );
+		return 'wcs_v' . $cache_version . '_' . self::site_scope() . '_' . $currency . '_' . md5( $normalized );
+	}
+
+	/**
+	 * A stable per-site identifier folded into every cache/rate-limit key
+	 * this plugin shares across WordPress's own cache boundaries. Needed
+	 * specifically for Search_Handler's and the MU cache-bypass plugin's
+	 * direct apcu_fetch()/apcu_store() calls (and Rate_Limiter's apcu_inc()
+	 * counters): unlike get_transient()/wp_cache_*(), which WordPress
+	 * itself namespaces per blog under Multisite, raw APCu calls share one
+	 * flat key space across every site a PHP-FPM pool serves — not just
+	 * every blog in one Multisite network, but every entirely separate
+	 * WordPress installation on the same host, a standard shared-hosting
+	 * pattern. Without this, two sites whose cache version, currency, and
+	 * search query happened to match could read each other's cached
+	 * product rows (title, price, permalink, image) straight out of shared
+	 * memory, and one site's visitor could exhaust another site's search
+	 * rate limit.
+	 *
+	 * get_current_blog_id() alone only disambiguates blogs WITHIN one
+	 * Multisite network — every single-site install reports blog ID 1 — so
+	 * home_url() (unique to the site by definition, already public
+	 * information) is what actually makes two different sites' keys
+	 * different regardless of how either is hosted.
+	 *
+	 * @return string
+	 */
+	public static function site_scope(): string {
+		return get_current_blog_id() . '_' . md5( home_url() );
 	}
 
 	/**
