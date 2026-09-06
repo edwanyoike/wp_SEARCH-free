@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.5
+Stable tag:        1.11.6
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -94,6 +94,9 @@ further requests and stops showing any already-cached announcement. The service 
 OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozupay.com/privacy-policy/).
 
 == Changelog ==
+
+= 1.11.6 =
+* Housekeeping: escaped a product ID in an internal error-log message flagged by the official WordPress Plugin Check tool (no user-facing behavior change — this text is never shown to shoppers).
 
 = 1.11.5 =
 * Housekeeping: the installed plugin version now shows on every tab of the Turbo Search settings page, next to the support contact info.

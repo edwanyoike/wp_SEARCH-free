@@ -948,7 +948,7 @@ class Indexer {
 			// would triple-count one product as three failures. That loop
 			// increments the shared counter itself, exactly once, only
 			// after retries are exhausted.
-			throw new \RuntimeException( 'Index write failed for product ' . $product_id . ': ' . esc_html( $db_error ) );
+			throw new \RuntimeException( 'Index write failed for product ' . esc_html( (string) $product_id ) . ': ' . esc_html( $db_error ) );
 		}
 
 		self::trigger_cache_bust();
