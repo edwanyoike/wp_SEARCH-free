@@ -1,0 +1,86 @@
+Turbo Search Free 1.11.2 — release suitability
+Date: 2026-09-06
+Commit: 770bc1a
+Artifact: dist/turbo-search-for-woocommerce-1.11.2.zip
+
+VERDICT
+
+Passes the local automated release gates after isolated verification.
+The previously reported same-site Pro notice-deletion defect is fixed,
+and Free now repairs a missing MU companion on admin requests even when
+its version marker is current. The original cache-isolation, consent,
+per-site table-deletion, cron packaging and readme-size fixes remain present.
+
+Conditional release suitability: no new high-severity blocker was found in
+the reviewed changes, but this is not unconditional multisite or WordPress.org
+clearance. The network-wide cleanup limitations below remain. Official
+Plugin Check and live integration checks were not run in this session.
+
+REMAINING ISSUES
+
+1. MEDIUM — Network-wide MU ownership is still not protected.
+   includes/class-activator.php:653 onward; uninstall.php:190
+   includes/class-activator.php:292-294
+   ../wp_search/includes/class-activator.php:257-258
+
+   Removal still checks only Pro activation on the current site. Deactivating
+   Free on site A can delete the network-wide companion used by site B.
+   The new fix repairs Free's copy on the next admin request on a site
+   running Free, provided filesystem permissions permit it. It does not
+   prevent removal or restore the fast path on ordinary frontend traffic.
+   Pro's current source still checks only wcs_mu_version, so a Pro-only
+   remaining site with a current version marker does not perform this repair.
+
+   This is a residual performance/lifecycle issue, not evidence that ordinary
+   REST product search stops working. Preserve the companion while any site
+   needs it, or explicitly constrain support and document the recovery limits.
+   Do not describe this as complete cross-site protection.
+
+2. LOW — Shared usermeta protection remains current-site only.
+   uninstall.php:132-159,180-181
+
+   Same-site active Pro is now correctly protected, including the complete
+   uninstall dispatch (covered by the new separate-process regression test).
+   On multisite, however, the initiating site's preference and Pro state
+   still govern deletion from the shared usermeta table. Pro active only on
+   another site is not detected, so that site's notice dismissals can reset.
+   Network-shared preferences need a network-aware ownership decision.
+
+3. RELEASE CONTENT — Working tree contains an unpackaged CSS change.
+   assets/css/admin.css:21 onward
+
+   The tooltip positioning change is uncommitted and absent from the 1.11.2
+   ZIP. Every other packaged file matches the inspected working tree.
+   This does not invalidate the existing 1.11.2 artifact, but that artifact
+   does not release the tooltip fix. If including it in a future deployment,
+   use the normal authorized release process and a new version; do not
+   silently overwrite an already-shipped 1.11.2.
+
+VERIFICATION
+
+- Isolated snapshot of the inspected source: composer lint passed.
+- composer coverage: 348 tests, 951 assertions passed; 91.78% line coverage
+  (1909/2080 statements), above the configured 85% threshold.
+- composer audit: no security vulnerability advisories found.
+- ZIP: 24 files, correct turbo-search-for-woocommerce root; no internal
+  reviews, tests, build scripts or vendor tree shipped.
+- Every PHP entry inside the ZIP passed PHP syntax validation.
+- Source/package comparison: only assets/css/admin.css differs.
+- Header, version constant, readme stable tag and POT identify 1.11.2.
+- Packaged readme: 9,577 bytes, under the recorded approximately 10 KB guide.
+- Both fixes from 1.11.2 are in the shipped artifact; the same-site full
+  uninstall test now exercises the real top-level script.
+
+An initial run overlapped a temporary replacement of tab-settings.php with
+PLACEHOLDER: lint reported no PHP code and four settings-render tests failed.
+The file subsequently matched source again. These results were not treated
+as a stable product regression. Verification was repeated in an isolated
+source snapshot with a separate temporary-file directory and passed.
+
+The isolated snapshot includes the pending CSS change; PHP runtime files
+match the ZIP. No browser/visual verification of that CSS change was done.
+No production deployment, real multisite/APCu integration, official Plugin
+Check or WordPress.org Readme Validator run was performed. Passing local
+checks must not be represented as an official directory approval.
+
+No product code or release ZIP was changed by this review.

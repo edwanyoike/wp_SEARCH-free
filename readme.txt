@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.2
+Stable tag:        1.11.3
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -95,6 +95,9 @@ OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozu
 
 == Changelog ==
 
+= 1.11.3 =
+* Fix: on the Settings page, hovering the help icon next to "Occasional Announcements" (and potentially other fields) could show its tooltip text cut off on the left, since the tooltip was centered on the icon instead of anchored to it. It now opens to the right of the icon, where there's always room.
+
 = 1.11.2 =
 * Fix: on a Multisite network, deactivating or removing this Free edition on one site could delete the small companion file another site's Free or Pro edition still depends on for fast-path search caching, because the check only ever looked at the CURRENT site's own active plugins. The file is now also automatically restored the next time any admin page loads on a site that still has it installed, rather than only when that site's own stored version number happened to change.
 * Fix: deleting the plugin with "Delete data on uninstall" enabled removed a shopper-facing admin notice's dismissed state even when a still-active Pro edition on the same site depended on it, because that specific cleanup step wasn't covered by the existing Pro-safety check used everywhere else in uninstall. It's now protected the same way.
@@ -109,11 +112,5 @@ OzuLabs: [service website](https://ozupay.com/) and [privacy policy](https://ozu
 * Fix: switching from this Free edition to Pro on the same site could break Pro's fast-path search caching, because deactivating or removing Free unconditionally deleted a small companion file both editions share. It's now left in place whenever the same site still has another active edition that needs it.
 * Fix: deactivating or uninstalling the plugin could leave a small number of background scheduling tasks behind — retries for an in-progress rebuild or a single product's search update/removal that hadn't finished yet. These are now always cleared, the same way other background tasks already were.
 * Housekeeping: documented that "Recent Searches" (on by default) stores a shopper's own past searches only in their own browser, never on the server — see the FAQ.
-
-= 1.10.2 =
-* Fix: if a product could not be removed from search after several quick retries (a removed, hidden, or password-protected product), it previously stayed in the index indefinitely unless something else happened to touch that exact product again. It's now retried automatically in the background until it succeeds.
-* Fix: a product successfully removed, hidden, or password-protected could still appear in an existing cached search result for up to 5 minutes, since cache refresh for that case waited on the same short delay used for ordinary product edits. Removal now refreshes the cache immediately.
-* Fix: if the background signal that refreshes search's cache failed to schedule, stale results could persist for up to 24 hours unless an unrelated product happened to be saved afterward. It's now refreshed immediately in that case instead of depending on later activity.
-* Fix: two narrower background-job scheduling gaps (a single product's update retry, and its removal retry, both occasionally not getting rescheduled) are now verified the same way other scheduling in this plugin already is.
 
 See changelog.txt for older releases.

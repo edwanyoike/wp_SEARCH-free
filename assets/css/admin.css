@@ -18,8 +18,13 @@
 	position: absolute;
 	z-index: 100;
 	bottom: 130%;
-	left: 50%;
-	transform: translateX(-50%);
+	/* Anchored to the icon's left edge, not centered on it: a centered
+	   280px box needs ~140px of clearance on BOTH sides, but these icons
+	   sit in the settings table's narrow left column, close to the page's
+	   left edge — centering clipped the box's left half (and the start of
+	   every line of text) off-screen. Growing only rightward, into the
+	   much wider column next to it, has no equivalent failure mode. */
+	left: 0;
 	opacity: 0;
 	transition: opacity 0.2s, visibility 0.2s;
 	font-size: 12px;
@@ -31,8 +36,7 @@
 	content: "";
 	position: absolute;
 	top: 100%;
-	left: 50%;
-	margin-left: -5px;
+	left: 8px; /* under the icon, which sits at the box's left edge now */
 	border-width: 5px;
 	border-style: solid;
 	border-color: #2c3338 transparent transparent transparent;

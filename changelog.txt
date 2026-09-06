@@ -3,6 +3,12 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.10.2 =
+* Fix: if a product could not be removed from search after several quick retries (a removed, hidden, or password-protected product), it previously stayed in the index indefinitely unless something else happened to touch that exact product again. It's now retried automatically in the background until it succeeds.
+* Fix: a product successfully removed, hidden, or password-protected could still appear in an existing cached search result for up to 5 minutes, since cache refresh for that case waited on the same short delay used for ordinary product edits. Removal now refreshes the cache immediately.
+* Fix: if the background signal that refreshes search's cache failed to schedule, stale results could persist for up to 24 hours unless an unrelated product happened to be saved afterward. It's now refreshed immediately in that case instead of depending on later activity.
+* Fix: two narrower background-job scheduling gaps (a single product's update retry, and its removal retry, both occasionally not getting rescheduled) are now verified the same way other scheduling in this plugin already is.
+
 = 1.10.1 =
 * Fix: a temporary database error while a background rebuild was reading the product list could look identical to "finished reading the whole catalog", causing the rebuild to finish early and publish an index missing every product after that point. The read is now verified and retried the same way other rebuild steps already were.
 * Fix: if the database failed to prepare a clean staging area before a rebuild started, or failed the final switch to the newly built index, the rebuild could silently proceed (in the first case) or report success while still serving the old index (in the second). Both are now verified, retried, and — if they keep failing — reported with a specific, actionable error instead of a false success or a silent skip.
