@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.8
+Stable tag:        1.11.9
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,6 +80,9 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
 == Changelog ==
+
+= 1.11.9 =
+* Fix: on longer result lists (more common on mobile, where the dropdown has less vertical space to work with), rows near the bottom of the visible area could be squeezed shorter than their own title/price/excerpt content, causing that content to visually spill into the row below it instead of the dropdown scrolling as intended. 1.11.8's fix addressed a different, real-but-unrelated rendering issue and did not fix this one.
 
 = 1.11.8 =
 * Fix: on some mobile browsers (iOS Safari in particular), scrolling the search results dropdown could visibly tear or overlap the text of adjacent rows mid-scroll. The dropdown now scrolls on its own GPU-accelerated layer, which eliminates the artifact.

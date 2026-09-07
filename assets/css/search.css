@@ -47,6 +47,19 @@
 .wcs-result-item {
 	display: flex;
 	align-items: flex-start; /* rows vary in height once an excerpt is present */
+	/* .wcs-dropdown is itself flex-direction:column, which makes every row a
+	   flex item with the initial flex-shrink:1 — so once the result list is
+	   taller than .wcs-dropdown's max-height, the browser compresses each
+	   row's box shorter than its own title+price+excerpt content needs
+	   (their nested overflow:hidden gives them an effective min-content
+	   height of 0, so there's nothing stopping the shrink). This row has no
+	   overflow:hidden of its own, so the excess content doesn't clip — it
+	   visually spills into the next row, reading as overlapping/"mangled"
+	   text. Far more visible on mobile, where max-height is smaller and the
+	   shrink condition is hit far more often. flex-shrink:0 keeps every row
+	   at its natural height and lets the dropdown's own overflow-y:auto
+	   scroll instead, as intended. */
+	flex-shrink: 0;
 	padding: 12px 16px;
 	text-decoration: none;
 	color: var(--wcs-text);
