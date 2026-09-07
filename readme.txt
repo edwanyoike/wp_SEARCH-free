@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.7
+Stable tag:        1.11.8
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,6 +80,9 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
 == Changelog ==
+
+= 1.11.8 =
+* Fix: on some mobile browsers (iOS Safari in particular), scrolling the search results dropdown could visibly tear or overlap the text of adjacent rows mid-scroll. The dropdown now scrolls on its own GPU-accelerated layer, which eliminates the artifact.
 
 = 1.11.7 =
 * Removed: the optional "Occasional Announcements" feature (an off-by-default check for a promotional notice from OzuLabs) has been removed entirely. This edition now makes no outbound network requests of any kind.

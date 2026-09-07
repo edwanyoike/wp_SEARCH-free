@@ -26,6 +26,14 @@
 	z-index: 999999;
 	max-height: 400px;
 	overflow-y: auto;
+	/* iOS Safari: a plain overflow:auto list this size scrolls without its
+	   own GPU compositing layer, which can visibly tear/ghost/overlap the
+	   text of adjacent rows mid-scroll ("mangled text" on mobile) as the
+	   browser repaints in place instead of compositing. Both properties are
+	   the standard fix — the first enables momentum scrolling with its own
+	   layer, the second forces that layer explicitly for engines that need it. */
+	-webkit-overflow-scrolling: touch;
+	transform: translateZ(0);
 	width: 100%;
 	display: none;
 	flex-direction: column;
