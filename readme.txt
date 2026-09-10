@@ -81,6 +81,14 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.10 =
+* Renamed: this plugin is now "OzuLabs Turbo Search for WooCommerce" (slug: ozulabs-turbo-search-for-woocommerce). If you're updating from an earlier version, existing settings and your search index carry over automatically.
+* Fix: search results could show a shopper's selected currency's symbol on a price that was never actually converted to it, which could display a badly wrong number. This edition doesn't convert currency, so it now always shows the store's own currency, matching what this readme has always said.
+* Fix: when a search hit an internal rate limit, the resulting incomplete result could get cached and served to every other shopper searching the same term for up to 24 hours. That kind of result is no longer cached.
+* Fix: a background indexing request could briefly block outbound connections needed by unrelated plugins or payment/webhook calls running in the same batch. That block is now scoped to only this plugin's own indexing work.
+* Housekeeping: removed several inactive, Pro-only code paths that had no effect in this Free edition (ranking by recent sales, synonym matching, corrected-query and category-suggestion UI).
+* Housekeeping: internal identifiers were renamed for WordPress.org compliance. Sites updating from an earlier version have their settings migrated automatically and their search index rebuilt once, in the background.
+
 = 1.11.9 =
 * Fix: on longer result lists (more common on mobile, where the dropdown has less vertical space to work with), rows near the bottom of the visible area could be squeezed shorter than their own title/price/excerpt content, causing that content to visually spill into the row below it instead of the dropdown scrolling as intended. 1.11.8's fix addressed a different, real-but-unrelated rendering issue and did not fix this one.
 

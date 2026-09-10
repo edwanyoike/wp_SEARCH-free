@@ -122,6 +122,51 @@ final class ActivatorTest extends TestCase {
 		$this->assertCount( 0, $batches, 'activate() schedules the initial build; init() must not double it' );
 	}
 
+	// ── Legacy wcs_ prefix migration (1.11.9 and earlier → otsw_) ────────────
+
+	public function test_legacy_wcs_prefix_migration_preserves_settings_and_triggers_rebuild(): void {
+		// Regression: a site upgrading from 1.11.9 or earlier has no
+		// otsw_db_version option at all — it reads as '0' via the default,
+		// the exact same value a genuinely fresh install has — so the
+		// rebuild an upgrade needs used to be silently skipped, leaving the
+		// new otsw_search_index table empty. See
+		// Activator::migrate_legacy_wcs_prefix()'s docblock.
+		update_option( 'wcs_db_version', '1.10.0' );
+		update_option( 'wcs_result_count', 12 ); // admin had customized this away from the default of 6
+		update_option( 'wcs_mu_version', OTSW_VERSION );
+		$this->healthyTables();
+
+		Activator::init();
+
+		// The admin's actual setting survives the rename instead of silently
+		// reverting to the otsw_ default.
+		$this->assertSame( 12, get_option( 'otsw_result_count' ) );
+		// Old options are gone, not left behind as permanent orphans.
+		$this->assertFalse( get_option( 'wcs_result_count' ) );
+		$this->assertFalse( get_option( 'wcs_db_version' ) );
+		// The rebuild actually fires — this is the bug: it used to be skipped.
+		$batches = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
+		$this->assertCount( 1, $batches, 'an upgrading site must get its index rebuilt, not silently end up empty' );
+		// Old tables are dropped rather than left as orphaned dead weight.
+		$queries = implode( "\n", $this->wpdb->queries );
+		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index`', $queries );
+		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index_stage`', $queries );
+		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_rate_limits`', $queries );
+	}
+
+	public function test_fresh_install_is_not_treated_as_a_legacy_upgrade(): void {
+		// No wcs_db_version at all — must behave exactly like the existing
+		// fresh-install path, not trigger a spurious "migration".
+		update_option( 'otsw_db_version', '0' );
+		update_option( 'otsw_mu_version', OTSW_VERSION );
+		$this->healthyTables();
+
+		Activator::init();
+
+		$batches = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
+		$this->assertCount( 0, $batches, 'a genuinely fresh install must not be mistaken for a legacy-prefix upgrade' );
+	}
+
 	// ── FULLTEXT parser detection ────────────────────────────────────────────
 
 	public function test_parser_recorded_as_ngram_when_index_uses_ngram(): void {

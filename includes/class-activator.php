@@ -252,6 +252,20 @@ class Activator {
 	 * plugins_loaded. dbDelta() is idempotent — it only ALTERs what changed.
 	 */
 	public static function init(): void {
+		// One-time migration for a site updating from a version before the
+		// wcs_ -> otsw_ identifier rename (1.11.9 and earlier). Must run
+		// BEFORE the version read below: otsw_db_version has never existed
+		// on such a site, so reading it with a '0' default is indistinguishable
+		// from a genuinely fresh install — which would then skip the rebuild
+		// a real upgrade needs (see that check's own comment further down).
+		// $was_legacy_migration is treated exactly like $table_missing below:
+		// migrate_legacy_wcs_prefix() drops the old table outright, so the new
+		// otsw_search_index table does not exist yet regardless of what the
+		// migrated version number turns out to be — even when that number
+		// already equals DB_VERSION, which would otherwise make the row-shape
+		// version comparison below (correctly) conclude no rebuild is needed.
+		$was_legacy_migration = self::migrate_legacy_wcs_prefix();
+
 		if ( ! wp_next_scheduled( 'otsw_daily_transient_gc' ) ) {
 			wp_schedule_event( time(), 'daily', 'otsw_daily_transient_gc' );
 		}
@@ -263,9 +277,9 @@ class Activator {
 		// nothing for this check in steady state.
 		global $wpdb;
 		$stored_version  = get_option( 'otsw_db_version', '0' );
-		$needs_migration = version_compare( (string) $stored_version, self::DB_VERSION, '<' );
+		$needs_migration = $was_legacy_migration || version_compare( (string) $stored_version, self::DB_VERSION, '<' );
 
-		$table_missing = false;
+		$table_missing = $was_legacy_migration;
 		if ( ! $needs_migration && is_admin() ) {
 			$main_table    = $wpdb->prefix . 'otsw_search_index';
 			$table_missing = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $main_table ) ) !== $main_table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
@@ -304,8 +318,14 @@ class Activator {
 			// Existing rows were built under an older row shape — upgrading
 			// installs need one full rebuild to populate the new columns and
 			// vocabulary. Fresh activations skip this ('0' version): activate()
-			// already schedules the initial build.
-			if ( '0' !== (string) $stored_version && version_compare( (string) $stored_version, self::REBUILD_REQUIRED_BELOW, '<' )
+			// already schedules the initial build. A legacy wcs_-prefix
+			// migration always needs one too, regardless of the row-shape
+			// version comparison: migrate_legacy_wcs_prefix() just dropped the
+			// only table that had any rows, so the new one is unconditionally
+			// empty even when the migrated version number already equals
+			// DB_VERSION (which the version comparison alone would read as
+			// "no rebuild needed").
+			if ( ( $was_legacy_migration || ( '0' !== (string) $stored_version && version_compare( (string) $stored_version, self::REBUILD_REQUIRED_BELOW, '<' ) ) )
 				&& class_exists( '\\OTSW\\Search\\Indexer' ) ) {
 				\OTSW\Search\Indexer::start_rebuild();
 			}
@@ -315,6 +335,56 @@ class Activator {
 		if ( is_multisite() ) {
 			add_action( 'wp_initialize_site', array( __CLASS__, 'on_new_site' ), 10, 2 );
 		}
+	}
+
+	/**
+	 * One-time migration from the pre-rename `wcs_` identifiers to the
+	 * current `otsw_` ones, for a site updating from 1.11.9 or earlier.
+	 *
+	 * Detected via `wcs_db_version`'s mere presence — a fresh install never
+	 * had it, an upgrading pre-rename site always does. Copies each option's
+	 * VALUE across (not just presence) so an admin's actual configuration
+	 * (result count, rate limits, which fields are indexed, etc.) survives
+	 * the rename instead of silently reverting to defaults. Old tables are
+	 * dropped outright: a full rebuild (triggered by init()'s own version
+	 * check, once this method has made otsw_db_version reflect the site's
+	 * real prior version instead of "never set") repopulates the new table
+	 * from WooCommerce directly, so the old table's row data is never read.
+	 *
+	 * Old-prefix scheduled jobs (WP-Cron and Action Scheduler) are not
+	 * explicitly cleared: neither system errors on firing a hook nothing is
+	 * listening for any more, and each is a single-shot or self-rescheduling
+	 * action, not one this plugin needs to actively cancel.
+	 *
+	 * @return bool True when a legacy install was actually migrated — the
+	 *              caller must then treat the search-index table as
+	 *              unconditionally missing/empty, since this method just
+	 *              dropped the only table that had any rows in it.
+	 */
+	private static function migrate_legacy_wcs_prefix(): bool {
+		$legacy_version = get_option( 'wcs_db_version', null );
+		if ( null === $legacy_version ) {
+			return false; // Fresh install, or already migrated.
+		}
+
+		foreach ( self::PLUGIN_OPTIONS as $option ) {
+			if ( 0 !== strpos( $option, 'otsw_' ) ) {
+				continue; // Defensive: every entry is otsw_-prefixed today.
+			}
+			$legacy_option = 'wcs_' . substr( $option, strlen( 'otsw_' ) );
+			$legacy_value  = get_option( $legacy_option, null );
+			if ( null !== $legacy_value ) {
+				update_option( $option, $legacy_value, false );
+			}
+			delete_option( $legacy_option );
+		}
+
+		global $wpdb;
+		foreach ( array( 'wcs_search_index', 'wcs_search_index_stage', 'wcs_rate_limits' ) as $legacy_table ) {
+			$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . $legacy_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		}
+
+		return true;
 	}
 
 	/**
