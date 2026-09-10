@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Indexer;
+use OTSW\Search\Indexer;
 
 /**
  * The set-based bulk indexing path (index_products_bulk) and the
@@ -13,23 +13,23 @@ final class IndexerBulkTest extends TestCase {
 	private Fake_WPDB $wpdb;
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 		$this->wpdb      = new Fake_WPDB();
 		$GLOBALS['wpdb'] = $this->wpdb;
 
-		update_option( 'wcs_search_title', 1 );
-		update_option( 'wcs_search_sku', 1 );
-		update_option( 'wcs_search_content', 1 );
-		update_option( 'wcs_search_taxonomy', 1 );
+		update_option( 'otsw_search_title', 1 );
+		update_option( 'otsw_search_sku', 1 );
+		update_option( 'otsw_search_content', 1 );
+		update_option( 'otsw_search_taxonomy', 1 );
 	}
 
-	private function bulk( array $ids, string $table = 'wp_wcs_search_index_stage' ): void {
+	private function bulk( array $ids, string $table = 'wp_otsw_search_index_stage' ): void {
 		$method = new ReflectionMethod( Indexer::class, 'index_products_bulk' );
 		$method->invoke( null, $ids, $table );
 	}
 
 	private function post( int $id, string $title, string $status = 'publish', string $excerpt = '' ): void {
-		$GLOBALS['wcs_test_posts'][ $id ] = (object) array(
+		$GLOBALS['otsw_test_posts'][ $id ] = (object) array(
 			'ID'           => $id,
 			'post_status'  => $status,
 			'post_title'   => $title,
@@ -65,11 +65,9 @@ final class IndexerBulkTest extends TestCase {
 	}
 
 	public function test_bulk_never_queries_wc_order_product_lookup(): void {
-		// Regression: sales_30d used to be a real aggregate query against
-		// wc_order_product_lookup on every save and rebuild chunk, but its
-		// weight is always pinned to 0.0 in Search_Handler in this edition
-		// (recent-sales ranking is Pro-only) — the value can never affect a
-		// ranking, so it must always be written as a literal 0, not computed.
+		// Recent-sales-weighted ranking is a Pro feature this edition does
+		// not implement — the bulk indexer must never query
+		// wc_order_product_lookup at all.
 		$this->post( 1, 'Red Lamp' );
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
 
@@ -77,17 +75,13 @@ final class IndexerBulkTest extends TestCase {
 
 		$sql = implode( ' ', $this->wpdb->queries );
 		$this->assertStringNotContainsString( 'wc_order_product_lookup', $sql );
-		$replace = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_starts_with( $q, 'REPLACE INTO' ) ) );
-		// Columns are ...,total_sales,sales_30d,... — lookupRow()'s default
-		// total_sales is 7, so ',7,0,' unambiguously pins sales_30d to 0.
-		$this->assertStringContainsString( ',7,0,', $replace[0], 'sales_30d column must be the literal 0' );
 	}
 
 	public function test_bulk_writes_one_multirow_replace_from_lookup_data(): void {
 		$this->post( 1, 'Red Lamp', 'publish', 'warm light' );
 		$this->post( 2, 'Blue Lamp' );
-		$GLOBALS['wcs_test_terms'][1]['product_cat'] = array( (object) array( 'name' => 'Lighting' ) );
-		$GLOBALS['wcs_test_thumbs'][1]               = 55;
+		$GLOBALS['otsw_test_terms'][1]['product_cat'] = array( (object) array( 'name' => 'Lighting' ) );
+		$GLOBALS['otsw_test_thumbs'][1]               = 55;
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1, 'RL-1' ), 2 => $this->lookupRow( 2, 'BL-2' ) ) );
 
 		$this->bulk( array( 1, 2 ) );
@@ -100,17 +94,16 @@ final class IndexerBulkTest extends TestCase {
 		$this->assertStringContainsString( 'RL-1', $sql );
 		$this->assertStringContainsString( "'rl1'", $sql ); // normalized SKU column
 		$this->assertStringContainsString( 'sku_normalized', $sql );
-		$this->assertStringContainsString( 'sales_30d', $sql );
 		$this->assertStringContainsString( 'warm light Lighting', $sql );        // excerpt + term names
 		$this->assertStringContainsString( 'https://example.test/img/55.jpg', $sql ); // primed thumbnail
 		$this->assertStringContainsString( '10,20', $sql ); // lookup min/max prices
 	}
 
 	public function test_bulk_rebuild_never_writes_a_vocabulary_sidecar(): void {
-		// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only feature —
+		// Typo-correction vocabulary (otsw_search_terms*) is a Pro-only feature —
 		// PORTING.md lists it as a region Free's indexer must never touch, and
 		// Activator never creates those tables here. Regression: this used to
-		// assert the opposite (Free wrote to wcs_search_terms_stage during a
+		// assert the opposite (Free wrote to otsw_search_terms_stage during a
 		// rebuild), which meant every real full rebuild threw a "table doesn't
 		// exist" SQL error that only this test's mocked $wpdb didn't catch.
 		$this->post( 1, 'Red Lamp' );
@@ -118,16 +111,16 @@ final class IndexerBulkTest extends TestCase {
 
 		$this->bulk( array( 1 ) ); // target: staging table
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_terms' ) ) );
 	}
 
 	public function test_live_single_updates_do_not_touch_the_vocabulary(): void {
 		$this->post( 1, 'Red Lamp' );
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
 
-		$this->bulk( array( 1 ), 'wp_wcs_search_index' ); // live table target
+		$this->bulk( array( 1 ), 'wp_otsw_search_index' ); // live table target
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_terms' ) ) );
 	}
 
 	public function test_bulk_indexes_more_than_a_hundred_products_in_one_call(): void {
@@ -168,11 +161,11 @@ final class IndexerBulkTest extends TestCase {
 	}
 
 	public function test_bulk_respects_disabled_field_settings(): void {
-		update_option( 'wcs_search_sku', 0 );
-		update_option( 'wcs_search_content', 0 );
-		update_option( 'wcs_search_taxonomy', 0 );
+		update_option( 'otsw_search_sku', 0 );
+		update_option( 'otsw_search_content', 0 );
+		update_option( 'otsw_search_taxonomy', 0 );
 		$this->post( 1, 'Lamp', 'publish', 'secret excerpt' );
-		$GLOBALS['wcs_test_terms'][1]['product_cat'] = array( (object) array( 'name' => 'SecretCat' ) );
+		$GLOBALS['otsw_test_terms'][1]['product_cat'] = array( (object) array( 'name' => 'SecretCat' ) );
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1, 'SECRET-SKU' ) ) );
 
 		$this->bulk( array( 1 ) );
@@ -190,31 +183,31 @@ final class IndexerBulkTest extends TestCase {
 		$this->bulk( array( 1 ) );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index_stage', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index_stage', $sql );
 		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
 	}
 
 	public function test_bulk_skips_products_excluded_from_search(): void {
 		$this->post( 1, 'Hidden Lamp' );
-		$GLOBALS['wcs_test_search_excluded_ids'][] = 1;
+		$GLOBALS['otsw_test_search_excluded_ids'][] = 1;
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
 
 		$this->bulk( array( 1 ) );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index_stage', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index_stage', $sql );
 		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
 	}
 
 	public function test_bulk_skips_password_protected_products(): void {
 		$this->post( 1, 'Secret Lamp' );
-		$GLOBALS['wcs_test_posts'][1]->post_password = 'shh';
+		$GLOBALS['otsw_test_posts'][1]->post_password = 'shh';
 		$this->lookupHandler( array( 1 => $this->lookupRow( 1 ) ) );
 
 		$this->bulk( array( 1 ) );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index_stage', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index_stage', $sql );
 		$this->assertStringNotContainsString( 'REPLACE INTO', $sql );
 	}
 
@@ -241,47 +234,47 @@ final class IndexerBulkTest extends TestCase {
 		Indexer::index_single_product( 99 );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index', $sql );
 	}
 
 	public function test_single_product_excluded_from_search_is_not_indexed(): void {
 		// A merchant's "Catalog visibility: Hidden"/"Shop only" choice must be
 		// honored — the public REST search endpoint has no capability check.
-		$GLOBALS['wcs_test_products'][8]           = new Fake_Product( array( 'id' => 8, 'title' => 'Hidden Lamp' ) );
-		$GLOBALS['wcs_test_search_excluded_ids'][] = 8;
+		$GLOBALS['otsw_test_products'][8]           = new Fake_Product( array( 'id' => 8, 'title' => 'Hidden Lamp' ) );
+		$GLOBALS['otsw_test_search_excluded_ids'][] = 8;
 
 		Indexer::index_single_product( 8 );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index', $sql );
 		$this->assertStringNotContainsString( 'REPLACE', $sql );
 	}
 
 	public function test_single_password_protected_product_is_not_indexed(): void {
-		$GLOBALS['wcs_test_products'][9] = new Fake_Product( array( 'id' => 9, 'title' => 'Secret Lamp' ) );
-		$GLOBALS['wcs_test_posts'][9]    = (object) array( 'ID' => 9, 'post_password' => 'shh' );
+		$GLOBALS['otsw_test_products'][9] = new Fake_Product( array( 'id' => 9, 'title' => 'Secret Lamp' ) );
+		$GLOBALS['otsw_test_posts'][9]    = (object) array( 'ID' => 9, 'post_password' => 'shh' );
 
 		Indexer::index_single_product( 9 );
 
 		$sql = implode( ' ', $this->wpdb->queries );
-		$this->assertStringContainsString( 'DELETE FROM wp_wcs_search_index', $sql );
+		$this->assertStringContainsString( 'DELETE FROM wp_otsw_search_index', $sql );
 		$this->assertStringNotContainsString( 'REPLACE', $sql );
 	}
 
 	public function test_variation_queues_its_parent_instead_of_indexing_itself(): void {
-		$GLOBALS['wcs_test_products'][5] = new Fake_Product( array( 'id' => 5, 'type' => 'variation', 'parent_id' => 3 ) );
+		$GLOBALS['otsw_test_products'][5] = new Fake_Product( array( 'id' => 5, 'type' => 'variation', 'parent_id' => 3 ) );
 
 		Indexer::index_single_product( 5 );
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === $c['hook'] );
 		$this->assertCount( 1, $queued );
 		$this->assertSame( array( 'product_id' => 3 ), array_values( $queued )[0]['args'] );
 		$this->assertStringNotContainsString( 'REPLACE', implode( ' ', $this->wpdb->queries ) );
 	}
 
 	public function test_single_simple_product_is_written_with_live_mirror_to_staging_during_rebuild(): void {
-		update_option( 'wcs_is_indexing', 1 );
-		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array(
+		update_option( 'otsw_is_indexing', 1 );
+		$GLOBALS['otsw_test_products'][7] = new Fake_Product( array(
 			'id'    => 7,
 			'title' => 'Live Lamp',
 			'sku'   => 'LL-7',
@@ -291,8 +284,8 @@ final class IndexerBulkTest extends TestCase {
 		Indexer::index_single_product( 7 );
 
 		$sql = implode( "\n", $this->wpdb->queries );
-		$this->assertStringContainsString( 'REPLACE INTO wp_wcs_search_index_stage', $sql );
-		$this->assertStringContainsString( 'REPLACE INTO wp_wcs_search_index ', $sql );
+		$this->assertStringContainsString( 'REPLACE INTO wp_otsw_search_index_stage', $sql );
+		$this->assertStringContainsString( 'REPLACE INTO wp_otsw_search_index ', $sql );
 	}
 
 	public function test_single_product_write_failure_during_rebuild_throws_and_counts_toward_the_failure_total(): void {
@@ -301,11 +294,11 @@ final class IndexerBulkTest extends TestCase {
 		// as if the row was written. Regression: verify a false return is now
 		// surfaced both as a thrown exception (so do_process_batch()'s
 		// per-product fallback loop counts it as a batch failure) and as an
-		// increment to wcs_rebuild_failed_count (so the swap-time check in
+		// increment to otsw_rebuild_failed_count (so the swap-time check in
 		// do_process_batch() can warn instead of reporting silent success).
-		update_option( 'wcs_is_indexing', 1 );
-		update_option( 'wcs_rebuild_failed_count', 0 );
-		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		update_option( 'otsw_is_indexing', 1 );
+		update_option( 'otsw_rebuild_failed_count', 0 );
+		$GLOBALS['otsw_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
 		$this->wpdb->replaceFails = true;
 
 		$this->expectException( RuntimeException::class );
@@ -316,7 +309,7 @@ final class IndexerBulkTest extends TestCase {
 			// rebuild's completeness (see increment_rebuild_failure_count()'s
 			// docblock) and fails first here, before the live-table write's
 			// own exception unwinds the call.
-			$this->assertSame( 1, (int) get_option( 'wcs_rebuild_failed_count' ) );
+			$this->assertSame( 1, (int) get_option( 'otsw_rebuild_failed_count' ) );
 		}
 	}
 
@@ -328,13 +321,13 @@ final class IndexerBulkTest extends TestCase {
 	 * A transient failure here permanently left that product's staging row
 	 * stale for the rest of the rebuild, since the batch cursor never
 	 * revisits an already-scanned ID. This runs inside the async
-	 * wcs_update_single_product action, not the admin's page load, so
+	 * otsw_update_single_product action, not the admin's page load, so
 	 * retrying costs nothing user-facing.
 	 */
 	public function test_concurrent_staging_parity_write_recovers_within_retries_without_being_counted(): void {
-		update_option( 'wcs_is_indexing', 1 );
-		update_option( 'wcs_rebuild_failed_count', 0 );
-		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		update_option( 'otsw_is_indexing', 1 );
+		update_option( 'otsw_rebuild_failed_count', 0 );
+		$GLOBALS['otsw_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
 		$calls = 0;
 		$this->wpdb->replaceFails = static function () use ( &$calls ): bool {
 			++$calls;
@@ -343,63 +336,63 @@ final class IndexerBulkTest extends TestCase {
 
 		Indexer::index_single_product( 7 );
 
-		$this->assertSame( 0, (int) get_option( 'wcs_rebuild_failed_count' ), 'a staging write that recovered within retries must not be counted' );
+		$this->assertSame( 0, (int) get_option( 'otsw_rebuild_failed_count' ), 'a staging write that recovered within retries must not be counted' );
 	}
 
 	public function test_single_product_write_failure_outside_a_rebuild_does_not_touch_the_rebuild_failure_count(): void {
 		// A plain incremental update failing (no rebuild in progress) must
 		// still throw — so Action Scheduler's own admin log shows it — but
-		// must not pollute wcs_rebuild_failed_count, which only means
+		// must not pollute otsw_rebuild_failed_count, which only means
 		// something during an active rebuild's swap decision.
-		update_option( 'wcs_is_indexing', 0 );
-		update_option( 'wcs_rebuild_failed_count', 0 );
-		$GLOBALS['wcs_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
+		update_option( 'otsw_is_indexing', 0 );
+		update_option( 'otsw_rebuild_failed_count', 0 );
+		$GLOBALS['otsw_test_products'][7] = new Fake_Product( array( 'id' => 7, 'title' => 'Live Lamp' ) );
 		$this->wpdb->replaceFails = true;
 
 		try {
 			Indexer::index_single_product( 7 );
 			$this->fail( 'expected a RuntimeException' );
 		} catch ( RuntimeException $e ) {
-			$this->assertSame( 0, (int) get_option( 'wcs_rebuild_failed_count' ) );
+			$this->assertSame( 0, (int) get_option( 'otsw_rebuild_failed_count' ) );
 		}
 	}
 
 	// ── Hooks around indexing ────────────────────────────────────────────────
 
 	public function test_term_edit_on_unindexed_taxonomy_is_ignored(): void {
-		$GLOBALS['wcs_test_objects_in_term'] = array( 1, 2 );
+		$GLOBALS['otsw_test_objects_in_term'] = array( 1, 2 );
 
 		Indexer::on_term_edited( 10, 10, 'post_tag' );
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'] );
 	}
 
 	public function test_term_edit_queues_each_product_for_small_terms(): void {
-		$GLOBALS['wcs_test_objects_in_term'] = array( 1, 2, 3 );
+		$GLOBALS['otsw_test_objects_in_term'] = array( 1, 2, 3 );
 
 		Indexer::on_term_edited( 10, 10, 'product_cat' );
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === $c['hook'] );
 		$this->assertCount( 3, $queued );
 	}
 
 	public function test_term_edit_falls_back_to_full_rebuild_for_large_terms(): void {
-		$GLOBALS['wcs_test_objects_in_term'] = range( 1, 150 ); // > 2 × BATCH_SIZE
+		$GLOBALS['otsw_test_objects_in_term'] = range( 1, 150 ); // > 2 × BATCH_SIZE
 
 		Indexer::on_term_edited( 10, 10, 'product_cat' );
 
-		$batch = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
+		$batch = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
 		$this->assertCount( 1, $batch );
-		$single = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
+		$single = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === $c['hook'] );
 		$this->assertCount( 0, $single );
 	}
 
 	public function test_scheduled_sales_queues_on_sale_products(): void {
-		$GLOBALS['wcs_test_on_sale_ids'] = array( 4, 5 );
+		$GLOBALS['otsw_test_on_sale_ids'] = array( 4, 5 );
 
 		Indexer::on_scheduled_sales();
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === $c['hook'] );
 		$this->assertCount( 2, $queued );
 	}
 
@@ -414,16 +407,16 @@ final class IndexerBulkTest extends TestCase {
 		Indexer::on_index_field_setting_changed( 1, 0 ); // second change same request
 		Indexer::on_index_field_setting_changed( 1, 1 ); // unchanged value
 
-		$batch = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
+		$batch = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
 		$this->assertCount( 1, $batch );
 	}
 
 	public function test_start_rebuild_clears_a_stale_error_from_a_previous_attempt(): void {
-		update_option( 'wcs_last_rebuild_error', 'stuck_no_batch_dispatched' );
+		update_option( 'otsw_last_rebuild_error', 'stuck_no_batch_dispatched' );
 
 		Indexer::start_rebuild();
 
-		$this->assertFalse( get_option( 'wcs_last_rebuild_error' ) );
+		$this->assertFalse( get_option( 'otsw_last_rebuild_error' ) );
 	}
 
 	/**
@@ -434,7 +427,7 @@ final class IndexerBulkTest extends TestCase {
 	 * only ever touch currently-eligible product IDs — a stale row for a
 	 * product deleted since that abandoned run would survive untouched and
 	 * get shipped live at the swap, resurrecting a deleted product in
-	 * search. Verifies a failed setup now aborts before wcs_is_indexing is
+	 * search. Verifies a failed setup now aborts before otsw_is_indexing is
 	 * ever set and before any batch is enqueued.
 	 */
 	public function test_failed_staging_setup_aborts_before_marking_indexing_active(): void {
@@ -443,14 +436,14 @@ final class IndexerBulkTest extends TestCase {
 
 		Indexer::start_rebuild();
 
-		$this->assertNotSame( 1, get_option( 'wcs_is_indexing' ), 'must never mark indexing active over an unconfirmed-clean staging table' );
-		$this->assertSame( 'rebuild_setup_failed', get_option( 'wcs_last_rebuild_error' ) );
-		$enqueued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'enqueue_async' === $c['fn'] );
+		$this->assertNotSame( 1, get_option( 'otsw_is_indexing' ), 'must never mark indexing active over an unconfirmed-clean staging table' );
+		$this->assertSame( 'rebuild_setup_failed', get_option( 'otsw_last_rebuild_error' ) );
+		$enqueued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'enqueue_async' === $c['fn'] );
 		$this->assertSame( array(), $enqueued, 'no batch may be enqueued against unprepared staging' );
 	}
 
 	public function test_start_rebuild_never_uses_the_args_blind_unique_flag(): void {
-		// Regression: every wcs_rebuild_index_batch enqueue in this file used
+		// Regression: every otsw_rebuild_index_batch enqueue in this file used
 		// to pass (0, true) for the trailing (unique, priority) args — under
 		// the real Action Scheduler API that's unique=false/priority=1, not
 		// the intended priority=10, and the test bootstrap's own stub had
@@ -461,7 +454,7 @@ final class IndexerBulkTest extends TestCase {
 		// sibling for the full mechanics).
 		Indexer::start_rebuild();
 
-		$batch = array_values( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] ) );
+		$batch = array_values( array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] ) );
 		$this->assertCount( 1, $batch );
 		$this->assertFalse( $batch[0]['unique'] );
 	}
@@ -478,7 +471,7 @@ final class IndexerBulkTest extends TestCase {
 
 		$prune = array_values( array_filter(
 			$this->wpdb->queries,
-			static fn( string $sql ): bool => str_contains( $sql, 'wcs_rate_limits' ) && str_contains( $sql, 'DELETE' )
+			static fn( string $sql ): bool => str_contains( $sql, 'otsw_rate_limits' ) && str_contains( $sql, 'DELETE' )
 		) );
 		$this->assertNotEmpty( $prune, 'stale rate-limit rows must be pruned' );
 		$this->assertStringContainsString( 'window_start <', $prune[0] );

@@ -20,23 +20,23 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 ?>
 <div class="wrap">
-	<h1><?php esc_html_e( 'Turbo Search for WooCommerce Settings', 'turbo-search-for-woocommerce' ); ?></h1>
+	<h1><?php esc_html_e( 'Turbo Search for WooCommerce Settings', 'ozulabs-turbo-search-for-woocommerce' ); ?></h1>
 	<p style="color:#666;">
-		<?php esc_html_e( 'By', 'turbo-search-for-woocommerce' ); ?>
+		<?php esc_html_e( 'By', 'ozulabs-turbo-search-for-woocommerce' ); ?>
 		<a href="https://ozulabs.com" target="_blank" rel="noopener">Ozulabs</a>
 		&nbsp;&middot;&nbsp;
 		<a href="mailto:support@ozulabs.com">support@ozulabs.com</a>
 		&nbsp;&middot;&nbsp;
 		<?php
 		/* translators: %s: plugin version number, e.g. "1.11.4" */
-		echo esc_html( sprintf( __( 'Version %s', 'turbo-search-for-woocommerce' ), WCS_VERSION ) );
+		echo esc_html( sprintf( __( 'Version %s', 'ozulabs-turbo-search-for-woocommerce' ), OTSW_VERSION ) );
 		?>
 	</p>
 
 	<h2 class="nav-tab-wrapper" style="margin-top: 20px;">
-		<a href="?page=wcs-fast-search&tab=settings" class="nav-tab <?php echo 'settings' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'turbo-search-for-woocommerce' ); ?></a>
-		<a href="?page=wcs-fast-search&tab=data" class="nav-tab <?php echo 'data' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'App Data', 'turbo-search-for-woocommerce' ); ?></a>
-		<a href="?page=wcs-fast-search&tab=docs" class="nav-tab <?php echo 'docs' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Documentation', 'turbo-search-for-woocommerce' ); ?></a>
+		<a href="?page=otsw-fast-search&tab=settings" class="nav-tab <?php echo 'settings' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Settings', 'ozulabs-turbo-search-for-woocommerce' ); ?></a>
+		<a href="?page=otsw-fast-search&tab=data" class="nav-tab <?php echo 'data' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'App Data', 'ozulabs-turbo-search-for-woocommerce' ); ?></a>
+		<a href="?page=otsw-fast-search&tab=docs" class="nav-tab <?php echo 'docs' === $active_tab ? 'nav-tab-active' : ''; ?>"><?php esc_html_e( 'Documentation', 'ozulabs-turbo-search-for-woocommerce' ); ?></a>
 	</h2>
 
 	<?php

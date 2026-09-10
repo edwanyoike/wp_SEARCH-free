@@ -2,7 +2,7 @@
 /**
  * Turbo Search for WooCommerce — Query Corpus Generator
  *
- * Reads real product titles from wcs_search_index and generates:
+ * Reads real product titles from otsw_search_index and generates:
  *   tests/loadtest/corpus.json   — structured query list for k6
  *   tests/loadtest/corpus.txt    — one query per line (plain)
  *
@@ -15,7 +15,7 @@
 // phpcs:disable -- load test script
 global $wpdb;
 
-$table = $wpdb->prefix . 'wcs_search_index';
+$table = $wpdb->prefix . 'otsw_search_index';
 
 // Check table exists
 $exists = $wpdb->get_var( "SHOW TABLES LIKE '{$table}'" ); // phpcs:ignore

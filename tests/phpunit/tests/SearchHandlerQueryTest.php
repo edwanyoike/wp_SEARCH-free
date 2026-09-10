@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Search_Handler;
+use OTSW\Search\Search_Handler;
 
 /**
  * Drives Search_Handler::query_database() against the fake wpdb and asserts
@@ -14,13 +14,13 @@ final class SearchHandlerQueryTest extends TestCase {
 	private Fake_WPDB $wpdb;
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 		$this->wpdb      = new Fake_WPDB();
 		$GLOBALS['wpdb'] = $this->wpdb;
 
-		update_option( 'wcs_result_count', 6 );
-		update_option( 'wcs_show_out_of_stock', 1 );
-		update_option( 'wcs_ft_parser', 'default' );
+		update_option( 'otsw_result_count', 6 );
+		update_option( 'otsw_show_out_of_stock', 1 );
+		update_option( 'otsw_ft_parser', 'default' );
 	}
 
 	/** @return array Rows returned by query_database(). */
@@ -167,7 +167,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	}
 
 	public function test_ngram_parser_lowers_gate_to_two_chars_and_drops_wildcard(): void {
-		update_option( 'wcs_ft_parser', 'ngram' );
+		update_option( 'otsw_ft_parser', 'ngram' );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 
 		$this->search( 'tv' );
@@ -194,7 +194,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	}
 
 	public function test_ranking_weights_filter_overrides_defaults(): void {
-		add_filter( 'wcs_ranking_weights', static function ( array $w ): array {
+		add_filter( 'otsw_ranking_weights', static function ( array $w ): array {
 			$w['exact_sku'] = 99.5;
 			return $w;
 		} );
@@ -234,12 +234,12 @@ final class SearchHandlerQueryTest extends TestCase {
 		$this->assertSame( 2, substr_count( $sql, 'LIMIT' ), 'one LIMIT bounds the candidate subquery, a second bounds the final result' );
 		// Default candidate window.
 		$this->assertStringContainsString( 'LIMIT 200', $sql );
-		// Final result limit (wcs_result_count) is unaffected.
+		// Final result limit (otsw_result_count) is unaffected.
 		$this->assertStringEndsWith( 'LIMIT 6', trim( $sql ) );
 	}
 
 	public function test_candidate_limit_is_filterable(): void {
-		add_filter( 'wcs_candidate_limit', static fn( $current ) => 50 );
+		add_filter( 'otsw_candidate_limit', static fn( $current ) => 50 );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 
 		$this->search( 'hazina' );
@@ -248,8 +248,8 @@ final class SearchHandlerQueryTest extends TestCase {
 	}
 
 	public function test_candidate_limit_never_drops_below_the_requested_result_count(): void {
-		update_option( 'wcs_result_count', 300 );
-		add_filter( 'wcs_candidate_limit', static fn( $current ) => 50 );
+		update_option( 'otsw_result_count', 300 );
+		add_filter( 'otsw_candidate_limit', static fn( $current ) => 50 );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 
 		$this->search( 'hazina' );
@@ -264,8 +264,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	// ── Synonym expansion in SQL ─────────────────────────────────────────────
 
 	public function test_synonyms_option_has_no_effect_on_the_fulltext_query(): void {
-		update_option( 'wcs_synonyms', 'sofa, couch, settee' );
-		\WCS\Search\Query_Normalizer::flush_synonym_cache();
+		update_option( 'otsw_synonyms', 'sofa, couch, settee' );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 
 		$this->search( 'sofa' );
@@ -391,8 +390,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	}
 
 	public function test_synonyms_option_has_no_effect_on_like_groups(): void {
-		update_option( 'wcs_synonyms', 'tee, top' );
-		\WCS\Search\Query_Normalizer::flush_synonym_cache();
+		update_option( 'otsw_synonyms', 'tee, top' );
 
 		$this->search( 'tee' );
 
@@ -404,14 +402,14 @@ final class SearchHandlerQueryTest extends TestCase {
 	// ── Stock filter ─────────────────────────────────────────────────────────
 
 	public function test_out_of_stock_filter_adds_stock_clause_to_every_tier(): void {
-		update_option( 'wcs_show_out_of_stock', 0 );
+		update_option( 'otsw_show_out_of_stock', 0 );
 
 		$this->search( 'hazina' );
 
 		// Every index-table query carries the clause (the vocabulary lookup
 		// for typo correction is term-level and has no stock concept).
 		foreach ( $this->wpdb->queries as $sql ) {
-			if ( str_contains( $sql, 'wcs_search_index' ) ) {
+			if ( str_contains( $sql, 'otsw_search_index' ) ) {
 				$this->assertStringContainsString( "stock_status = 'instock'", $sql );
 			}
 		}
@@ -419,8 +417,8 @@ final class SearchHandlerQueryTest extends TestCase {
 
 	// ── Result filter contract ───────────────────────────────────────────────
 
-	public function test_wcs_search_results_filter_is_applied(): void {
-		add_filter( 'wcs_search_results', static function ( array $results ): array {
+	public function test_otsw_search_results_filter_is_applied(): void {
+		add_filter( 'otsw_search_results', static function ( array $results ): array {
 			return array_slice( $results, 0, 1 );
 		} );
 		$rows = array( $this->fakeRow( 1 ), $this->fakeRow( 2 ) );
@@ -453,7 +451,7 @@ final class SearchHandlerQueryTest extends TestCase {
 		$results = $this->search( 'lampp' );
 
 		$this->assertSame( array(), $results );
-		$vocab = array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_terms' ) );
+		$vocab = array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_terms' ) );
 		$this->assertSame( array(), $vocab );
 	}
 
@@ -592,7 +590,7 @@ final class SearchHandlerQueryTest extends TestCase {
 		// catalog: "egg mix" (a product titled "Egg ...", another titled
 		// "... Mix ...", but none containing both words) returned zero even
 		// though products matching either word plainly existed.
-		update_option( 'wcs_ft_parser', 'default' ); // gate = 4 chars; "ab"/"cd" both sit below it
+		update_option( 'otsw_ft_parser', 'default' ); // gate = 4 chars; "ab"/"cd" both sit below it
 		$this->wpdb->handler = function ( string $sql, string $type ) {
 			if ( 'results' !== $type ) {
 				return null;
@@ -639,7 +637,7 @@ final class SearchHandlerQueryTest extends TestCase {
 		// rebuilds its own WHERE clause from scratch — easy to accidentally
 		// drop the content column and silently lose the one thing this pass
 		// exists for: a short word that only ever appears in a description.
-		update_option( 'wcs_ft_parser', 'default' );
+		update_option( 'otsw_ft_parser', 'default' );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array() : null;
 
 		$this->search( 'ab cd' );
@@ -664,7 +662,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	 */
 	private function alwaysEmptyHandler(): callable {
 		return static function ( string $sql, string $type ) {
-			if ( str_contains( $sql, 'wcs_rate_limits' ) ) {
+			if ( str_contains( $sql, 'otsw_rate_limits' ) ) {
 				return Fake_WPDB::defaultRun( $sql, $type );
 			}
 			return 'results' === $type ? array() : null;
@@ -672,7 +670,7 @@ final class SearchHandlerQueryTest extends TestCase {
 	}
 
 	public function test_expensive_fallback_runs_within_budget(): void {
-		update_option( 'wcs_fallback_rate_limit_requests', 10 );
+		update_option( 'otsw_fallback_rate_limit_requests', 10 );
 		$this->wpdb->handler = $this->alwaysEmptyHandler();
 
 		$this->search( 'hazina lamp' ); // two FULLTEXT-eligible words, nothing matches
@@ -692,8 +690,8 @@ final class SearchHandlerQueryTest extends TestCase {
 		// helps). This guard caps how many times one visitor can trigger that
 		// phase per window, separately from — and much stricter than — the
 		// main per-IP limit.
-		update_option( 'wcs_fallback_rate_limit_requests', 1 );
-		update_option( 'wcs_fallback_rate_limit_window', 60 );
+		update_option( 'otsw_fallback_rate_limit_requests', 1 );
+		update_option( 'otsw_fallback_rate_limit_window', 60 );
 		$this->wpdb->handler = $this->alwaysEmptyHandler();
 
 		$this->search( 'hazina lamp' ); // spends the one-request budget
@@ -713,18 +711,18 @@ final class SearchHandlerQueryTest extends TestCase {
 		// The guard is computed unconditionally near the top of the fallback
 		// section, but must cost nothing extra for the overwhelmingly common
 		// case: a query that resolves in tiers 0-3 and never reaches it.
-		update_option( 'wcs_fallback_rate_limit_requests', 1 );
+		update_option( 'otsw_fallback_rate_limit_requests', 1 );
 		$this->wpdb->handler = fn( string $sql, string $type ) => 'results' === $type ? array( $this->fakeRow( 1 ) ) : null;
 
 		$this->search( 'hazina' );
 
 		foreach ( $this->wpdb->queries as $sql ) {
-			$this->assertStringNotContainsString( 'wcs_rate_limits', $sql, 'a resolved search should never consult the fallback-tier limiter at all' );
+			$this->assertStringNotContainsString( 'otsw_rate_limits', $sql, 'a resolved search should never consult the fallback-tier limiter at all' );
 		}
 	}
 
 	public function test_expensive_fallback_guard_is_keyed_per_client_ip(): void {
-		update_option( 'wcs_fallback_rate_limit_requests', 1 );
+		update_option( 'otsw_fallback_rate_limit_requests', 1 );
 		$this->wpdb->handler = $this->alwaysEmptyHandler();
 
 		$_SERVER['REMOTE_ADDR'] = '203.0.113.5';

@@ -119,7 +119,7 @@ if ( $DRY_RUN || $to_seed <= 0 ) {
 }
 
 // ── Disable hooks that slow down bulk inserts ─────────────────────────────────
-// Temporarily unhook WCS indexer so it doesn't fire on every save;
+// Temporarily unhook OTSW indexer so it doesn't fire on every save;
 // we'll trigger a bulk re-index at the end instead.
 remove_all_actions( 'save_post_product' );
 remove_all_actions( 'woocommerce_update_product' );
@@ -185,15 +185,15 @@ $progress->finish();
 WP_CLI::line( '' );
 WP_CLI::success( "Inserted {$inserted} products. Failed: {$failed}." );
 
-// ── Trigger WCS full re-index ─────────────────────────────────────────────────
+// ── Trigger OTSW full re-index ─────────────────────────────────────────────────
 WP_CLI::line( '' );
 WP_CLI::line( '── Scheduling Turbo Search for WooCommerce re-index... ──' );
 
 if ( function_exists( 'as_schedule_single_action' ) ) {
     // Kick off from offset 0; Action Scheduler will chain subsequent batches
-    as_schedule_single_action( time(), 'wcs_process_batch', [ 'offset' => 0 ], 'turbo-search-for-woocommerce' );
+    as_schedule_single_action( time(), 'otsw_process_batch', [ 'offset' => 0 ], 'ozulabs-turbo-search-for-woocommerce' );
     WP_CLI::success( 'Re-index job queued in Action Scheduler.' );
-    WP_CLI::line( '  Monitor progress: wp action-scheduler list --status=pending --group=turbo-search-for-woocommerce --path=/var/www/zuriancrafts.com --allow-root' );
+    WP_CLI::line( '  Monitor progress: wp action-scheduler list --status=pending --group=ozulabs-turbo-search-for-woocommerce --path=/var/www/zuriancrafts.com --allow-root' );
     WP_CLI::line( '  Or check admin: WooCommerce → Status → Scheduled Actions' );
 } else {
     WP_CLI::warning( 'Action Scheduler not found. Trigger re-index manually from Admin → Turbo Search for WooCommerce.' );

@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -26,7 +26,7 @@ class Search_Handler {
 	 * Register the REST API route.
 	 */
 	public static function register_routes(): void {
-		register_rest_route( 'wcs/v1', '/search', array(
+		register_rest_route( 'otsw/v1', '/search', array(
 			'methods'             => \WP_REST_Server::READABLE,
 			'callback'            => array( __CLASS__, 'handle_request' ),
 			'permission_callback' => array( __CLASS__, 'check_permissions' ),
@@ -60,7 +60,7 @@ class Search_Handler {
 	public static function check_permissions( \WP_REST_Request $request ) {
 		$nonce = $request->get_param( '_wpnonce' );
 		if ( ! wp_verify_nonce( $nonce, 'wp_rest' ) ) {
-			return new \WP_Error( 'rest_forbidden', esc_html__( 'Invalid nonce.', 'turbo-search-for-woocommerce' ), array( 'status' => 403 ) );
+			return new \WP_Error( 'rest_forbidden', esc_html__( 'Invalid nonce.', 'ozulabs-turbo-search-for-woocommerce' ), array( 'status' => 403 ) );
 		}
 
 		// Per-IP rate limiting. Configurable on the Settings tab; defaults
@@ -69,8 +69,8 @@ class Search_Handler {
 		// so the two paths can never enforce different effective limits.
 		$ip               = self::get_client_ip();
 		[ $max, $window ] = Rate_Limiter::resolved_search_limit();
-		if ( ! Rate_Limiter::allow( 'wcs_rl_' . md5( $ip ), $max, $window ) ) {
-			return new \WP_Error( 'rest_too_many_requests', esc_html__( 'Too many requests.', 'turbo-search-for-woocommerce' ), array( 'status' => 429 ) );
+		if ( ! Rate_Limiter::allow( 'otsw_rl_' . md5( $ip ), $max, $window ) ) {
+			return new \WP_Error( 'rest_too_many_requests', esc_html__( 'Too many requests.', 'ozulabs-turbo-search-for-woocommerce' ), array( 'status' => 429 ) );
 		}
 
 		return true;
@@ -83,7 +83,7 @@ class Search_Handler {
 	 *   1. APCu   — shared server RAM, ~0.01 ms, no I/O.
 	 *   2. Transient — WP object cache (Redis/Memcached) or wp_options DB row.
 	 *   3. Mutex  — wp_cache_add() stampede guard (only with persistent cache).
-	 *   4. DB     — FULLTEXT query against wcs_search_index, then LIKE fallback.
+	 *   4. DB     — FULLTEXT query against otsw_search_index, then LIKE fallback.
 	 *
 	 * @param \WP_REST_Request $request Request object.
 	 * @return \WP_REST_Response
@@ -104,7 +104,7 @@ class Search_Handler {
 
 		// Server-side min_chars enforcement — mirrors the client-side JS check so
 		// bots bypassing the frontend cannot trigger DB queries with 1-char terms.
-		$min_chars = max( 1, (int) get_option( 'wcs_min_chars', 2 ) );
+		$min_chars = max( 1, (int) get_option( 'otsw_min_chars', 2 ) );
 		if ( mb_strlen( $query, 'UTF-8' ) < $min_chars ) {
 			return rest_ensure_response( array() );
 		}
@@ -113,7 +113,7 @@ class Search_Handler {
 		// serves prices in the store's default currency.
 		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : get_option( 'woocommerce_currency', 'USD' );
 
-		$cache_version = (int) get_option( 'wcs_cache_version', 1 );
+		$cache_version = (int) get_option( 'otsw_cache_version', 1 );
 		$cache_key     = Query_Normalizer::cache_key( $query, $currency, $cache_version );
 
 		// ── 1. APCu L1 cache (shared server memory, ~0.01 ms, no I/O) ────────
@@ -148,9 +148,9 @@ class Search_Handler {
 		// In that case skip the poller path entirely — workers run concurrent DB
 		// queries which is the same behaviour as before and is safe (idempotent).
 		$lock_key   = '';
-		$lock_group = 'wcs_search';
+		$lock_group = 'otsw_search';
 		if ( wp_using_ext_object_cache() ) {
-			$lock_key   = 'wcs_lock_' . $currency . '_' . md5( $query );
+			$lock_key   = 'otsw_lock_' . $currency . '_' . md5( $query );
 			$is_builder = wp_cache_add( $lock_key, '1', $lock_group, 5 );
 
 			if ( ! $is_builder ) {
@@ -173,6 +173,7 @@ class Search_Handler {
 		// ── 4. DB: run the search query ──────────────────────────────────────
 		self::$last_corrected_query = null;
 		self::$last_query_had_error = false;
+		self::$last_query_degraded  = false;
 		$results                    = self::query_database( $query );
 		$corrected_query            = self::$last_corrected_query;
 
@@ -180,7 +181,7 @@ class Search_Handler {
 		// get_rows() as an empty array — $wpdb itself doesn't distinguish
 		// them either (see get_rows()'s docblock). Left unhandled, a
 		// transient failure (a lock-wait timeout, a schema mismatch mid-
-		// migration, a malformed query from a wcs_indexed_taxonomies-style
+		// migration, a malformed query from a otsw_indexed_taxonomies-style
 		// filter) would be cached as "no products found" for up to 24h in
 		// the transient layer and re-served from APCu for 5 minutes on top
 		// of that even after the database recovers — with no admin-visible
@@ -204,7 +205,22 @@ class Search_Handler {
 				wp_cache_delete( $lock_key, $lock_group );
 			}
 			$response = self::build_response( $results, $corrected_query );
-			$response->header( 'X-WCS-Query-Error', '1' );
+			$response->header( 'X-OTSW-Query-Error', '1' );
+			return $response;
+		}
+
+		// This visitor's own expensive-fallback-tier rate limit was
+		// exhausted, so the empty result above reflects THEIR throttling,
+		// not a genuine "no matches" outcome for this query — every other
+		// visitor still deserves the full relaxed search. Never let a
+		// throttled result enter the shared cache (see query_database()'s
+		// comment); the frontend is told via header not to treat it as final.
+		if ( self::$last_query_degraded ) {
+			if ( $lock_key ) {
+				wp_cache_delete( $lock_key, $lock_group );
+			}
+			$response = rest_ensure_response( $results );
+			$response->header( 'X-OTSW-Degraded', '1' );
 			return $response;
 		}
 
@@ -212,18 +228,18 @@ class Search_Handler {
 		// result set means "not indexed yet", not "no matching products".
 		// Signal the frontend via header and skip caching so results appear
 		// the moment the build finishes — no stale empty entries linger.
-		if ( empty( $results ) && 0 === (int) get_option( 'wcs_last_indexed', 0 ) ) {
+		if ( empty( $results ) && 0 === (int) get_option( 'otsw_last_indexed', 0 ) ) {
 			if ( $lock_key ) {
 				wp_cache_delete( $lock_key, $lock_group );
 			}
 			$response = rest_ensure_response( array() );
-			$response->header( 'X-WCS-Indexing', '1' );
+			$response->header( 'X-OTSW-Indexing', '1' );
 			return $response;
 		}
 
 		// Cache for 24 hours. GC handles orphaned transients on version bump.
 		// Wrapped with the corrected query (if typo correction fired) so cache
-		// hits also get the X-WCS-Corrected-Query header, not just this request.
+		// hits also get the X-OTSW-Corrected-Query header, not just this request.
 		$payload = self::wrap_for_cache( $results, $corrected_query );
 		set_transient( $cache_key, $payload, DAY_IN_SECONDS );
 
@@ -247,14 +263,14 @@ class Search_Handler {
 	 * plugin (plain result arrays, no wrapper) are still read correctly during
 	 * their remaining TTL after an upgrade — see unwrap_cached().
 	 */
-	private const CACHE_PAYLOAD_MARKER = '__wcs_payload';
+	private const CACHE_PAYLOAD_MARKER = '__otsw_payload';
 
 	/**
 	 * Wrap results plus the (optional) typo-corrected query into the shape
 	 * stored in the transient/APCu cache.
 	 *
 	 * @param array       $results   Result rows (already through the
-	 *                                wcs_search_results filter).
+	 *                                otsw_search_results filter).
 	 * @param string|null $corrected The corrected query, if correction fired.
 	 * @return array
 	 */
@@ -285,7 +301,7 @@ class Search_Handler {
 
 	/**
 	 * Build the REST response from result rows, attaching the
-	 * X-WCS-Corrected-Query header when typo correction changed the query —
+	 * X-OTSW-Corrected-Query header when typo correction changed the query —
 	 * lets the frontend highlight the terms actually matched instead of the
 	 * shopper's original (misspelled) input.
 	 *
@@ -296,7 +312,7 @@ class Search_Handler {
 	private static function build_response( array $results, ?string $corrected ): \WP_REST_Response {
 		$response = rest_ensure_response( $results );
 		if ( ! empty( $corrected ) ) {
-			$response->header( 'X-WCS-Corrected-Query', $corrected );
+			$response->header( 'X-OTSW-Corrected-Query', $corrected );
 		}
 		return $response;
 	}
@@ -315,7 +331,7 @@ class Search_Handler {
 	 *      searches never reach it.
 	 *
 	 * The FULLTEXT word-length gate depends on the parser recorded at index
-	 * creation (wcs_ft_parser): ngram indexes token at 2 chars; the default
+	 * creation (otsw_ft_parser): ngram indexes token at 2 chars; the default
 	 * InnoDB parser is only reliable from 4 chars up (innodb_ft_min_token_size
 	 * boundary quirks make "+haz*" return zero rows on some setups).
 	 *
@@ -323,7 +339,7 @@ class Search_Handler {
 	 * @return array
 	 */
 	/**
-	 * Base relevance-ranking weights before the wcs_ranking_weights filter runs.
+	 * Base relevance-ranking weights before the otsw_ranking_weights filter runs.
 	 * Ranking-weight tuning from the Settings tab is a Pro feature — this
 	 * edition always uses these built-in defaults.
 	 *
@@ -339,19 +355,15 @@ class Search_Handler {
 			'phrase'       => 4.0,
 			'instock'      => 0.5,
 			'sales'        => 0.3,
-			// Recent-sales-weighted ranking is a Pro feature; the indexer never
-			// populates sales_30d in this edition, so this weight is inert either
-			// way, but pinned to 0 here for clarity rather than relying on that.
-			'recent_sales' => 0.0,
 		);
 	}
 
 	private static function query_database( string $query ): array {
 		global $wpdb;
-		$table_name = $wpdb->prefix . 'wcs_search_index';
+		$table_name = $wpdb->prefix . 'otsw_search_index';
 
-		$limit    = (int) get_option( 'wcs_result_count', 6 );
-		$show_oos = (bool) get_option( 'wcs_show_out_of_stock', 1 );
+		$limit    = (int) get_option( 'otsw_result_count', 6 );
+		$show_oos = (bool) get_option( 'otsw_show_out_of_stock', 1 );
 
 		// Tokenize — collapses multiple spaces and strips empty tokens.
 		// Stopwords come out here, before any tier sees the word list: every
@@ -405,7 +417,7 @@ class Search_Handler {
 				if ( ( $row['sku_normalized'] ?? '' ) === $sku_norm ) {
 					unset( $row['sku_normalized'] ); // internal-only column, not part of the public result shape
 					/** This filter is documented below. */
-					return (array) apply_filters( 'wcs_search_results', array( $row ), $query );
+					return (array) apply_filters( 'otsw_search_results', array( $row ), $query );
 				}
 			}
 			// No exact match — keep the prefix rows as a last-resort fallback,
@@ -421,7 +433,7 @@ class Search_Handler {
 		}
 
 		// Split words by FULLTEXT eligibility for this index's parser.
-		$parser  = (string) get_option( 'wcs_ft_parser', 'default' );
+		$parser  = (string) get_option( 'otsw_ft_parser', 'default' );
 		$ft_gate = ( 'ngram' === $parser ) ? 2 : 4;
 
 		$last_idx   = count( $words ) - 1;
@@ -604,7 +616,7 @@ class Search_Handler {
 			// terms still be found at all: Tier 1 is the only other tier that
 			// ever reads content, and it's skipped entirely when every word in
 			// the query is short enough that $ft_words ends up empty. Content
-			// is already empty in every row when wcs_search_content is
+			// is already empty in every row when otsw_search_content is
 			// disabled (set at index time), so this condition simply never
 			// matches in that case — no separate guard needed here. Excludes
 			// rows tier 2 already returned.
@@ -692,9 +704,9 @@ class Search_Handler {
 		$expensive_fallback_allowed = true;
 		if ( empty( $results ) ) {
 			$expensive_fallback_allowed = Rate_Limiter::allow(
-				'wcs_ef_' . md5( self::get_client_ip() ),
-				max( 1, (int) get_option( 'wcs_fallback_rate_limit_requests', 10 ) ),
-				max( 1, (int) get_option( 'wcs_fallback_rate_limit_window', MINUTE_IN_SECONDS ) )
+				'otsw_ef_' . md5( self::get_client_ip() ),
+				max( 1, (int) get_option( 'otsw_fallback_rate_limit_requests', 10 ) ),
+				max( 1, (int) get_option( 'otsw_fallback_rate_limit_window', MINUTE_IN_SECONDS ) )
 			);
 		}
 
@@ -800,6 +812,17 @@ class Search_Handler {
 			$results = $sku_prefix_probe;
 		}
 
+		// An empty result reached because the per-IP expensive-fallback-tier
+		// budget was exhausted (not because the relaxation passes genuinely
+		// found nothing) is incomplete for THIS visitor only — every other
+		// visitor's identical query still deserves the full relaxed search.
+		// handle_request() must refuse to write this into the shared 24h
+		// cache, or one throttled visitor would silently suppress real
+		// results for everyone else searching the same term for up to a day.
+		if ( empty( $results ) && ! $expensive_fallback_allowed ) {
+			self::$last_query_degraded = true;
+		}
+
 		/**
 		 * Filters the raw search results before they are cached and returned.
 		 *
@@ -809,7 +832,7 @@ class Search_Handler {
 		 * @param array  $results Array of product row arrays.
 		 * @param string $query   The sanitized search query.
 		 */
-		return (array) apply_filters( 'wcs_search_results', $results, $query );
+		return (array) apply_filters( 'otsw_search_results', $results, $query );
 	}
 
 	/**
@@ -832,14 +855,7 @@ class Search_Handler {
 		 *     @type float $sales        Multiplier for LEAST(LOG(1 + total_sales), 3).
 		 * }
 		 */
-		$weights = (array) apply_filters( 'wcs_ranking_weights', self::default_ranking_weights() );
-
-		// Recent-sales-weighted ranking is a Pro feature; sales_30d is never
-		// populated in this edition, so pin the weight to zero regardless of
-		// what a filter tries to set it to.
-		$weights['recent_sales'] = 0.0;
-
-		return $weights;
+		return (array) apply_filters( 'otsw_ranking_weights', self::default_ranking_weights() );
 	}
 
 	/**
@@ -898,8 +914,8 @@ class Search_Handler {
 		// ranked outside the candidate window by the cheap score never
 		// reaches the full formula, even if that formula would have scored
 		// it highly (e.g. on an exact-title/SKU boost). Widen via the
-		// wcs_candidate_limit filter for catalogs where that is observed.
-		$candidate_limit = max( $limit, (int) apply_filters( 'wcs_candidate_limit', 200 ) );
+		// otsw_candidate_limit filter for catalogs where that is observed.
+		$candidate_limit = max( $limit, (int) apply_filters( 'otsw_candidate_limit', 200 ) );
 
 		// phpcs:disable WordPress.DB.PreparedSQL.InterpolatedNotPrepared,WordPress.DB.PreparedSQLPlaceholders.ReplacementsWrongNumber -- $stock_clause is a fixed SQL literal; $short_sql is built from %s placeholders; %i handles the table
 		return (string) $wpdb->prepare(
@@ -923,7 +939,6 @@ class Search_Handler {
 				 + IF(t.title_padded LIKE %s, %f, 0)
 				 + IF(t.stock_status = 'instock', %f, 0)
 				 + %f * LEAST(LOG(1 + t.total_sales), 3)
-				 + %f * LEAST(LOG(1 + t.sales_30d), 3)
 			 ) DESC
 			 LIMIT %d",
 			...array_merge(
@@ -968,7 +983,6 @@ class Search_Handler {
 					(float) ( $weights['phrase'] ?? 4.0 ),
 					(float) ( $weights['instock'] ?? 0.5 ),
 					(float) ( $weights['sales'] ?? 0.3 ),
-					(float) ( $weights['recent_sales'] ?? 1.0 ),
 					$limit,
 				)
 			)
@@ -1022,15 +1036,25 @@ class Search_Handler {
 	private static bool $last_query_had_error = false;
 
 	/**
+	 * Set by query_database() when a zero-result outcome was reached because
+	 * the expensive-fallback-tier rate limit was exhausted for this visitor,
+	 * not because the relaxation passes genuinely found nothing. Reset
+	 * per-request by handle_request() before it calls query_database() — see
+	 * the call site in query_database() for what caching this would cost.
+	 */
+	private static bool $last_query_degraded = false;
+
+	/**
 	 * Reset per-request memoization (used by the test suite).
 	 */
 	public static function flush_runtime_cache(): void {
 		self::$last_corrected_query = null;
 		self::$last_query_had_error = false;
+		self::$last_query_degraded  = false;
 	}
 
 	private static function get_client_ip(): string {
 		$ip = sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) );
-		return (string) apply_filters( 'wcs_get_client_ip', $ip );
+		return (string) apply_filters( 'otsw_get_client_ip', $ip );
 	}
 }

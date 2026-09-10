@@ -62,7 +62,7 @@
 	<rule ref="WordPress.WP.I18n">
 		<properties>
 			<property name="text_domain" type="array">
-				<element value="turbo-search-for-woocommerce"/>
+				<element value="ozulabs-turbo-search-for-woocommerce"/>
 			</property>
 		</properties>
 	</rule>
@@ -70,26 +70,26 @@
 	<rule ref="WordPress.NamingConventions.PrefixAllGlobals">
 		<properties>
 			<property name="prefixes" type="array">
-				<element value="wcs"/>
-				<element value="WCS"/>
+				<element value="otsw"/>
+				<element value="OTSW"/>
 			</property>
 		</properties>
 	</rule>
-	<!-- "wcs"/"WCS" are 3 characters — under WPCS's own recommended 4-char
-	     minimum (WORDPRESS_ORG_HANDBOOK.md §19) — but they are the
-	     established, already-shipped prefix for every option, transient,
-	     table, hook, and identifier in both editions of this plugin.
-	     Renaming them now would mean a breaking migration for every live
-	     site on update (stored option/table names, hook names other code
-	     may have hooked into). Documented exception, not an oversight —
-	     mirrors OzuPay's own `ozp` short-prefix exception in that project's
-	     phpcs.xml for the same reason. -->
-	<rule ref="WordPress.NamingConventions.PrefixAllGlobals.ShortPrefixPassed">
-		<exclude-pattern>*</exclude-pattern>
-	</rule>
 
-	<!-- Namespaced classes (WCS\Search\...) are not global-scope identifiers,
+	<!-- Namespaced classes (OTSW\Search\...) are not global-scope identifiers,
 	     so the prefix requirement above only bites on top-level functions,
 	     constants, and globals — matching this repo's own stated convention
-	     (AGENT_CODING_STANDARDS.md §1.1). -->
+	     (AGENT_CODING_STANDARDS.md §1.1).
+
+	     This plugin used the 3-letter "wcs"/"WCS" prefix — under WPCS's own
+	     recommended 4-char minimum (WORDPRESS_ORG_HANDBOOK.md §19) — until a
+	     2026-09-09 WordPress.org submission review flagged it as a collision
+	     risk before this plugin had ever been approved/distributed under that
+	     prefix. It was renamed to "otsw"/"OTSW" throughout (kept identical to
+	     the Pro edition so the Free/Pro mutual-exclusion guard's
+	     shared-identifier detection keeps working — see the guard's own
+	     comment in turbo-search-for-woocommerce.php). Do not reintroduce
+	     "wcs"/"WCS", and do not re-add a ShortPrefixPassed suppression here —
+	     the current prefix is 4 characters and should pass this sniff
+	     unassisted. -->
 </ruleset>

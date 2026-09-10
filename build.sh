@@ -37,7 +37,7 @@ case "$BUMP_TYPE" in
     ;;
 esac
 
-PLUGIN_SLUG="turbo-search-for-woocommerce"
+PLUGIN_SLUG="ozulabs-turbo-search-for-woocommerce"
 # Resolve the repo root from the script's own location so the script can be
 # called from any working directory.
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -49,10 +49,10 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 cd "$REPO_DIR"
 
 # Extract current version, bump per $BUMP_TYPE, and rewrite all version strings.
-OLD_VERSION=$(grep -m1 "define( 'WCS_VERSION'" "$REPO_DIR/turbo-search-for-woocommerce.php" \
+OLD_VERSION=$(grep -m1 "define( 'OTSW_VERSION'" "$REPO_DIR/turbo-search-for-woocommerce.php" \
               | sed "s/.*'\([^']*\)'.*/\1/")
 if [ -z "$OLD_VERSION" ]; then
-  echo "Error: could not parse WCS_VERSION from turbo-search-for-woocommerce.php."
+  echo "Error: could not parse OTSW_VERSION from turbo-search-for-woocommerce.php."
   exit 1
 fi
 
@@ -68,7 +68,7 @@ esac
 echo "==> Bumping version (${BUMP_TYPE}): ${OLD_VERSION} → ${VERSION}"
 
 # Update every version occurrence in the plugin files.
-sed -i "s/define( 'WCS_VERSION', '${OLD_VERSION}' )/define( 'WCS_VERSION', '${VERSION}' )/" \
+sed -i "s/define( 'OTSW_VERSION', '${OLD_VERSION}' )/define( 'OTSW_VERSION', '${VERSION}' )/" \
     "$REPO_DIR/turbo-search-for-woocommerce.php"
 sed -i "s/^\( \* Version:\s*\)${OLD_VERSION}/\1${VERSION}/" \
     "$REPO_DIR/turbo-search-for-woocommerce.php"
@@ -76,7 +76,7 @@ sed -i "s/^Stable tag:\s*${OLD_VERSION}/Stable tag:        ${VERSION}/" \
     "$REPO_DIR/readme.txt"
 # The MU companion file's header comment has no functional role (it carries
 # no Plugin Name header, so WordPress never lists or version-checks it — the
-# real install/update sync uses a content hash and the wcs_mu_version option,
+# real install/update sync uses a content hash and the otsw_mu_version option,
 # both handled by Activator::install_mu_plugin()), but a stale comment here
 # has previously been flagged as confusing during release review. Matched
 # generically, not against $OLD_VERSION, since this comment can drift stale

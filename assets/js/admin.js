@@ -1,8 +1,8 @@
 /* assets/js/admin.js — Turbo Search settings-page controller.
- * Config (nonces, i18n, initial state) is injected as `wcsAdmin` via
+ * Config (nonces, i18n, initial state) is injected as `otswAdmin` via
  * wp_add_inline_script(); `ajaxurl` is the wp-admin global. */
 (function () {
-	if (typeof wcsAdmin === 'undefined') return;
+	if (typeof otswAdmin === 'undefined') return;
 
 	// ── Notice dismissal ────────────────────────────────────────────────────
 	// WordPress adds .notice-dismiss buttons dynamically; fire-and-forget the
@@ -14,9 +14,9 @@
 		if (!notice) return;
 
 		const body = new URLSearchParams();
-		body.append('action', 'wcs_dismiss_notice');
+		body.append('action', 'otsw_dismiss_notice');
 		body.append('notice_id', notice.getAttribute('data-wcs-notice'));
-		body.append('_wpnonce', wcsAdmin.nonces.dismiss);
+		body.append('_wpnonce', otswAdmin.nonces.dismiss);
 		fetch(ajaxurl, { method: 'POST', body: body });
 	});
 
@@ -27,7 +27,7 @@
 		const deleteSpinner = document.getElementById('wcs-delete-spinner');
 		if (!deleteBtn) return;
 
-		const i18n = wcsAdmin.i18n;
+		const i18n = otswAdmin.i18n;
 
 		deleteBtn.addEventListener('click', function (e) {
 			e.preventDefault();
@@ -40,8 +40,8 @@
 				method: 'POST',
 				headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 				body: new URLSearchParams({
-					action: 'wcs_delete_all_data',
-					_ajax_nonce: wcsAdmin.nonces.delete
+					action: 'otsw_delete_all_data',
+					_ajax_nonce: otswAdmin.nonces.delete
 				})
 			}).then(res => res.json()).then(data => {
 				if (data.success) {
@@ -69,8 +69,8 @@
 		const errorWrapper    = document.getElementById('wcs-rebuild-error');
 		if (!statusWrapper) return; // App Data/Docs tab — nothing else to control.
 
-		const i18n = wcsAdmin.i18n;
-		const errorLabels = wcsAdmin.errorLabels || {};
+		const i18n = otswAdmin.i18n;
+		const errorLabels = otswAdmin.errorLabels || {};
 		let pollingInterval = null;
 
 		function showRebuildError(code) {
@@ -119,7 +119,7 @@
 		}
 
 		function checkStatus() {
-			fetch(ajaxurl + '?action=wcs_get_index_status&_ajax_nonce=' + encodeURIComponent(wcsAdmin.nonces.status))
+			fetch(ajaxurl + '?action=otsw_get_index_status&_ajax_nonce=' + encodeURIComponent(otswAdmin.nonces.status))
 				.then(res => res.json())
 				.then(response => {
 					if (!response.success) return;
@@ -148,7 +148,7 @@
 				});
 		}
 
-		if (wcsAdmin.isIndexing) {
+		if (otswAdmin.isIndexing) {
 			startPolling();
 		}
 
@@ -164,8 +164,8 @@
 					method: 'POST',
 					headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
 					body: new URLSearchParams({
-						action: 'wcs_rebuild_index',
-						_ajax_nonce: wcsAdmin.nonces.rebuild
+						action: 'otsw_rebuild_index',
+						_ajax_nonce: otswAdmin.nonces.rebuild
 					})
 				}).then(res => res.json()).then(data => {
 					if (data.success) {

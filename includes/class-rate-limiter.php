@@ -8,7 +8,7 @@ declare(strict_types=1);
  * endpoint, and the expensive-fallback-tier guard in Search_Handler.
  *
  * APCu is used when available (atomic, sub-ms, no DB I/O). Without it, this
- * falls back to an atomic UPSERT against the wcs_rate_limits table rather
+ * falls back to an atomic UPSERT against the otsw_rate_limits table rather
  * than a transient: get_transient()+set_transient() is two round trips with
  * no locking between them, so two concurrent workers can both read the same
  * (stale) count and each pass the limit check — confirmed as a real gap, not
@@ -22,7 +22,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -44,8 +44,8 @@ class Rate_Limiter {
 	 */
 	public static function resolved_search_limit(): array {
 		return array(
-			max( 1, (int) get_option( 'wcs_rate_limit_requests', 60 ) ),
-			max( 1, (int) get_option( 'wcs_rate_limit_window', MINUTE_IN_SECONDS ) ),
+			max( 1, (int) get_option( 'otsw_rate_limit_requests', 60 ) ),
+			max( 1, (int) get_option( 'otsw_rate_limit_window', MINUTE_IN_SECONDS ) ),
 		);
 	}
 
@@ -98,7 +98,7 @@ class Rate_Limiter {
 	 */
 	private static function allow_via_db( string $key, int $max_requests, int $window_seconds ): bool {
 		global $wpdb;
-		$table        = $wpdb->prefix . 'wcs_rate_limits';
+		$table        = $wpdb->prefix . 'otsw_rate_limits';
 		$window_start = (int) floor( time() / $window_seconds ) * $window_seconds;
 
 		$suppress = $wpdb->suppress_errors( true );

@@ -2,14 +2,14 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Indexer;
+use OTSW\Search\Indexer;
 
 final class IndexerTest extends TestCase {
 
 	private Fake_WPDB $wpdb;
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 		$this->wpdb      = new Fake_WPDB();
 		$GLOBALS['wpdb'] = $this->wpdb;
 	}
@@ -17,16 +17,16 @@ final class IndexerTest extends TestCase {
 	// ── Epoch state machine ──────────────────────────────────────────────────
 
 	public function test_stale_epoch_batch_is_dropped_without_touching_the_database(): void {
-		update_option( 'wcs_rebuild_epoch', 100 );
-		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'otsw_rebuild_epoch', 100 );
+		update_option( 'otsw_is_indexing', 1 );
 
 		Indexer::process_batch( 0, 99 ); // superseded epoch
 
 		$this->assertSame( array(), $this->wpdb->queries );
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'] );
 		// The indexing flag belongs to the current rebuild — a stale batch must not clear it.
-		$this->assertSame( 1, get_option( 'wcs_is_indexing' ) );
-		$messages = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$this->assertSame( 1, get_option( 'otsw_is_indexing' ) );
+		$messages = array_column( $GLOBALS['otsw_test_logs'], 'message' );
 		$this->assertNotEmpty( preg_grep( '/stale/i', $messages ) );
 	}
 
@@ -35,18 +35,18 @@ final class IndexerTest extends TestCase {
 	// returns 0 (not an exception) when it can't enqueue — confirmed live,
 	// this happens when a schema-migrating upgrade's rebuild trigger runs
 	// during plugins_loaded before Action Scheduler's own data store has
-	// initialized. The call silently no-oped, leaving wcs_is_indexing stuck
+	// initialized. The call silently no-oped, leaving otsw_is_indexing stuck
 	// at 1 forever with nothing driving it and no admin-visible signal.
 
 	public function test_enqueue_failure_falls_back_to_wp_cron_retry(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::start_rebuild();
 
-		$epoch = (int) get_option( 'wcs_rebuild_epoch' );
+		$epoch = (int) get_option( 'otsw_rebuild_epoch' );
 		$this->assertNotSame( 0, $epoch );
-		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'still marked indexing — the fallback, not a hard failure, owns recovery' );
-		$scheduled = array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] );
+		$this->assertSame( 1, get_option( 'otsw_is_indexing' ), 'still marked indexing — the fallback, not a hard failure, owns recovery' );
+		$scheduled = array_filter( $GLOBALS['otsw_test_single_events'], static fn( $e ) => 'otsw_retry_rebuild_scheduling' === $e['hook'] );
 		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the initial enqueue fails' );
 		$this->assertSame( array( $epoch, 0 ), array_values( $scheduled )[0]['args'] );
 	}
@@ -57,80 +57,80 @@ final class IndexerTest extends TestCase {
 	 * would leave a rebuild stranded with literally nothing driving it — no
 	 * Action Scheduler action pending (that's what triggered the fallback)
 	 * and no cron event pending either — so retry_rebuild_scheduling() would
-	 * simply never run and wcs_is_indexing would sit at 1 forever.
+	 * simply never run and otsw_is_indexing would sit at 1 forever.
 	 */
 	public function test_wp_cron_itself_refusing_the_retry_event_fails_the_rebuild_immediately(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::start_rebuild();
 
-		$this->assertSame( 0, get_option( 'wcs_is_indexing' ), 'nothing can drive this rebuild — it must not report "still indexing"' );
-		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
+		$this->assertSame( 0, get_option( 'otsw_is_indexing' ), 'nothing can drive this rebuild — it must not report "still indexing"' );
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'otsw_last_rebuild_error' ) );
 	}
 
 	public function test_enqueue_success_does_not_schedule_a_retry(): void {
 		Indexer::start_rebuild(); // default stub: as_enqueue_async_action succeeds
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'] );
 	}
 
 	public function test_retry_rebuild_scheduling_succeeds_on_a_later_attempt(): void {
-		update_option( 'wcs_rebuild_epoch', 555 );
-		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'otsw_rebuild_epoch', 555 );
+		update_option( 'otsw_is_indexing', 1 );
 
 		Indexer::retry_rebuild_scheduling( 555 );
 
-		$enqueued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === ( $c['hook'] ?? '' ) );
+		$enqueued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === ( $c['hook'] ?? '' ) );
 		$this->assertNotEmpty( $enqueued, 'a retry must attempt the enqueue again' );
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'a successful retry must not schedule another one' );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'], 'a successful retry must not schedule another one' );
 	}
 
 	public function test_retry_rebuild_scheduling_reschedules_itself_on_repeated_failure(): void {
-		update_option( 'wcs_rebuild_epoch', 555 );
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		update_option( 'otsw_rebuild_epoch', 555 );
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::retry_rebuild_scheduling( 555 );
 
-		$scheduled = array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_rebuild_scheduling' === $e['hook'] );
+		$scheduled = array_filter( $GLOBALS['otsw_test_single_events'], static fn( $e ) => 'otsw_retry_rebuild_scheduling' === $e['hook'] );
 		$this->assertNotEmpty( $scheduled, 'a still-failing retry must reschedule itself' );
-		$this->assertNull( get_option( 'wcs_last_rebuild_error', null ), 'not exhausted yet — no error should be recorded' );
+		$this->assertNull( get_option( 'otsw_last_rebuild_error', null ), 'not exhausted yet — no error should be recorded' );
 	}
 
 	public function test_retry_reschedule_itself_failing_stops_the_rebuild_instead_of_looping_silently(): void {
-		update_option( 'wcs_rebuild_epoch', 555 );
-		update_option( 'wcs_is_indexing', 1 );
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		update_option( 'otsw_rebuild_epoch', 555 );
+		update_option( 'otsw_is_indexing', 1 );
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::retry_rebuild_scheduling( 555 );
 
-		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
-		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'otsw_last_rebuild_error' ) );
+		$this->assertSame( 0, get_option( 'otsw_is_indexing' ) );
 	}
 
 	public function test_retry_rebuild_scheduling_gives_up_after_five_attempts(): void {
-		update_option( 'wcs_rebuild_epoch', 555 );
-		update_option( 'wcs_is_indexing', 1 );
-		set_transient( 'wcs_schedule_retry_555_0', 5 );
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		update_option( 'otsw_rebuild_epoch', 555 );
+		update_option( 'otsw_is_indexing', 1 );
+		set_transient( 'otsw_schedule_retry_555_0', 5 );
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::retry_rebuild_scheduling( 555 );
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'exhausted retries must not attempt the enqueue again' );
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
-		$this->assertSame( 'schedule_enqueue_failed', get_option( 'wcs_last_rebuild_error' ) );
-		$this->assertSame( 0, get_option( 'wcs_is_indexing' ), 'must stop showing "Indexing..." once retries are exhausted' );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'], 'exhausted retries must not attempt the enqueue again' );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'], 'exhausted retries must not reschedule again' );
+		$this->assertSame( 'schedule_enqueue_failed', get_option( 'otsw_last_rebuild_error' ) );
+		$this->assertSame( 0, get_option( 'otsw_is_indexing' ), 'must stop showing "Indexing..." once retries are exhausted' );
 	}
 
 	public function test_retry_rebuild_scheduling_ignores_a_superseded_epoch(): void {
-		update_option( 'wcs_rebuild_epoch', 999 ); // a newer rebuild already started
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		update_option( 'otsw_rebuild_epoch', 999 ); // a newer rebuild already started
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::retry_rebuild_scheduling( 555 ); // stale epoch from an earlier rebuild
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'] );
 	}
 
 	/**
@@ -145,8 +145,8 @@ final class IndexerTest extends TestCase {
 	 * index preserved rather than looping or swapping forever.
 	 */
 	public function test_product_id_fetch_failure_is_retried_not_treated_as_end_of_catalog(): void {
-		update_option( 'wcs_rebuild_epoch', 100 );
-		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'otsw_rebuild_epoch', 100 );
+		update_option( 'otsw_is_indexing', 1 );
 		$this->wpdb->handler = static function ( string $sql, string $type ) {
 			if ( 'col' === $type ) {
 				return array(); // simulated failure: looks identical to "no more products"
@@ -158,30 +158,30 @@ final class IndexerTest extends TestCase {
 		Indexer::process_batch( 500, 100 );
 
 		$this->assertStringNotContainsString( 'RENAME TABLE', implode( "\n", $this->wpdb->queries ), 'a failed fetch must never be treated as end-of-catalog and trigger a swap' );
-		$this->assertSame( 1, get_option( 'wcs_is_indexing' ), 'still marked indexing — the retry, not a hard failure, owns recovery' );
-		$retried = array_values( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_rebuild_index_batch' === ( $c['hook'] ?? '' ) ) );
+		$this->assertSame( 1, get_option( 'otsw_is_indexing' ), 'still marked indexing — the retry, not a hard failure, owns recovery' );
+		$retried = array_values( array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === ( $c['hook'] ?? '' ) ) );
 		$this->assertCount( 1, $retried, 'the same cursor must be retried' );
 		$this->assertSame( 500, $retried[0]['args']['last_id'] );
 	}
 
 	public function test_product_id_fetch_failure_halts_after_five_attempts_preserving_the_live_index(): void {
-		update_option( 'wcs_rebuild_epoch', 100 );
-		update_option( 'wcs_is_indexing', 1 );
-		set_transient( 'wcs_fetch_retry_100_500', 5 );
+		update_option( 'otsw_rebuild_epoch', 100 );
+		update_option( 'otsw_is_indexing', 1 );
+		set_transient( 'otsw_fetch_retry_100_500', 5 );
 		$this->wpdb->handler = static fn( string $sql, string $type ) => 'col' === $type ? array() : null;
 		$this->wpdb->last_error = 'simulated: connection lost';
 
 		Indexer::process_batch( 500, 100 );
 
 		$this->assertStringNotContainsString( 'RENAME TABLE', implode( "\n", $this->wpdb->queries ) );
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'exhausted retries must not enqueue another attempt' );
-		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
-		$this->assertSame( 'batch_fetch_failed', get_option( 'wcs_last_rebuild_error' ) );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'], 'exhausted retries must not enqueue another attempt' );
+		$this->assertSame( 0, get_option( 'otsw_is_indexing' ) );
+		$this->assertSame( 'batch_fetch_failed', get_option( 'otsw_last_rebuild_error' ) );
 	}
 
 	public function test_missing_staging_table_halts_the_chain_and_clears_the_flag(): void {
-		update_option( 'wcs_rebuild_epoch', 100 );
-		update_option( 'wcs_is_indexing', 1 );
+		update_option( 'otsw_rebuild_epoch', 100 );
+		update_option( 'otsw_is_indexing', 1 );
 		// Script the fake wpdb: no staging table exists (SHOW TABLES returns null).
 		$this->wpdb->handler = static fn( string $sql, string $type ) => match ( $type ) {
 			'col'   => array( 5, 6 ), // batch of product IDs
@@ -191,11 +191,11 @@ final class IndexerTest extends TestCase {
 
 		Indexer::process_batch( 0, 100 );
 
-		$this->assertSame( 0, get_option( 'wcs_is_indexing' ) );
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'], 'no further batches may be enqueued' );
+		$this->assertSame( 0, get_option( 'otsw_is_indexing' ) );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'], 'no further batches may be enqueued' );
 	}
 
-	// ── Row sanitization (the wcs_indexed_product_data hardening) ────────────
+	// ── Row sanitization (the otsw_indexed_product_data hardening) ────────────
 
 	private function sanitizeRow( array $data, int $product_id = 42 ): array {
 		$method = new ReflectionMethod( Indexer::class, 'apply_row_filter_and_sanitize' );
@@ -220,7 +220,7 @@ final class IndexerTest extends TestCase {
 	}
 
 	public function test_unknown_keys_added_by_filter_callbacks_are_stripped(): void {
-		add_filter( 'wcs_indexed_product_data', static function ( array $data ): array {
+		add_filter( 'otsw_indexed_product_data', static function ( array $data ): array {
 			$data['evil_column'] = 'DROP TABLE';
 			return $data;
 		} );
@@ -231,7 +231,7 @@ final class IndexerTest extends TestCase {
 	}
 
 	public function test_row_keys_stay_in_canonical_column_order_even_if_filter_unsets_keys(): void {
-		add_filter( 'wcs_indexed_product_data', static function ( array $data ): array {
+		add_filter( 'otsw_indexed_product_data', static function ( array $data ): array {
 			unset( $data['title'], $data['sku'] ); // must not shift $formats alignment
 			return $data;
 		} );
@@ -239,7 +239,7 @@ final class IndexerTest extends TestCase {
 		$row = $this->sanitizeRow( $this->validRow() );
 
 		$this->assertSame(
-			array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' ),
+			array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'image_url', 'permalink', 'updated_at' ),
 			array_keys( $row )
 		);
 	}
@@ -278,7 +278,7 @@ final class IndexerTest extends TestCase {
 	}
 
 	public function test_malicious_urls_and_markup_from_filters_are_neutralized(): void {
-		add_filter( 'wcs_indexed_product_data', static function ( array $data ): array {
+		add_filter( 'otsw_indexed_product_data', static function ( array $data ): array {
 			$data['image_url']    = 'javascript:alert(1)';
 			$data['title']        = '<script>x</script>Lamp';
 			$data['stock_status'] = 'instock; DROP';
@@ -301,7 +301,7 @@ final class IndexerTest extends TestCase {
 		Indexer::trigger_cache_bust();
 		Indexer::trigger_cache_bust();
 
-		$scheduled = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_debounce_cache_bust' === $c['hook'] );
+		$scheduled = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_debounce_cache_bust' === $c['hook'] );
 		$this->assertCount( 1, $scheduled );
 	}
 
@@ -315,22 +315,22 @@ final class IndexerTest extends TestCase {
 	 * whether anything else happens to write to the index afterward.
 	 */
 	public function test_failed_cache_bust_schedule_busts_immediately_as_a_fallback(): void {
-		update_option( 'wcs_cache_version', 1 );
-		$GLOBALS['wcs_test_as_schedule_fails'] = true;
+		update_option( 'otsw_cache_version', 1 );
+		$GLOBALS['otsw_test_as_schedule_fails'] = true;
 
 		Indexer::trigger_cache_bust();
 
-		$this->assertSame( 2, get_option( 'wcs_cache_version' ), 'a failed schedule must bust immediately, not depend on a later unrelated write' );
+		$this->assertSame( 2, get_option( 'otsw_cache_version' ), 'a failed schedule must bust immediately, not depend on a later unrelated write' );
 	}
 
 	public function test_failed_cache_bust_schedule_does_not_retry_scheduling_again_this_request(): void {
-		update_option( 'wcs_cache_version', 1 );
-		$GLOBALS['wcs_test_as_schedule_fails'] = true;
+		update_option( 'otsw_cache_version', 1 );
+		$GLOBALS['otsw_test_as_schedule_fails'] = true;
 
 		Indexer::trigger_cache_bust(); // fails, busts immediately
 		Indexer::trigger_cache_bust(); // the bust already happened — must not bump the version again
 
-		$this->assertSame( 2, get_option( 'wcs_cache_version' ) );
+		$this->assertSame( 2, get_option( 'otsw_cache_version' ) );
 	}
 
 	public function test_same_product_is_queued_once_per_request(): void {
@@ -338,7 +338,7 @@ final class IndexerTest extends TestCase {
 		Indexer::queue_product_update( 7 );
 		Indexer::queue_product_update( 8 );
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === $c['hook'] );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === $c['hook'] );
 		$this->assertCount( 2, $queued );
 	}
 
@@ -349,11 +349,11 @@ final class IndexerTest extends TestCase {
 	 * or a full rebuild, with no recovery path at all.
 	 */
 	public function test_product_enqueue_failure_falls_back_to_wp_cron_retry(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::queue_product_update( 7 );
 
-		$scheduled = array_values( array_filter( $GLOBALS['wcs_test_single_events'], static fn( $e ) => 'wcs_retry_product_enqueue' === $e['hook'] ) );
+		$scheduled = array_values( array_filter( $GLOBALS['otsw_test_single_events'], static fn( $e ) => 'otsw_retry_product_enqueue' === $e['hook'] ) );
 		$this->assertNotEmpty( $scheduled, 'a WP-Cron retry must be scheduled when the enqueue fails' );
 		$this->assertSame( array( 7 ), $scheduled[0]['args'] );
 	}
@@ -361,18 +361,18 @@ final class IndexerTest extends TestCase {
 	public function test_product_enqueue_retry_succeeds_on_a_later_attempt(): void {
 		Indexer::retry_product_enqueue( 7 ); // default stub: as_enqueue_async_action succeeds
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === ( $c['hook'] ?? '' ) );
 		$this->assertCount( 1, $queued );
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'a successful retry must not schedule another one' );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'], 'a successful retry must not schedule another one' );
 	}
 
 	public function test_product_enqueue_retry_gives_up_after_five_attempts(): void {
-		set_transient( 'wcs_product_retry_7', 5 );
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		set_transient( 'otsw_product_retry_7', 5 );
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::retry_product_enqueue( 7 );
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_single_events'], 'exhausted retries must not reschedule again' );
+		$this->assertSame( array(), $GLOBALS['otsw_test_single_events'], 'exhausted retries must not reschedule again' );
 	}
 
 	/**
@@ -386,22 +386,22 @@ final class IndexerTest extends TestCase {
 	 * verify it fires instead of failing silently.
 	 */
 	public function test_wp_cron_itself_refusing_the_product_retry_is_logged(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::queue_product_update( 7 );
 
-		$messages = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$messages = array_column( $GLOBALS['otsw_test_logs'], 'message' );
 		$this->assertNotEmpty( preg_grep( '/WP-Cron also refused .* product 7/i', $messages ) );
 	}
 
 	public function test_wp_cron_itself_refusing_the_product_reschedule_is_logged(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::retry_product_enqueue( 7 );
 
-		$messages = array_column( $GLOBALS['wcs_test_logs'], 'message' );
+		$messages = array_column( $GLOBALS['otsw_test_logs'], 'message' );
 		$this->assertNotEmpty( preg_grep( '/WP-Cron refused to reschedule .* product 7/i', $messages ) );
 	}
 
@@ -414,16 +414,16 @@ final class IndexerTest extends TestCase {
 	 * on the very first attempt, before retry_product_enqueue()'s 5-attempt
 	 * chain ever gets a chance to run. A pure log line meant the only update
 	 * for that product was silently lost. It must now also be recorded in
-	 * wcs_pending_product_updates so drain_pending_product_updates() can
+	 * otsw_pending_product_updates so drain_pending_product_updates() can
 	 * resubmit it later without requiring another product save.
 	 */
 	public function test_first_attempt_double_rejection_records_a_pending_update(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::queue_product_update( 7 );
 
-		$pending = get_option( 'wcs_pending_product_updates' );
+		$pending = get_option( 'otsw_pending_product_updates' );
 		$this->assertIsArray( $pending );
 		$this->assertArrayHasKey( 7, $pending );
 	}
@@ -434,126 +434,108 @@ final class IndexerTest extends TestCase {
 	 * next WP-Cron reschedule also fails.
 	 */
 	public function test_mid_chain_double_rejection_records_a_pending_update(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails']    = true;
-		$GLOBALS['wcs_test_cron_schedule_fails'] = true;
+		$GLOBALS['otsw_test_as_enqueue_fails']    = true;
+		$GLOBALS['otsw_test_cron_schedule_fails'] = true;
 
 		Indexer::retry_product_enqueue( 7 );
 
-		$pending = get_option( 'wcs_pending_product_updates' );
+		$pending = get_option( 'otsw_pending_product_updates' );
 		$this->assertIsArray( $pending );
 		$this->assertArrayHasKey( 7, $pending );
 	}
 
 	public function test_ordinary_wp_cron_fallback_does_not_record_a_pending_update(): void {
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true; // WP-Cron scheduling itself still succeeds
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true; // WP-Cron scheduling itself still succeeds
 
 		Indexer::queue_product_update( 7 );
 
-		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'a normal, successfully-scheduled WP-Cron retry needs no pending-set fallback' );
+		$this->assertFalse( get_option( 'otsw_pending_product_updates' ), 'a normal, successfully-scheduled WP-Cron retry needs no pending-set fallback' );
 	}
 
 	public function test_drain_pending_product_updates_resubmits_and_clears_on_success(): void {
-		update_option( 'wcs_pending_product_updates', array( 7 => true, 8 => true ) );
+		update_option( 'otsw_pending_product_updates', array( 7 => true, 8 => true ) );
 
 		Indexer::drain_pending_product_updates(); // default stub: as_enqueue_async_action succeeds
 
-		$queued = array_column( array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) ), 'args' );
+		$queued = array_column( array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === ( $c['hook'] ?? '' ) ), 'args' );
 		$this->assertContains( array( 'product_id' => 7 ), $queued );
 		$this->assertContains( array( 'product_id' => 8 ), $queued );
-		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'every entry enqueued successfully — the option must be cleared, not left as an empty array' );
+		$this->assertFalse( get_option( 'otsw_pending_product_updates' ), 'every entry enqueued successfully — the option must be cleared, not left as an empty array' );
 	}
 
 	public function test_drain_pending_product_updates_leaves_failed_ids_pending(): void {
-		update_option( 'wcs_pending_product_updates', array( 7 => true ) );
-		$GLOBALS['wcs_test_as_enqueue_fails'] = true;
+		update_option( 'otsw_pending_product_updates', array( 7 => true ) );
+		$GLOBALS['otsw_test_as_enqueue_fails'] = true;
 
 		Indexer::drain_pending_product_updates();
 
-		$pending = get_option( 'wcs_pending_product_updates' );
+		$pending = get_option( 'otsw_pending_product_updates' );
 		$this->assertIsArray( $pending );
 		$this->assertArrayHasKey( 7, $pending, 'a drain attempt that fails again must leave the ID for the next drain' );
 	}
 
 	public function test_drain_pending_product_updates_skips_an_id_already_scheduled_elsewhere(): void {
-		update_option( 'wcs_pending_product_updates', array( 7 => true ) );
-		$GLOBALS['wcs_test_as_has_scheduled'] = true;
+		update_option( 'otsw_pending_product_updates', array( 7 => true ) );
+		$GLOBALS['otsw_test_as_has_scheduled'] = true;
 
 		Indexer::drain_pending_product_updates();
 
-		$queued = array_filter( $GLOBALS['wcs_test_as_calls'], static fn( $c ) => 'wcs_update_single_product' === ( $c['hook'] ?? '' ) );
+		$queued = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_update_single_product' === ( $c['hook'] ?? '' ) );
 		$this->assertSame( array(), $queued, 'must not enqueue a duplicate action when one is already pending for this product' );
-		$this->assertFalse( get_option( 'wcs_pending_product_updates' ), 'already covered by an existing pending action — the record is no longer needed' );
+		$this->assertFalse( get_option( 'otsw_pending_product_updates' ), 'already covered by an existing pending action — the record is no longer needed' );
 	}
 
 	public function test_drain_pending_product_updates_does_nothing_when_the_set_is_empty(): void {
 		Indexer::drain_pending_product_updates();
 
-		$this->assertSame( array(), $GLOBALS['wcs_test_as_calls'] );
+		$this->assertSame( array(), $GLOBALS['otsw_test_as_calls'] );
 	}
 
 	/**
 	 * Regression (follow-up audit of Finding L, point 5): retry_product_
-	 * enqueue() returned early without clearing wcs_product_retry_{id} when
+	 * enqueue() returned early without clearing otsw_product_retry_{id} when
 	 * it found an action already scheduled (e.g. the product was saved
 	 * again independently). The stale attempt count then survived its 1h
 	 * TTL and could be inherited by a LATER, unrelated failure for the same
 	 * product, exhausting that failure's retry budget early.
 	 */
 	public function test_product_enqueue_retry_clears_stale_counter_when_already_queued_elsewhere(): void {
-		set_transient( 'wcs_product_retry_7', 3 );
-		$GLOBALS['wcs_test_as_has_scheduled'] = true;
+		set_transient( 'otsw_product_retry_7', 3 );
+		$GLOBALS['otsw_test_as_has_scheduled'] = true;
 
 		Indexer::retry_product_enqueue( 7 );
 
-		$this->assertFalse( get_transient( 'wcs_product_retry_7' ), 'the stale counter must not survive to poison a later, unrelated failure' );
-	}
-
-	// ── Synonym change → immediate cache bust ────────────────────────────────
-
-	public function test_synonym_change_bumps_cache_version_immediately(): void {
-		update_option( 'wcs_cache_version', 5 );
-
-		Indexer::on_synonyms_changed( 'old', 'new' );
-
-		$this->assertSame( 6, get_option( 'wcs_cache_version' ) );
-	}
-
-	public function test_unchanged_synonyms_do_not_bust_the_cache(): void {
-		update_option( 'wcs_cache_version', 5 );
-
-		Indexer::on_synonyms_changed( 'same', 'same' );
-
-		$this->assertSame( 5, get_option( 'wcs_cache_version' ) );
+		$this->assertFalse( get_transient( 'otsw_product_retry_7' ), 'the stale counter must not survive to poison a later, unrelated failure' );
 	}
 
 	// ── Result-affecting setting change → immediate cache bust ───────────────
 	// Regression coverage for Finding A (2026-09-05 algorithm audit):
-	// wcs_result_count/wcs_show_out_of_stock are not part of the search
-	// cache key, so a change must bump wcs_cache_version immediately or a
+	// otsw_result_count/otsw_show_out_of_stock are not part of the search
+	// cache key, so a change must bump otsw_cache_version immediately or a
 	// stale payload could keep being served for up to the 24h transient TTL.
 
 	public function test_result_count_change_bumps_cache_version_immediately(): void {
-		update_option( 'wcs_cache_version', 5 );
+		update_option( 'otsw_cache_version', 5 );
 
 		Indexer::on_result_affecting_setting_changed( 6, 10 );
 
-		$this->assertSame( 6, get_option( 'wcs_cache_version' ) );
+		$this->assertSame( 6, get_option( 'otsw_cache_version' ) );
 	}
 
 	public function test_show_out_of_stock_change_bumps_cache_version_immediately(): void {
-		update_option( 'wcs_cache_version', 5 );
+		update_option( 'otsw_cache_version', 5 );
 
 		Indexer::on_result_affecting_setting_changed( 1, 0 );
 
-		$this->assertSame( 6, get_option( 'wcs_cache_version' ) );
+		$this->assertSame( 6, get_option( 'otsw_cache_version' ) );
 	}
 
 	public function test_unchanged_result_affecting_setting_does_not_bust_the_cache(): void {
-		update_option( 'wcs_cache_version', 5 );
+		update_option( 'otsw_cache_version', 5 );
 
 		Indexer::on_result_affecting_setting_changed( 6, 6 );
 
-		$this->assertSame( 5, get_option( 'wcs_cache_version' ) );
+		$this->assertSame( 5, get_option( 'otsw_cache_version' ) );
 	}
 
 	// ── "Last successful index" timestamp (timezone-offset regression) ───────
@@ -571,7 +553,7 @@ final class IndexerTest extends TestCase {
 		Indexer::execute_cache_bust();
 		$after = time();
 
-		$last_indexed = (int) get_option( 'wcs_last_indexed' );
+		$last_indexed = (int) get_option( 'otsw_last_indexed' );
 		$this->assertGreaterThanOrEqual( $before, $last_indexed );
 		$this->assertLessThanOrEqual( $after, $last_indexed, 'must be a true UTC timestamp, not shifted by the site UTC offset' );
 	}
@@ -584,9 +566,9 @@ final class IndexerTest extends TestCase {
 	}
 
 	public function test_idle_load_with_ample_memory_uses_the_top_tier(): void {
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 );
-		$GLOBALS['wcs_test_memory_usage'] = 10 * 1024 * 1024; // 10MB used
-		$GLOBALS['wcs_test_memory_limit'] = '512M';
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 );
+		$GLOBALS['otsw_test_memory_usage'] = 10 * 1024 * 1024; // 10MB used
+		$GLOBALS['otsw_test_memory_limit'] = '512M';
 
 		$this->assertSame( 200, $this->batchSize() );
 	}
@@ -594,42 +576,42 @@ final class IndexerTest extends TestCase {
 	public function test_absolute_128mb_limit_caps_at_25_regardless_of_load(): void {
 		// The exact scenario found on narukistore.com: idle load (would
 		// otherwise pick 200) but only a 128MB worker to run in.
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 );
-		$GLOBALS['wcs_test_memory_usage'] = 5 * 1024 * 1024; // low current usage
-		$GLOBALS['wcs_test_memory_limit'] = '128M';
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 );
+		$GLOBALS['otsw_test_memory_usage'] = 5 * 1024 * 1024; // low current usage
+		$GLOBALS['otsw_test_memory_limit'] = '128M';
 
 		$this->assertSame( 25, $this->batchSize() );
 	}
 
 	public function test_absolute_192mb_limit_caps_at_50(): void {
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 );
-		$GLOBALS['wcs_test_memory_usage'] = 5 * 1024 * 1024;
-		$GLOBALS['wcs_test_memory_limit'] = '192M';
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 );
+		$GLOBALS['otsw_test_memory_usage'] = 5 * 1024 * 1024;
+		$GLOBALS['otsw_test_memory_limit'] = '192M';
 
 		$this->assertSame( 50, $this->batchSize() );
 	}
 
 	public function test_absolute_256mb_limit_caps_at_100(): void {
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 );
-		$GLOBALS['wcs_test_memory_usage'] = 5 * 1024 * 1024;
-		$GLOBALS['wcs_test_memory_limit'] = '256M';
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 );
+		$GLOBALS['otsw_test_memory_usage'] = 5 * 1024 * 1024;
+		$GLOBALS['otsw_test_memory_limit'] = '256M';
 
 		$this->assertSame( 100, $this->batchSize() );
 	}
 
 	public function test_relative_usage_caps_apply_even_on_a_large_worker(): void {
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 ); // would pick 200
-		$GLOBALS['wcs_test_memory_limit'] = '1024M';                // no absolute cap
-		$GLOBALS['wcs_test_memory_usage'] = (int) ( 1024 * 1024 * 1024 * 0.75 ); // 75% used
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 ); // would pick 200
+		$GLOBALS['otsw_test_memory_limit'] = '1024M';                // no absolute cap
+		$GLOBALS['otsw_test_memory_usage'] = (int) ( 1024 * 1024 * 1024 * 0.75 ); // 75% used
 
 		$this->assertSame( 25, $this->batchSize() );
 	}
 
-	public function test_wcs_batch_size_filter_overrides_everything(): void {
-		$GLOBALS['wcs_test_loadavg']      = array( 0.1, 0.1, 0.1 );
-		$GLOBALS['wcs_test_memory_usage'] = 5 * 1024 * 1024;
-		$GLOBALS['wcs_test_memory_limit'] = '512M';
-		add_filter( 'wcs_batch_size', static fn() => 7 );
+	public function test_otsw_batch_size_filter_overrides_everything(): void {
+		$GLOBALS['otsw_test_loadavg']      = array( 0.1, 0.1, 0.1 );
+		$GLOBALS['otsw_test_memory_usage'] = 5 * 1024 * 1024;
+		$GLOBALS['otsw_test_memory_limit'] = '512M';
+		add_filter( 'otsw_batch_size', static fn() => 7 );
 
 		$this->assertSame( 7, $this->batchSize() );
 	}

@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -33,56 +33,56 @@ class Activator {
 	/**
 	 * Every option this plugin creates. Used by the Danger Zone reset and
 	 * uninstall.php so cleanup deletes exactly these — never a broad
-	 * LIKE 'wcs_%' pattern, which would also match WooCommerce Subscriptions'
-	 * options (that plugin shares the wcs_ prefix).
+	 * LIKE 'otsw_%' pattern, which would also match WooCommerce Subscriptions'
+	 * options (that plugin shares the otsw_ prefix).
 	 */
 	public const PLUGIN_OPTIONS = array(
-		'wcs_cache_version',
-		'wcs_db_version',
-		'wcs_mu_version',
-		'wcs_schema_error',
-		'wcs_ft_parser',
-		'wcs_is_indexing',
-		'wcs_reindex_processed',
-		'wcs_rebuild_epoch',
-		'wcs_rebuild_cursor',
-		'wcs_rebuild_phase',
-		'wcs_rebuild_failed_count',
-		'wcs_pending_product_updates',
-		'wcs_last_indexed',
-		'wcs_last_rebuild_error',
-		'wcs_result_count',
-		'wcs_min_chars',
-		'wcs_enable_recent_searches',
-		'wcs_recent_searches_count',
-		'wcs_show_out_of_stock',
-		'wcs_search_title',
-		'wcs_search_sku',
-		'wcs_search_content',
-		'wcs_search_taxonomy',
-		'wcs_delete_data_on_uninstall',
-		'wcs_rate_limit_requests',
-		'wcs_rate_limit_window',
-		'wcs_fallback_rate_limit_requests',
-		'wcs_fallback_rate_limit_window',
+		'otsw_cache_version',
+		'otsw_db_version',
+		'otsw_mu_version',
+		'otsw_schema_error',
+		'otsw_ft_parser',
+		'otsw_is_indexing',
+		'otsw_reindex_processed',
+		'otsw_rebuild_epoch',
+		'otsw_rebuild_cursor',
+		'otsw_rebuild_phase',
+		'otsw_rebuild_failed_count',
+		'otsw_pending_product_updates',
+		'otsw_last_indexed',
+		'otsw_last_rebuild_error',
+		'otsw_result_count',
+		'otsw_min_chars',
+		'otsw_enable_recent_searches',
+		'otsw_recent_searches_count',
+		'otsw_show_out_of_stock',
+		'otsw_search_title',
+		'otsw_search_sku',
+		'otsw_search_content',
+		'otsw_search_taxonomy',
+		'otsw_delete_data_on_uninstall',
+		'otsw_rate_limit_requests',
+		'otsw_rate_limit_window',
+		'otsw_fallback_rate_limit_requests',
+		'otsw_fallback_rate_limit_window',
 	);
 
 	/**
 	 * Transient key prefixes this plugin creates (without the _transient_ /
 	 * _transient_timeout_ WordPress prefixes). Shared by cleanup routines for
 	 * the same reason as PLUGIN_OPTIONS: WooCommerce Subscriptions stores
-	 * transients like wcs_report_*, so '_transient_wcs_%' must never be used.
+	 * transients like otsw_report_*, so '_transient_otsw_%' must never be used.
 	 */
 	public const TRANSIENT_PREFIXES = array(
-		'wcs_v',           // search result cache: wcs_v{version}_{currency}_{md5}
-		'wcs_rl_',         // search rate limiter
-		'wcs_nr_',         // nonce-refresh rate limiter
-		'wcs_batch_retry_', // per-cursor rebuild retry flags
-		'wcs_schedule_retry_', // per-epoch initial-enqueue retry counters
-		'wcs_fetch_retry_', // per-cursor product-ID fetch retry counters
-		'wcs_swap_retry_', // per-epoch atomic-swap (RENAME TABLE) retry counters
-		'wcs_product_retry_', // per-product incremental-update enqueue retry counters
-		'wcs_delete_retry_', // per-product removal retry counters
+		'otsw_v',           // search result cache: otsw_v{version}_{currency}_{md5}
+		'otsw_rl_',         // search rate limiter
+		'otsw_nr_',         // nonce-refresh rate limiter
+		'otsw_batch_retry_', // per-cursor rebuild retry flags
+		'otsw_schedule_retry_', // per-epoch initial-enqueue retry counters
+		'otsw_fetch_retry_', // per-cursor product-ID fetch retry counters
+		'otsw_swap_retry_', // per-epoch atomic-swap (RENAME TABLE) retry counters
+		'otsw_product_retry_', // per-product incremental-update enqueue retry counters
+		'otsw_delete_retry_', // per-product removal retry counters
 	);
 
 	/**
@@ -91,7 +91,7 @@ class Activator {
 	 * fixed, predictable argument list. wp_next_scheduled()/wp_unschedule_
 	 * event() both require knowing the exact args a specific pending event
 	 * was scheduled with, so neither can clear "every pending instance of
-	 * this hook" the way wcs_daily_transient_gc (a single, argument-less
+	 * this hook" the way otsw_daily_transient_gc (a single, argument-less
 	 * recurring event) is cleared below — any number of distinct instances,
 	 * for different products or rebuilds, can be pending at once. See
 	 * clear_dynamic_cron_hooks(), which reads the raw cron array instead
@@ -100,9 +100,9 @@ class Activator {
 	 * this plugin's other background jobs).
 	 */
 	public const DYNAMIC_CRON_HOOKS = array(
-		'wcs_retry_rebuild_scheduling',
-		'wcs_retry_product_enqueue',
-		'wcs_retry_product_delete',
+		'otsw_retry_rebuild_scheduling',
+		'otsw_retry_product_enqueue',
+		'otsw_retry_product_delete',
 	);
 
 	/**
@@ -200,15 +200,15 @@ class Activator {
 		self::create_tables();
 
 		// Truncate staging table to ensure a clean slate for the background rebuild.
-		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 		self::schedule_jobs();
 
-		update_option( 'wcs_cache_version', 1, true );
-		update_option( 'wcs_reindex_processed', 0, false );
-		update_option( 'wcs_is_indexing', 1, false );
-		update_option( 'wcs_db_version', self::DB_VERSION, false );
+		update_option( 'otsw_cache_version', 1, true );
+		update_option( 'otsw_reindex_processed', 0, false );
+		update_option( 'otsw_is_indexing', 1, false );
+		update_option( 'otsw_db_version', self::DB_VERSION, false );
 	}
 
 	/**
@@ -233,12 +233,12 @@ class Activator {
 	 */
 	private static function deactivate_single_site(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( null, array(), 'turbo-search-for-woocommerce' );
+			as_unschedule_all_actions( null, array(), 'ozulabs-turbo-search-for-woocommerce' );
 		}
 
-		$timestamp = wp_next_scheduled( 'wcs_daily_transient_gc' );
+		$timestamp = wp_next_scheduled( 'otsw_daily_transient_gc' );
 		if ( $timestamp ) {
-			wp_unschedule_event( $timestamp, 'wcs_daily_transient_gc' );
+			wp_unschedule_event( $timestamp, 'otsw_daily_transient_gc' );
 		}
 
 		self::clear_dynamic_cron_hooks();
@@ -252,8 +252,8 @@ class Activator {
 	 * plugins_loaded. dbDelta() is idempotent — it only ALTERs what changed.
 	 */
 	public static function init(): void {
-		if ( ! wp_next_scheduled( 'wcs_daily_transient_gc' ) ) {
-			wp_schedule_event( time(), 'daily', 'wcs_daily_transient_gc' );
+		if ( ! wp_next_scheduled( 'otsw_daily_transient_gc' ) ) {
+			wp_schedule_event( time(), 'daily', 'otsw_daily_transient_gc' );
 		}
 
 		// Run schema migration when the stored DB version is behind the current one,
@@ -262,12 +262,12 @@ class Activator {
 		// recovery probe only runs in admin requests — frontend page loads pay
 		// nothing for this check in steady state.
 		global $wpdb;
-		$stored_version  = get_option( 'wcs_db_version', '0' );
+		$stored_version  = get_option( 'otsw_db_version', '0' );
 		$needs_migration = version_compare( (string) $stored_version, self::DB_VERSION, '<' );
 
 		$table_missing = false;
 		if ( ! $needs_migration && is_admin() ) {
-			$main_table    = $wpdb->prefix . 'wcs_search_index';
+			$main_table    = $wpdb->prefix . 'otsw_search_index';
 			$table_missing = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $main_table ) ) !== $main_table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		}
 
@@ -286,10 +286,10 @@ class Activator {
 		// is_pro_edition_active() and does not scan the rest of a Multisite
 		// network (see its docblock) — so Free's own deactivation on one site
 		// can delete the shared file out from under a different site that
-		// still needs it, while that other site's wcs_mu_version option never
+		// still needs it, while that other site's otsw_mu_version option never
 		// changed. A version-only check would then never notice or repair it.
 		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php' );
-		if ( is_admin() && ( get_option( 'wcs_mu_version' ) !== WCS_VERSION || $mu_file_missing ) ) {
+		if ( is_admin() && ( get_option( 'otsw_mu_version' ) !== OTSW_VERSION || $mu_file_missing ) ) {
 			self::install_mu_plugin();
 		}
 
@@ -298,16 +298,16 @@ class Activator {
 			// Use delete+add instead of update_option to survive stale external object
 			// cache entries left by ajax_delete_all_data()'s direct SQL DELETE (which
 			// bypasses cache invalidation, making update_option silently fail).
-			delete_option( 'wcs_db_version' );
-			add_option( 'wcs_db_version', self::DB_VERSION, '', true );
+			delete_option( 'otsw_db_version' );
+			add_option( 'otsw_db_version', self::DB_VERSION, '', true );
 
 			// Existing rows were built under an older row shape — upgrading
 			// installs need one full rebuild to populate the new columns and
 			// vocabulary. Fresh activations skip this ('0' version): activate()
 			// already schedules the initial build.
 			if ( '0' !== (string) $stored_version && version_compare( (string) $stored_version, self::REBUILD_REQUIRED_BELOW, '<' )
-				&& class_exists( '\\WCS\\Search\\Indexer' ) ) {
-				\WCS\Search\Indexer::start_rebuild();
+				&& class_exists( '\\OTSW\\Search\\Indexer' ) ) {
+				\OTSW\Search\Indexer::start_rebuild();
 			}
 		}
 
@@ -356,7 +356,7 @@ class Activator {
 		// failed CREATE TABLE further down.
 		if ( ! self::is_innodb_available() ) {
 			update_option(
-				'wcs_schema_error',
+				'otsw_schema_error',
 				'The InnoDB storage engine is not available on this database server. Turbo Search for WooCommerce requires InnoDB for its search index table (needed for safe concurrent reads/writes and crash recovery). Please ask your hosting provider to enable the InnoDB storage engine.',
 				false
 			);
@@ -365,8 +365,8 @@ class Activator {
 
 		$charset_collate = $wpdb->get_charset_collate();
 		$tables          = array(
-			$wpdb->prefix . 'wcs_search_index',
-			$wpdb->prefix . 'wcs_search_index_stage',
+			$wpdb->prefix . 'otsw_search_index',
+			$wpdb->prefix . 'otsw_search_index_stage',
 		);
 
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
@@ -391,7 +391,6 @@ class Activator {
 				price_max decimal(10,2) NOT NULL DEFAULT 0.00,
 				stock_status varchar(30) NOT NULL DEFAULT 'instock',
 				total_sales bigint(20) unsigned NOT NULL DEFAULT 0,
-				sales_30d bigint(20) unsigned NOT NULL DEFAULT 0,
 				image_url varchar(2048) NOT NULL DEFAULT '',
 				permalink varchar(2048) NOT NULL DEFAULT '',
 				updated_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -441,7 +440,7 @@ class Activator {
 		// unique-visitor count, not by request count (each key is upserted in
 		// place, never inserted again), and stale rows are pruned by the daily
 		// GC (Indexer::run_transient_gc()).
-		$rl_table = $wpdb->prefix . 'wcs_rate_limits';
+		$rl_table = $wpdb->prefix . 'otsw_rate_limits';
 		dbDelta( "CREATE TABLE {$rl_table} (
 			rl_key varchar(191) NOT NULL,
 			window_start bigint(20) unsigned NOT NULL,
@@ -449,20 +448,20 @@ class Activator {
 			PRIMARY KEY  (rl_key)
 		) {$charset_collate} ENGINE=InnoDB;" );
 
-		// Search analytics (wcs_search_log) and the typo-correction
-		// vocabulary sidecar (wcs_search_terms) are Pro features — this
+		// Search analytics (otsw_search_log) and the typo-correction
+		// vocabulary sidecar (otsw_search_terms) are Pro features — this
 		// edition never creates those tables.
 
 		// Surface schema failures instead of failing silently. Without this, a
 		// failed CREATE TABLE leaves every search returning empty results with
 		// no admin-visible error (the query guard sees a missing table).
-		$main_table        = $wpdb->prefix . 'wcs_search_index';
+		$main_table        = $wpdb->prefix . 'otsw_search_index';
 		$main_table_exists = $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $main_table ) ) === $main_table; // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		if ( ! $main_table_exists ) {
-			update_option( 'wcs_schema_error', $schema_error ? $schema_error : 'CREATE TABLE failed for ' . $main_table, false );
+			update_option( 'otsw_schema_error', $schema_error ? $schema_error : 'CREATE TABLE failed for ' . $main_table, false );
 			return;
 		}
-		delete_option( 'wcs_schema_error' );
+		delete_option( 'otsw_schema_error' );
 
 		// Record which FULLTEXT parser the live index actually uses so the
 		// query layer can gate correctly: ngram indexes serve 2-char tokens,
@@ -473,7 +472,7 @@ class Activator {
 		$parser     = ( isset( $create_row[1] ) && false !== stripos( (string) $create_row[1], 'WITH PARSER' ) ) ? 'ngram' : 'default';
 		// autoload=true: read on every cache-miss search, so it must come from
 		// the alloptions batch instead of its own SELECT.
-		update_option( 'wcs_ft_parser', $parser, true );
+		update_option( 'otsw_ft_parser', $parser, true );
 	}
 
 	/**
@@ -535,13 +534,13 @@ class Activator {
 	private static function check_requirements(): void {
 		if ( ! class_exists( 'WooCommerce' ) ) {
 			deactivate_plugins( plugin_basename( dirname( __DIR__ ) . '/turbo-search-for-woocommerce.php' ) );
-			wp_die( esc_html__( 'Turbo Search for WooCommerce requires WooCommerce to be active.', 'turbo-search-for-woocommerce' ), 'Plugin Dependency Error', array( 'back_link' => true ) );
+			wp_die( esc_html__( 'Turbo Search for WooCommerce requires WooCommerce to be active.', 'ozulabs-turbo-search-for-woocommerce' ), 'Plugin Dependency Error', array( 'back_link' => true ) );
 		}
 
 		if ( self::is_pro_edition_active() ) {
 			deactivate_plugins( plugin_basename( dirname( __DIR__ ) . '/turbo-search-for-woocommerce.php' ) );
 			wp_die(
-				esc_html__( 'Turbo Search for WooCommerce Pro is already active on this site. Deactivate Pro first if you want to switch to the free edition — running both at once is not supported.', 'turbo-search-for-woocommerce' ),
+				esc_html__( 'Turbo Search for WooCommerce Pro is already active on this site. Deactivate Pro first if you want to switch to the free edition — running both at once is not supported.', 'ozulabs-turbo-search-for-woocommerce' ),
 				'Plugin Conflict',
 				array( 'back_link' => true )
 			);
@@ -567,12 +566,12 @@ class Activator {
 	 * Only two resources this plugin creates are actually shared across an
 	 * entire Multisite network rather than per-site: the MU cache-bypass
 	 * file (wp-content/mu-plugins/ is one directory, not one per site) and
-	 * the wcs_notice_*_dismissed usermeta rows (WordPress's users/usermeta
+	 * the otsw_notice_*_dismissed usermeta rows (WordPress's users/usermeta
 	 * tables are network-wide, unlike wp_options — which switch_to_blog()
 	 * already makes per-site). The search-index tables and every option in
 	 * PLUGIN_OPTIONS are already correctly scoped per-site by wpdb's own
 	 * blog-prefixed table names and per-site options table, so
-	 * wcs_uninstall_single_site()'s existing same-site is_pro_edition_active()
+	 * otsw_uninstall_single_site()'s existing same-site is_pro_edition_active()
 	 * check needs no change — this method is for the other two only.
 	 *
 	 * Deliberately used ONLY from uninstall.php, never from
@@ -622,7 +621,7 @@ class Activator {
 	 * REST route with no errors).
 	 */
 	private static function install_mu_plugin(): void {
-		$source      = WCS_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
+		$source      = OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
 		$mu_dir      = trailingslashit( WPMU_PLUGIN_DIR );
 		$destination = $mu_dir . 'wcs-cache-bypass.php';
 
@@ -631,7 +630,7 @@ class Activator {
 		// = true: init() compares it on every admin request. If the copy below
 		// fails (read-only mu-plugins dir), the settings-page admin notice
 		// already tells the owner how to fix permissions and retry.
-		update_option( 'wcs_mu_version', WCS_VERSION, true );
+		update_option( 'otsw_mu_version', OTSW_VERSION, true );
 
 		if ( ! file_exists( $source ) ) {
 			return; // Source missing — nothing to install.
@@ -738,8 +737,8 @@ class Activator {
 	 * @codeCoverageIgnore Activation context.
 	 */
 	private static function schedule_jobs(): void {
-		if ( class_exists( '\\WCS\\Search\\Indexer' ) ) {
-			\WCS\Search\Indexer::start_rebuild();
+		if ( class_exists( '\\OTSW\\Search\\Indexer' ) ) {
+			\OTSW\Search\Indexer::start_rebuild();
 		}
 	}
 }

@@ -19,7 +19,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -53,7 +53,7 @@ class Query_Normalizer {
 	 *
 	 * Deliberately function words only, not "every short word": "LG", "HP",
 	 * "3M", "2XL" and the like are real, highly selective queries. Filterable
-	 * via wcs_stopwords for stores whose catalog genuinely needs one of these
+	 * via otsw_stopwords for stores whose catalog genuinely needs one of these
 	 * (and a query made up entirely of stopwords keeps all of them — see
 	 * remove_stopwords()).
 	 */
@@ -115,13 +115,6 @@ class Query_Normalizer {
 	);
 
 	/**
-	 * Parsed synonym map, built once per request.
-	 *
-	 * @var array<string, string[]>|null Map of word => alternatives (word itself first).
-	 */
-	private static ?array $synonym_map = null;
-
-	/**
 	 * Normalize a raw (already sanitize_text_field'd) search string.
 	 *
 	 * FULLTEXT boolean operators and punctuation are replaced with spaces —
@@ -129,14 +122,10 @@ class Query_Normalizer {
 	 * "ABC-123" still matches the stored SKU "ABC-123" via per-word matching,
 	 * and "t-shirt" matches the indexed tokens "t" + "shirt".
 	 *
-	 * This same method tokenizes indexed titles for the vocabulary sidecar
-	 * (see vocabulary_terms()), so sentence punctuation matters just as much
-	 * as FULLTEXT operators: a title like "Necklace, Beaded" must not leave
-	 * "necklace," as a token distinct from "necklace" — that would split one
-	 * real word's frequency across two vocabulary entries and degrade typo
-	 * correction. Comma/period/colon/semicolon/slash/ampersand/exclamation/
-	 * question-mark are stripped for the same reason punctuation is stripped
-	 * from queries: it never carries search meaning on either side.
+	 * Comma/period/colon/semicolon/slash/ampersand/exclamation/question-mark
+	 * are stripped for the same reason FULLTEXT operators are: a title like
+	 * "Necklace, Beaded" must not leave "necklace," as a token distinct from
+	 * "necklace" — punctuation never carries search meaning on either side.
 	 *
 	 * @param string $query Raw query.
 	 * @return string Lowercased, punctuation-split, whitespace-collapsed, length-capped query.
@@ -239,7 +228,7 @@ class Query_Normalizer {
 		 * @param string[] $stopwords Lowercase words to drop.
 		 * @param string[] $words     The query's words, before filtering.
 		 */
-		$stopwords = (array) apply_filters( 'wcs_stopwords', self::STOPWORDS, $words );
+		$stopwords = (array) apply_filters( 'otsw_stopwords', self::STOPWORDS, $words );
 		$stopwords = array_flip( array_map( 'strval', $stopwords ) );
 
 		$kept = array_values( array_filter(
@@ -259,11 +248,11 @@ class Query_Normalizer {
 	 *
 	 * @param string $normalized    Output of normalize().
 	 * @param string $currency      Validated ISO-4217 currency code.
-	 * @param int    $cache_version Current wcs_cache_version.
+	 * @param int    $cache_version Current otsw_cache_version.
 	 * @return string
 	 */
 	public static function cache_key( string $normalized, string $currency, int $cache_version ): string {
-		return 'wcs_v' . $cache_version . '_' . self::site_scope() . '_' . $currency . '_' . md5( $normalized );
+		return 'otsw_v' . $cache_version . '_' . self::site_scope() . '_' . $currency . '_' . md5( $normalized );
 	}
 
 	/**
@@ -295,33 +284,15 @@ class Query_Normalizer {
 	}
 
 	/**
-	 * Expand a query word into itself, its configured synonyms, and its
-	 * automatic morphological variants.
-	 *
-	 * The typed word is always first. Automatic variants cover the two most
-	 * common "typed it slightly differently" cases:
-	 *   - English plural/singular forms: lamp↔lamps, box↔boxes, buggy↔buggies.
-	 *   - Letter↔digit boundaries: "iphone14" also tries the phrase "iphone 14".
+	 * Expand a query word into itself. Synonym configuration and automatic
+	 * morphological variants (plural/singular, letter-digit boundaries) are a
+	 * Pro feature — this edition matches only the exact typed word.
 	 *
 	 * @param string $word Normalized query word.
 	 * @return string[]
 	 */
 	public static function expand( string $word ): array {
-		$map  = self::synonym_map();
-		$alts = $map[ $word ] ?? array( $word );
-
-		return array_values( array_unique( array_merge( $alts, self::word_variants( $word ) ) ) );
-	}
-
-	/**
-	 * Automatic plural/singular and letter-digit-boundary matching is a Pro
-	 * feature. This edition matches only the exact typed word.
-	 *
-	 * @param string $word Normalized query word.
-	 * @return string[] Always empty in this edition.
-	 */
-	public static function word_variants( string $word ): array {
-		return array();
+		return array( $word );
 	}
 
 	/**
@@ -335,43 +306,5 @@ class Query_Normalizer {
 	 */
 	public static function normalize_sku( string $sku ): string {
 		return (string) preg_replace( '/[^a-z0-9]/', '', mb_strtolower( $sku, 'UTF-8' ) );
-	}
-
-	/**
-	 * Extract vocabulary terms from indexed text for the typo-correction
-	 * sidecar: normalized tokens, 3–64 chars, containing at least one letter
-	 * (pure numbers are useless as spelling-correction targets).
-	 *
-	 * @param string $text Title/SKU text.
-	 * @return string[]
-	 */
-	public static function vocabulary_terms( string $text ): array {
-		$terms = array();
-		foreach ( self::tokenize( self::normalize( $text ) ) as $token ) {
-			$len = mb_strlen( $token, 'UTF-8' );
-			if ( $len >= 3 && $len <= 64 && preg_match( '/[a-z]/', $token ) ) {
-				$terms[] = $token;
-			}
-		}
-		return $terms;
-	}
-
-	/**
-	 * Reset the per-request synonym cache (used after option updates and in tests).
-	 */
-	public static function flush_synonym_cache(): void {
-		self::$synonym_map = null;
-	}
-
-	/**
-	 * Search synonyms are a Pro feature. This edition never expands a word
-	 * beyond itself, regardless of the wcs_synonyms option (not registered
-	 * or shown in this edition's settings UI, but left inert here too in
-	 * case a site migrates data from the Pro edition).
-	 *
-	 * @return array<string, string[]> Always empty in this edition.
-	 */
-	private static function synonym_map(): array {
-		return array();
 	}
 }

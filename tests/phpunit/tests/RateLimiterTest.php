@@ -2,18 +2,18 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Query_Normalizer;
-use WCS\Search\Rate_Limiter;
+use OTSW\Search\Query_Normalizer;
+use OTSW\Search\Rate_Limiter;
 
 /**
  * Exercises the DB fallback path (APCu is not loaded in the test CLI,
  * matching hosts without the extension) — the atomic UPSERT against
- * wcs_rate_limits that replaced the old non-atomic transient pair.
+ * otsw_rate_limits that replaced the old non-atomic transient pair.
  */
 final class RateLimiterTest extends TestCase {
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 	}
 
 	/**
@@ -46,10 +46,10 @@ final class RateLimiterTest extends TestCase {
 	 * counters for what would otherwise be an identical key.
 	 */
 	public function test_same_key_on_different_sites_is_tracked_independently(): void {
-		$GLOBALS['wcs_test_blog_id'] = 1;
+		$GLOBALS['otsw_test_blog_id'] = 1;
 		Rate_Limiter::allow( 'shared-ip-hash', 1, 60 );
 
-		$GLOBALS['wcs_test_blog_id'] = 2;
+		$GLOBALS['otsw_test_blog_id'] = 2;
 		$this->assertTrue( Rate_Limiter::allow( 'shared-ip-hash', 1, 60 ), 'a different site must not inherit another site\'s exhausted limit' );
 	}
 
@@ -71,7 +71,7 @@ final class RateLimiterTest extends TestCase {
 		Rate_Limiter::allow( 'k', 1, 60 );
 		Rate_Limiter::allow( 'k', 1, 60 ); // denied
 		Rate_Limiter::allow( 'k', 1, 60 ); // denied
-		$this->assertSame( 3, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
+		$this->assertSame( 3, $GLOBALS['otsw_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
 	}
 
 	public function test_window_start_is_bucketed_to_wall_clock_time(): void {
@@ -81,13 +81,13 @@ final class RateLimiterTest extends TestCase {
 		// the identical window boundary independently, with no coordination.
 		Rate_Limiter::allow( 'k', 10, 100 );
 		$expected = (int) floor( time() / 100 ) * 100;
-		$this->assertSame( $expected, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['window_start'] );
+		$this->assertSame( $expected, $GLOBALS['otsw_test_rate_limits'][ $this->scopedKey( 'k' ) ]['window_start'] );
 	}
 
 	public function test_a_new_window_resets_the_counter(): void {
-		$GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ] = array( 'window_start' => 0, 'hits' => 999 );
+		$GLOBALS['otsw_test_rate_limits'][ $this->scopedKey( 'k' ) ] = array( 'window_start' => 0, 'hits' => 999 );
 		Rate_Limiter::allow( 'k', 10, 60 );
-		$this->assertSame( 1, $GLOBALS['wcs_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
+		$this->assertSame( 1, $GLOBALS['otsw_test_rate_limits'][ $this->scopedKey( 'k' ) ]['hits'] );
 	}
 
 	// ── resolved_search_limit() ───────────────────────────────────────────────
@@ -102,8 +102,8 @@ final class RateLimiterTest extends TestCase {
 	}
 
 	public function test_resolved_search_limit_reads_configured_options(): void {
-		update_option( 'wcs_rate_limit_requests', 5 );
-		update_option( 'wcs_rate_limit_window', 3600 );
+		update_option( 'otsw_rate_limit_requests', 5 );
+		update_option( 'otsw_rate_limit_window', 3600 );
 
 		$this->assertSame( array( 5, 3600 ), Rate_Limiter::resolved_search_limit() );
 	}
@@ -112,20 +112,20 @@ final class RateLimiterTest extends TestCase {
 		// A blank/zero submission must never silently disable rate limiting
 		// (max_requests=0 would make Rate_Limiter::allow() always deny, and a
 		// window of 0 would divide by zero in the window-bucket calculation).
-		update_option( 'wcs_rate_limit_requests', 0 );
-		update_option( 'wcs_rate_limit_window', -5 );
+		update_option( 'otsw_rate_limit_requests', 0 );
+		update_option( 'otsw_rate_limit_window', -5 );
 
 		$this->assertSame( array( 1, 1 ), Rate_Limiter::resolved_search_limit() );
 	}
 
 	public function test_fails_open_when_the_table_is_missing(): void {
-		// A missing wcs_rate_limits table (fresh install mid-upgrade, or
+		// A missing otsw_rate_limits table (fresh install mid-upgrade, or
 		// "Delete All Data" racing a request) must never block search traffic —
 		// it's a temporary gap, not a reason to 403 every visitor.
 		global $wpdb;
 		$wpdb->handler = static function ( string $sql, string $type ) use ( $wpdb ) {
-			if ( 'query' === $type && str_contains( $sql, 'wcs_rate_limits' ) ) {
-				$wpdb->last_error = "Table 'wp_wcs_rate_limits' doesn't exist";
+			if ( 'query' === $type && str_contains( $sql, 'otsw_rate_limits' ) ) {
+				$wpdb->last_error = "Table 'wp_otsw_rate_limits' doesn't exist";
 				return false;
 			}
 			return null;

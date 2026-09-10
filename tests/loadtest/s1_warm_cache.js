@@ -8,9 +8,9 @@ import { Rate, Trend } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
 // ── Metrics ──────────────────────────────────────────────────────────────────
-const errorRate   = new Rate('wcs_errors');
-const dbHitTime   = new Trend('wcs_db_hit_duration', true);  // cold cache
-const cacheHitTime= new Trend('wcs_cache_hit_duration', true); // warm cache
+const errorRate   = new Rate('otsw_errors');
+const dbHitTime   = new Trend('otsw_db_hit_duration', true);  // cold cache
+const cacheHitTime= new Trend('otsw_cache_hit_duration', true); // warm cache
 
 // ── Config ───────────────────────────────────────────────────────────────────
 const BASE_URL = __ENV.WP_URL   || 'http://localhost:8081';
@@ -43,9 +43,9 @@ export const options = {
         // Primary SLA
         http_req_duration:        ['p(50)<30', 'p(95)<100', 'p(99)<150'],
         http_req_failed:          ['rate<0.001'],
-        wcs_errors:               ['rate<0.001'],
+        otsw_errors:               ['rate<0.001'],
         // Warm-cache sub-latency (requests served from cache should be fast)
-        wcs_cache_hit_duration:   ['p(99)<50'],
+        otsw_cache_hit_duration:   ['p(99)<50'],
     },
 };
 
@@ -53,7 +53,7 @@ export const options = {
 export function setup() {
     const warmupQueries = corpus.slice(0, 50); // seed top 50 queries
     warmupQueries.forEach(entry => {
-        const url = `${BASE_URL}/wp-json/wcs/v1/search?q=${encodeURIComponent(entry.q)}&_wpnonce=${NONCE}`;
+        const url = `${BASE_URL}/wp-json/otsw/v1/search?q=${encodeURIComponent(entry.q)}&_wpnonce=${NONCE}`;
         http.get(url);
     });
     console.log('Cache warm-up complete — 50 queries pre-fetched.');
@@ -65,7 +65,7 @@ export default function () {
     const entry = corpus[Math.floor(Math.random() * corpus.length)];
     const queryStr = fixedQuery || entry.q;
     const queryType = fixedQuery ? 'fixed' : entry.type;
-    const url   = `${BASE_URL}/wp-json/wcs/v1/search` +
+    const url   = `${BASE_URL}/wp-json/otsw/v1/search` +
                   `?q=${encodeURIComponent(queryStr)}&_wpnonce=${NONCE}`;
 
     const start = Date.now();
@@ -102,6 +102,6 @@ export default function () {
 
 // ── Teardown: print Redis key count ──────────────────────────────────────────
 export function teardown(data) {
-    console.log('S1 complete. Run: redis-cli --scan --pattern "*wcs_v*" | wc -l');
+    console.log('S1 complete. Run: redis-cli --scan --pattern "*otsw_v*" | wc -l');
     console.log('to verify cache key count matches expectations.');
 }

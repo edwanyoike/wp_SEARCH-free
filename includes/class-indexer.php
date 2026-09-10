@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -39,12 +39,12 @@ class Indexer {
 	 * Time budget per batch in seconds. Must be comfortably below the server's
 	 * PHP-FPM request_terminate_timeout (commonly 180 s) so we can enqueue the
 	 * next batch before FPM sends SIGTERM and silently kills the process.
-	 * Override for stricter hosts: add_filter( 'wcs_batch_time_budget', fn() => 45 );
+	 * Override for stricter hosts: add_filter( 'otsw_batch_time_budget', fn() => 45 );
 	 */
 	private const BATCH_TIME_BUDGET = 120;
 
 	/**
-	 * Cap for the wcs_pending_product_updates option (see
+	 * Cap for the otsw_pending_product_updates option (see
 	 * add_pending_product_update()) — bounds worst-case autoloaded-option
 	 * growth if a site somehow keeps hitting the "both schedulers rejected
 	 * this enqueue" gap repeatedly, rather than letting it grow unbounded.
@@ -68,7 +68,7 @@ class Indexer {
 	/**
 	 * Whether a full rebuild has already been scheduled this request.
 	 * Prevents multiple settings changes in one form submission from
-	 * queuing duplicate wcs_rebuild_index_batch actions.
+	 * queuing duplicate otsw_rebuild_index_batch actions.
 	 */
 	private static bool $rebuild_queued = false;
 
@@ -76,13 +76,13 @@ class Indexer {
 	 * Initialize hooks.
 	 */
 	public static function init(): void {
-		// Block outbound HTTP for the entire request when Action Scheduler is running
-		// an async queue — this fires at plugins_loaded, before admin_init, so it
-		// intercepts WordPress's background update checkers and plugin HTTP calls
-		// before they can steal the FPM time budget.
-		if ( wp_doing_ajax() && isset( $_POST['action'] ) && 'as_async_request_queue_runner' === sanitize_key( wp_unslash( $_POST['action'] ) ) ) { // phpcs:ignore WordPress.Security.NonceVerification.Missing
-			add_filter( 'pre_http_request', array( __CLASS__, 'block_http_during_batch' ), PHP_INT_MAX, 3 );
-		}
+		// Outbound HTTP is blocked only around this plugin's own batch
+		// execution (process_batch() adds/removes block_http_during_batch()
+		// around do_process_batch()) — never for the whole Action Scheduler
+		// async-queue AJAX request, which can also be dispatching unrelated
+		// WooCommerce/webhook/other-plugin jobs whose own HTTP calls must not
+		// be blocked just because this plugin's batch happens to run in the
+		// same request.
 
 		// ── Live product save / update hooks ─────────────────────────────────
 		// These queue an async Action Scheduler job so the indexer never blocks
@@ -130,21 +130,21 @@ class Indexer {
 		add_action( 'before_delete_post', array( __CLASS__, 'on_product_delete' ), 10, 1 );
 
 		// ── Action Scheduler hooks ────────────────────────────────────────────
-		add_action( 'wcs_rebuild_index_batch', array( __CLASS__, 'process_batch' ), 10, 2 );
-		add_action( 'wcs_optimize_index', array( __CLASS__, 'run_optimize' ) );
-		add_action( 'wcs_update_single_product', array( __CLASS__, 'index_single_product' ), 10, 1 );
-		add_action( 'wcs_debounce_cache_bust', array( __CLASS__, 'execute_cache_bust' ) );
+		add_action( 'otsw_rebuild_index_batch', array( __CLASS__, 'process_batch' ), 10, 2 );
+		add_action( 'otsw_optimize_index', array( __CLASS__, 'run_optimize' ) );
+		add_action( 'otsw_update_single_product', array( __CLASS__, 'index_single_product' ), 10, 1 );
+		add_action( 'otsw_debounce_cache_bust', array( __CLASS__, 'execute_cache_bust' ) );
 		// Reset the indexing flag when AS marks a rebuild batch as permanently failed
 		// so the UI never stays stuck in "Indexing..." with no running job behind it.
 		add_action( 'action_scheduler_failed_action', array( __CLASS__, 'on_batch_action_failed' ), 10, 1 );
 		// WP-Cron fallback for when a rebuild batch enqueue never made it into
 		// Action Scheduler at all — see enqueue_batch_with_retry()'s docblock.
-		add_action( 'wcs_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 2 );
+		add_action( 'otsw_retry_rebuild_scheduling', array( __CLASS__, 'retry_rebuild_scheduling' ), 10, 2 );
 		// Same fallback for a single incremental product-update enqueue —
 		// see queue_product_update()'s comment for why this can fail too.
-		add_action( 'wcs_retry_product_enqueue', array( __CLASS__, 'retry_product_enqueue' ), 10, 1 );
+		add_action( 'otsw_retry_product_enqueue', array( __CLASS__, 'retry_product_enqueue' ), 10, 1 );
 		// Same fallback for a product removal — see delete_with_retry()'s comment.
-		add_action( 'wcs_retry_product_delete', array( __CLASS__, 'retry_product_delete' ), 10, 1 );
+		add_action( 'otsw_retry_product_delete', array( __CLASS__, 'retry_product_delete' ), 10, 1 );
 
 		// ── Product taxonomy changes ──────────────────────────────────────────
 		// Renaming a category or tag makes the stored term name stale in every
@@ -153,10 +153,10 @@ class Indexer {
 		add_action( 'edited_term', array( __CLASS__, 'on_term_edited' ), 10, 3 );
 
 		// ── Index field settings changes ──────────────────────────────────────
-		// Toggling wcs_search_title/sku/content/taxonomy changes which fields
+		// Toggling otsw_search_title/sku/content/taxonomy changes which fields
 		// are written into the index. Every existing row is built under the old
 		// config, so a full rebuild is required to reflect the new structure.
-		foreach ( array( 'wcs_search_title', 'wcs_search_sku', 'wcs_search_content', 'wcs_search_taxonomy' ) as $opt ) {
+		foreach ( array( 'otsw_search_title', 'otsw_search_sku', 'otsw_search_content', 'otsw_search_taxonomy' ) as $opt ) {
 			add_action( "update_option_{$opt}", array( __CLASS__, 'on_index_field_setting_changed' ), 10, 2 );
 		}
 
@@ -167,44 +167,24 @@ class Indexer {
 		// so price_min/price_max do not stay stale after a scheduled sale fires.
 		add_action( 'woocommerce_scheduled_sales', array( __CLASS__, 'on_scheduled_sales' ) );
 
-		// ── Synonym changes ──────────────────────────────────────────────────
-		// Synonyms are applied at query time (no index data changes), so no
-		// rebuild is needed — but cached results were computed under the old
-		// synonym config, so the cache version is bumped immediately.
-		add_action( 'update_option_wcs_synonyms', array( __CLASS__, 'on_synonyms_changed' ), 10, 2 );
-
 		// ── Result-affecting settings ─────────────────────────────────────────
-		// wcs_result_count and wcs_show_out_of_stock change what a search
-		// request returns without touching index data (no rebuild needed,
-		// same as synonyms above) — but neither participates in the search
-		// cache key (Query_Normalizer::cache_key() is query+currency+
-		// cache_version only), so without this hook a change here would keep
-		// serving results computed under the old setting for up to the full
-		// 24h transient TTL (or 5 min via APCu on top of that).
-		foreach ( array( 'wcs_result_count', 'wcs_show_out_of_stock' ) as $opt ) {
+		// otsw_result_count and otsw_show_out_of_stock change what a search
+		// request returns without touching index data (no rebuild needed) —
+		// but neither participates in the search cache key
+		// (Query_Normalizer::cache_key() is query+currency+cache_version
+		// only), so without this hook a change here would keep serving
+		// results computed under the old setting for up to the full 24h
+		// transient TTL (or 5 min via APCu on top of that).
+		foreach ( array( 'otsw_result_count', 'otsw_show_out_of_stock' ) as $opt ) {
 			add_action( "update_option_{$opt}", array( __CLASS__, 'on_result_affecting_setting_changed' ), 10, 2 );
 		}
 
 		// ── WP-Cron GC ───────────────────────────────────────────────────────
-		add_action( 'wcs_daily_transient_gc', array( __CLASS__, 'run_transient_gc' ) );
+		add_action( 'otsw_daily_transient_gc', array( __CLASS__, 'run_transient_gc' ) );
 	}
 
 	/**
-	 * Bust the result cache when the synonym configuration changes.
-	 *
-	 * @param mixed $old_value Previous option value.
-	 * @param mixed $new_value New option value.
-	 */
-	public static function on_synonyms_changed( $old_value, $new_value ): void {
-		if ( $old_value === $new_value ) {
-			return;
-		}
-		Query_Normalizer::flush_synonym_cache();
-		self::execute_cache_bust();
-	}
-
-	/**
-	 * Bust the result cache when wcs_result_count or wcs_show_out_of_stock
+	 * Bust the result cache when otsw_result_count or otsw_show_out_of_stock
 	 * changes — both affect what a search request returns but neither is
 	 * part of the cache key, so a stale cached payload would otherwise
 	 * survive until it naturally expires.
@@ -237,11 +217,11 @@ class Indexer {
 		}
 		self::$queued_ids[ $product_id ] = true;
 
-		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+		if ( as_has_scheduled_action( 'otsw_update_single_product', array( 'product_id' => $product_id ) ) ) {
 			return;
 		}
 
-		$action_id = as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' );
+		$action_id = as_enqueue_async_action( 'otsw_update_single_product', array( 'product_id' => $product_id ), 'ozulabs-turbo-search-for-woocommerce' );
 		if ( $action_id ) {
 			return;
 		}
@@ -251,14 +231,14 @@ class Indexer {
 		// index and stays stale until its next save or a full rebuild. WP-
 		// Cron fallback, same shape as the rebuild-batch enqueue retries.
 		self::log( sprintf( 'Incremental update enqueue failed for product %d — falling back to WP-Cron retry', $product_id ) );
-		if ( ! wp_next_scheduled( 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+		if ( ! wp_next_scheduled( 'otsw_retry_product_enqueue', array( $product_id ) ) ) {
 			// wp_schedule_single_event() itself can also return false (not an
 			// exception). Unlike a rebuild — a single trackable operation
 			// with its own status this plugin can mark failed — there is no
 			// equivalent per-product admin state to set here, so this stays
 			// a logged warning: the product still resyncs on its next save
 			// or a full rebuild, same as if this whole fallback didn't exist.
-			if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+			if ( ! wp_schedule_single_event( time() + 30, 'otsw_retry_product_enqueue', array( $product_id ) ) ) {
 				Logger::log( sprintf( 'WP-Cron also refused to schedule the incremental-update retry for product %d — it will resync on its next save or a full rebuild', $product_id ), 'warning' );
 				self::add_pending_product_update( $product_id );
 			}
@@ -376,7 +356,7 @@ class Indexer {
 
 	/**
 	 * Called by Action Scheduler when a batch action is permanently failed.
-	 * Resets wcs_is_indexing so the UI does not stay stuck in "Indexing..." forever.
+	 * Resets otsw_is_indexing so the UI does not stay stuck in "Indexing..." forever.
 	 *
 	 * @param int $action_id AS action ID.
 	 */
@@ -386,7 +366,7 @@ class Indexer {
 		}
 		try {
 			$action = \ActionScheduler::store()->fetch_action( $action_id );
-			if ( ! ( $action instanceof \ActionScheduler_Action ) || 'wcs_rebuild_index_batch' !== $action->get_hook() ) {
+			if ( ! ( $action instanceof \ActionScheduler_Action ) || 'otsw_rebuild_index_batch' !== $action->get_hook() ) {
 				return;
 			}
 
@@ -395,7 +375,7 @@ class Indexer {
 			$epoch   = (int) ( $args['epoch'] ?? 0 );
 
 			// If this batch belongs to a superseded rebuild, just drop it.
-			$current_epoch = (int) get_option( 'wcs_rebuild_epoch', 0 );
+			$current_epoch = (int) get_option( 'otsw_rebuild_epoch', 0 );
 			if ( $epoch !== $current_epoch ) {
 				self::log( sprintf( 'FAIL ignored — stale epoch=%d (current=%d) last_id=%d', $epoch, $current_epoch, $last_id ) );
 				return;
@@ -406,12 +386,12 @@ class Indexer {
 			// Auto-retry once per cursor per epoch. Including the epoch prevents a
 			// failed batch from a previous rebuild poisoning the retry slot for the
 			// same cursor position in a future rebuild run.
-			$retry_key       = 'wcs_batch_retry_' . $epoch . '_' . $last_id;
+			$retry_key       = 'otsw_batch_retry_' . $epoch . '_' . $last_id;
 			$already_retried = (bool) get_transient( $retry_key );
 
 			if ( $already_retried ) {
 				self::log( sprintf( 'FAIL retry exhausted last_id=%d — halting', $last_id ) );
-				update_option( 'wcs_is_indexing', 0, false );
+				update_option( 'otsw_is_indexing', 0, false );
 				return;
 			}
 
@@ -421,7 +401,7 @@ class Indexer {
 			// raw as_enqueue_async_action() call below with its return value
 			// discarded: if Action Scheduler rejected THIS retry too (returns
 			// 0, not an exception), no job existed to ever fail again and
-			// re-trigger this callback, so wcs_is_indexing sat at 1 forever —
+			// re-trigger this callback, so otsw_is_indexing sat at 1 forever —
 			// the same failure class enqueue_batch_with_retry() already
 			// guards every other batch enqueue in this file against. Routing
 			// through it here closes the one remaining call site that still
@@ -429,7 +409,7 @@ class Indexer {
 			set_transient( $retry_key, 1, HOUR_IN_SECONDS );
 			self::enqueue_batch_with_retry( $last_id, $epoch );
 		} catch ( \Throwable $e ) {
-			update_option( 'wcs_is_indexing', 0, false );
+			update_option( 'otsw_is_indexing', 0, false );
 		}
 	}
 
@@ -458,7 +438,7 @@ class Indexer {
 		if ( str_starts_with( $url, home_url() ) || str_starts_with( $url, site_url() ) ) {
 			return $preempt; // allow loopback — AS needs this to dispatch the next batch
 		}
-		return new \WP_Error( 'wcs_http_blocked', 'External HTTP blocked during index batch' );
+		return new \WP_Error( 'otsw_http_blocked', 'External HTTP blocked during index batch' );
 	}
 
 	public static function process_batch( int $last_id = 0, int $epoch = 0 ): void {
@@ -466,7 +446,7 @@ class Indexer {
 		try {
 			self::do_process_batch( $last_id, $epoch );
 		} catch ( \Throwable $e ) {
-			// Do NOT clear wcs_is_indexing here — on_batch_action_failed fires next
+			// Do NOT clear otsw_is_indexing here — on_batch_action_failed fires next
 			// and will either schedule a retry (keeping the flag at 1) or give up and
 			// clear it. Clearing here would show "Idle" while the retry is in flight.
 			self::log( sprintf( 'FATAL last_id=%d epoch=%d — %s', $last_id, $epoch, $e->getMessage() ) );
@@ -483,15 +463,15 @@ class Indexer {
 	 */
 	public static function run_optimize(): void {
 		global $wpdb;
-		$main_table = $wpdb->prefix . 'wcs_search_index';
+		$main_table = $wpdb->prefix . 'otsw_search_index';
 		self::log( 'OPTIMIZE start' );
 		$wpdb->query( $wpdb->prepare( 'OPTIMIZE TABLE %i', $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		self::log( 'OPTIMIZE done' );
-		delete_option( 'wcs_rebuild_phase' );
+		delete_option( 'otsw_rebuild_phase' );
 	}
 
 	private static function log( string $message ): void {
-		// Routed through wc_get_logger() (source: turbo-search-for-woocommerce):
+		// Routed through wc_get_logger() (source: ozulabs-turbo-search-for-woocommerce):
 		// WooCommerce log files are visible under WooCommerce → Status → Logs
 		// and rotate automatically, unlike raw error_log() spam in php error logs.
 		Logger::log( $message, 'info' );
@@ -503,7 +483,7 @@ class Indexer {
 		// Stale-chain guard: if this batch belongs to a previous rebuild (e.g. an
 		// auto-retry or a schedule_full_rebuild() that ran mid-chain), abort silently
 		// rather than racing the current rebuild and triggering a premature swap.
-		$current_epoch = (int) get_option( 'wcs_rebuild_epoch', 0 );
+		$current_epoch = (int) get_option( 'otsw_rebuild_epoch', 0 );
 		if ( $epoch !== $current_epoch ) {
 			self::log( sprintf( 'Dropping stale batch last_id=%d epoch=%d (current=%d)', $last_id, $epoch, $current_epoch ) );
 			return;
@@ -513,8 +493,8 @@ class Indexer {
 		self::log( sprintf( 'START last_id=%d epoch=%d', $last_id, $epoch ) );
 		// Track cursor and phase so the admin status endpoint can show meaningful
 		// progress messages without doing a separate DB query per poll.
-		update_option( 'wcs_rebuild_cursor', $last_id, false );
-		update_option( 'wcs_rebuild_phase', 'batching', false );
+		update_option( 'otsw_rebuild_cursor', $last_id, false );
+		update_option( 'otsw_rebuild_phase', 'batching', false );
 
 		// Fetch the next batch of published product IDs strictly after $last_id.
 		// Direct SQL is used because wc_get_products() does not expose a
@@ -560,14 +540,14 @@ class Indexer {
 		// halting and preserving the live index.
 		if ( '' !== $wpdb->last_error ) {
 			$fetch_error  = (string) $wpdb->last_error;
-			$attempts_key = 'wcs_fetch_retry_' . $epoch . '_' . $last_id;
+			$attempts_key = 'otsw_fetch_retry_' . $epoch . '_' . $last_id;
 			$attempts     = (int) get_transient( $attempts_key );
 
 			if ( $attempts >= 5 ) {
 				self::log( sprintf( 'Product-ID fetch failed 5 times at last_id=%d — halting, old live index preserved: %s', $last_id, $fetch_error ) );
-				update_option( 'wcs_last_rebuild_error', 'batch_fetch_failed', false );
-				update_option( 'wcs_is_indexing', 0, false );
-				delete_option( 'wcs_rebuild_phase' );
+				update_option( 'otsw_last_rebuild_error', 'batch_fetch_failed', false );
+				update_option( 'otsw_is_indexing', 0, false );
+				delete_option( 'otsw_rebuild_phase' );
 				delete_transient( $attempts_key );
 				return;
 			}
@@ -578,19 +558,19 @@ class Indexer {
 			return;
 		}
 
-		$main_table  = $wpdb->prefix . 'wcs_search_index';
-		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		$main_table  = $wpdb->prefix . 'otsw_search_index';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 
 		// Guard: if the staging table was dropped (e.g. by a concurrent rebuild that
 		// already finished and swapped), stop the chain rather than looping forever.
 		if ( $wpdb->get_var( $wpdb->prepare( 'SHOW TABLES LIKE %s', $stage_table ) ) !== $stage_table ) { // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			self::log( sprintf( 'ABORT last_id=%d — staging table missing', $last_id ) );
-			update_option( 'wcs_is_indexing', 0, false );
+			update_option( 'otsw_is_indexing', 0, false );
 			return;
 		}
 
 		if ( empty( $products ) ) {
-			$old_table = $wpdb->prefix . 'wcs_search_index_old';
+			$old_table = $wpdb->prefix . 'otsw_search_index_old';
 			// SELECT 1 LIMIT 1 is O(1) — sufficient to guard against an empty staging
 			// table without paying the cost of a full COUNT(*) scan on large catalogs.
 			$stage_has_rows = (bool) $wpdb->get_var( $wpdb->prepare( 'SELECT 1 FROM %i LIMIT 1', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -598,7 +578,7 @@ class Indexer {
 			self::log( sprintf( 'SWAP last_id=%d epoch=%d stage_has_rows=%d', $last_id, $epoch, (int) $stage_has_rows ) );
 
 			if ( $stage_has_rows ) {
-				update_option( 'wcs_rebuild_phase', 'swapping', false );
+				update_option( 'otsw_rebuild_phase', 'swapping', false );
 				$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 				$rename_ok = false !== $wpdb->query( $wpdb->prepare( 'RENAME TABLE %i TO %i, %i TO %i', $main_table, $old_table, $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
@@ -609,22 +589,22 @@ class Indexer {
 					// data) and $stage_table (still the fully-built new
 					// data) exactly as they were; $old_table never came into
 					// existence. Proceeding to report success anyway — as
-					// this used to, silently — would clear wcs_is_indexing,
-					// bump wcs_last_indexed to "just now", and fire
-					// wcs_index_rebuild_complete while the site is still
+					// this used to, silently — would clear otsw_is_indexing,
+					// bump otsw_last_indexed to "just now", and fire
+					// otsw_index_rebuild_complete while the site is still
 					// serving the OLD index: actively misleading, since the
 					// Settings page would show a fresh "Last successful
 					// index" timestamp for a swap that never happened.
 					// Retry through the same verified path as every other
 					// enqueue in this file, bounded the same way.
-					$attempts_key = 'wcs_swap_retry_' . $epoch;
+					$attempts_key = 'otsw_swap_retry_' . $epoch;
 					$attempts     = (int) get_transient( $attempts_key );
 
 					if ( $attempts >= 5 ) {
 						Logger::log( sprintf( 'RENAME TABLE failed 5 times at swap (epoch=%d) — halting, old live index preserved: %s', $epoch, $wpdb->last_error ), 'warning' );
-						update_option( 'wcs_last_rebuild_error', 'swap_failed', false );
-						update_option( 'wcs_is_indexing', 0, false );
-						delete_option( 'wcs_rebuild_phase' );
+						update_option( 'otsw_last_rebuild_error', 'swap_failed', false );
+						update_option( 'otsw_is_indexing', 0, false );
+						delete_option( 'otsw_rebuild_phase' );
 						delete_transient( $attempts_key );
 						return;
 					}
@@ -635,36 +615,36 @@ class Indexer {
 					return;
 				}
 
-				delete_transient( 'wcs_swap_retry_' . $epoch );
+				delete_transient( 'otsw_swap_retry_' . $epoch );
 				$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $old_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
-				// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only
+				// Typo-correction vocabulary (otsw_search_terms*) is a Pro-only
 				// feature — this edition never creates those tables, so there is
 				// nothing to swap here (see PORTING.md).
 
 				// OPTIMIZE TABLE can take minutes on large catalogs — dispatch it as a
 				// separate async action so it never runs inside this FPM request.
-				update_option( 'wcs_rebuild_phase', 'optimizing', false );
+				update_option( 'otsw_rebuild_phase', 'optimizing', false );
 				if ( function_exists( 'as_enqueue_async_action' ) ) {
 					// $unique=true, $priority=10 — the trailing args were
 					// previously (0, true), which cast true to priority 1
 					// instead of the intended 10, and left unique false when
 					// only one queued optimize job is ever needed.
-					as_enqueue_async_action( 'wcs_optimize_index', array(), 'turbo-search-for-woocommerce', true, 10 );
+					as_enqueue_async_action( 'otsw_optimize_index', array(), 'ozulabs-turbo-search-for-woocommerce', true, 10 );
 				}
 			} else {
 				// Staging table existed but was empty — this means the rebuild produced
 				// no rows (all products draft/private, or staging was truncated mid-run).
 				// Keep the old live index in place and surface a recoverable error state.
 				self::log( 'SWAP aborted — staging table is empty; old live index preserved' );
-				update_option( 'wcs_last_rebuild_error', 'staging_empty', false );
-				update_option( 'wcs_is_indexing', 0, false );
-				delete_option( 'wcs_rebuild_phase' );
+				update_option( 'otsw_last_rebuild_error', 'staging_empty', false );
+				update_option( 'otsw_is_indexing', 0, false );
+				delete_option( 'otsw_rebuild_phase' );
 				return;
 			}
 
-			update_option( 'wcs_is_indexing', 0, false );
-			delete_option( 'wcs_rebuild_phase' );
+			update_option( 'otsw_is_indexing', 0, false );
+			delete_option( 'otsw_rebuild_phase' );
 
 			// A rebuild that produced rows but also hit unresolved per-product
 			// write failures along the way (tracked by
@@ -672,28 +652,28 @@ class Indexer {
 			// method's docblock for why — but must not report a silent,
 			// unqualified success: the admin has no other way to learn that
 			// some products didn't make it into the new index.
-			$failed_count = (int) get_option( 'wcs_rebuild_failed_count', 0 );
+			$failed_count = (int) get_option( 'otsw_rebuild_failed_count', 0 );
 			if ( $failed_count > 0 ) {
-				update_option( 'wcs_last_rebuild_error', 'partial_failure', false );
+				update_option( 'otsw_last_rebuild_error', 'partial_failure', false );
 				self::log( sprintf( 'SWAP completed with %d failed product write(s) — see earlier log lines for IDs', $failed_count ) );
 			} else {
-				delete_option( 'wcs_last_rebuild_error' );
+				delete_option( 'otsw_last_rebuild_error' );
 			}
-			delete_option( 'wcs_rebuild_failed_count' );
+			delete_option( 'otsw_rebuild_failed_count' );
 
 			// A full rebuild just reindexed every product, including any that
-			// were sitting in wcs_pending_product_updates because both
+			// were sitting in otsw_pending_product_updates because both
 			// schedulers rejected their incremental-update enqueue — those
 			// entries are now moot and would otherwise wait for the next
 			// drain to enqueue a redundant update for an already-current row.
-			delete_option( 'wcs_pending_product_updates' );
+			delete_option( 'otsw_pending_product_updates' );
 
 			self::execute_cache_bust();
-			do_action( 'wcs_index_rebuild_complete' );
+			do_action( 'otsw_index_rebuild_complete' );
 			return;
 		}
 
-		$time_budget = (int) apply_filters( 'wcs_batch_time_budget', self::BATCH_TIME_BUDGET );
+		$time_budget = (int) apply_filters( 'otsw_batch_time_budget', self::BATCH_TIME_BUDGET );
 
 		// Index in bulk chunks. Each chunk is a handful of queries (cache
 		// priming + one meta_lookup read + one multi-row REPLACE) instead of
@@ -739,8 +719,8 @@ class Indexer {
 			$chunk_last_id       = (int) end( $chunk );
 
 			if ( ( microtime( true ) - $batch_start ) >= $time_budget ) {
-				$processed = (int) get_option( 'wcs_reindex_processed', 0 );
-				update_option( 'wcs_reindex_processed', $processed + $processed_in_batch, false );
+				$processed = (int) get_option( 'otsw_reindex_processed', 0 );
+				update_option( 'otsw_reindex_processed', $processed + $processed_in_batch, false );
 				self::log( sprintf( 'BUDGET last_id=%d done=%d elapsed=%.1fs', $chunk_last_id, $processed + $processed_in_batch, microtime( true ) - $batch_start ) );
 				self::enqueue_batch_with_retry( $chunk_last_id, $epoch );
 				return;
@@ -749,17 +729,17 @@ class Indexer {
 
 		if ( $batch_failures === $processed_in_batch ) {
 			self::log( sprintf( 'ALL FAILED last_id=%d — halting chain, old live index preserved', $last_id ) );
-			update_option( 'wcs_last_rebuild_error', 'batch_write_failed', false );
-			update_option( 'wcs_is_indexing', 0, false );
-			delete_option( 'wcs_rebuild_phase' );
-			delete_option( 'wcs_rebuild_failed_count' );
+			update_option( 'otsw_last_rebuild_error', 'batch_write_failed', false );
+			update_option( 'otsw_is_indexing', 0, false );
+			delete_option( 'otsw_rebuild_phase' );
+			delete_option( 'otsw_rebuild_failed_count' );
 			return;
 		}
 
-		$processed    = (int) get_option( 'wcs_reindex_processed', 0 );
+		$processed    = (int) get_option( 'otsw_reindex_processed', 0 );
 		$new_total    = $processed + $processed_in_batch;
 		$next_last_id = (int) end( $products );
-		update_option( 'wcs_reindex_processed', $new_total, false );
+		update_option( 'otsw_reindex_processed', $new_total, false );
 		self::log( sprintf( 'DONE last_id=%d next=%d total=%d elapsed=%.1fs', $last_id, $next_last_id, $new_total, microtime( true ) - $batch_start ) );
 
 		self::enqueue_batch_with_retry( $next_last_id, $epoch );
@@ -844,10 +824,10 @@ class Indexer {
 		$image_url = $image_url ? $image_url : '';
 
 		// Read weighted configuration
-		$search_title    = (bool) get_option( 'wcs_search_title', 1 );
-		$search_sku      = (bool) get_option( 'wcs_search_sku', 1 );
-		$search_content  = (bool) get_option( 'wcs_search_content', 1 );
-		$search_taxonomy = (bool) get_option( 'wcs_search_taxonomy', 1 );
+		$search_title    = (bool) get_option( 'otsw_search_title', 1 );
+		$search_sku      = (bool) get_option( 'otsw_search_sku', 1 );
+		$search_content  = (bool) get_option( 'otsw_search_content', 1 );
+		$search_taxonomy = (bool) get_option( 'otsw_search_taxonomy', 1 );
 
 		$title_val = $search_title ? wp_strip_all_tags( $product->get_title() ) : '';
 		$sku_val   = $search_sku ? $product->get_sku() : '';
@@ -881,12 +861,6 @@ class Indexer {
 			'price_max'      => $price_max,
 			'stock_status'   => $product->get_stock_status(),
 			'total_sales'    => (int) $product->get_total_sales(),
-			// Recent-sales-weighted ranking is a Pro feature; the weight is
-			// always pinned to 0.0 in Search_Handler regardless of this
-			// value, so it's never computed here — a real aggregate query
-			// against wc_order_product_lookup on every single product save
-			// for a number that can never affect a ranking isn't worth the cost.
-			'sales_30d'      => 0,
 			'image_url'      => $image_url,
 			'permalink'      => $product->get_permalink(),
 			'updated_at'     => current_time( 'mysql' ),
@@ -895,19 +869,19 @@ class Indexer {
 		$data = self::apply_row_filter_and_sanitize( $data, $product_id );
 		// product_id, title, title_normalized, title_padded, sku, sku_normalized,
 		// content, excerpt, price_min, price_max, stock_status, total_sales,
-		// sales_30d, image_url, permalink, updated_at — positional, must match
+		// image_url, permalink, updated_at — positional, must match
 		// apply_row_filter_and_sanitize()'s return array order exactly.
-		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%d', '%s', '%s', '%s' );
+		$formats = array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%f', '%f', '%s', '%d', '%s', '%s', '%s' );
 
 		if ( empty( $table_name ) ) {
-			$table_name = $wpdb->prefix . 'wcs_search_index';
+			$table_name = $wpdb->prefix . 'otsw_search_index';
 
 			// If a full rebuild is active, also duplicate live edits to staging to maintain parity
-			if ( get_option( 'wcs_is_indexing', false ) ) {
-				$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+			if ( get_option( 'otsw_is_indexing', false ) ) {
+				$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 				// Same bounded retry as do_process_batch()'s per-product
 				// fallback (see that loop's comment): this write runs inside
-				// the async wcs_update_single_product action, not the
+				// the async otsw_update_single_product action, not the
 				// admin's original save request, so retrying costs nothing
 				// user-facing — and without it, a transient blip here (a
 				// lock wait, a momentary connection drop) would leave this
@@ -965,8 +939,8 @@ class Indexer {
 	 * Reset to 0 at the start of every rebuild in schedule_full_rebuild().
 	 */
 	private static function increment_rebuild_failure_count(): void {
-		$count = (int) get_option( 'wcs_rebuild_failed_count', 0 );
-		update_option( 'wcs_rebuild_failed_count', $count + 1, false );
+		$count = (int) get_option( 'otsw_rebuild_failed_count', 0 );
+		update_option( 'otsw_rebuild_failed_count', $count + 1, false );
 	}
 
 	/**
@@ -976,7 +950,7 @@ class Indexer {
 	 * global attribute taxonomy (pa_color, pa_material, …) so searches like
 	 * "leather" or a brand name match. Filterable:
 	 *
-	 *   add_filter( 'wcs_indexed_taxonomies', fn( $tax ) => array_diff( $tax, array( 'product_tag' ) ) );
+	 *   add_filter( 'otsw_indexed_taxonomies', fn( $tax ) => array_diff( $tax, array( 'product_tag' ) ) );
 	 *
 	 * @return string[] Registered taxonomy slugs.
 	 */
@@ -991,7 +965,7 @@ class Indexer {
 		 *
 		 * @param string[] $taxonomies Taxonomy slugs.
 		 */
-		$taxonomies = (array) apply_filters( 'wcs_indexed_taxonomies', $taxonomies );
+		$taxonomies = (array) apply_filters( 'otsw_indexed_taxonomies', $taxonomies );
 
 		return array_values( array_filter( array_unique( $taxonomies ), 'taxonomy_exists' ) );
 	}
@@ -1063,7 +1037,7 @@ class Indexer {
 	}
 
 	/**
-	 * Apply the wcs_indexed_product_data filter and re-sanitize the row.
+	 * Apply the otsw_indexed_product_data filter and re-sanitize the row.
 	 *
 	 * Shared by the single-product path and the bulk rebuild path so both
 	 * honour the same developer contract and the same post-filter hardening.
@@ -1084,10 +1058,10 @@ class Indexer {
 		 *
 		 * @param array $data       Associative array: product_id, title, sku, content,
 		 *                          excerpt, price_min, price_max, stock_status,
-		 *                          total_sales, sales_30d, image_url, permalink, updated_at.
+		 *                          total_sales, image_url, permalink, updated_at.
 		 * @param int   $product_id The WooCommerce product ID.
 		 */
-		$data = (array) apply_filters( 'wcs_indexed_product_data', $data, $product_id );
+		$data = (array) apply_filters( 'otsw_indexed_product_data', $data, $product_id );
 
 		// Strip unknown keys and re-sanitize critical columns after filtering.
 		// Prevents a compromised third-party plugin from persisting malicious URLs
@@ -1122,7 +1096,6 @@ class Indexer {
 			'price_max'        => (float) ( $data['price_max'] ?? 0 ),
 			'stock_status'     => sanitize_key( (string) ( $data['stock_status'] ?? '' ) ),
 			'total_sales'      => max( 0, (int) ( $data['total_sales'] ?? 0 ) ),
-			'sales_30d'        => max( 0, (int) ( $data['sales_30d'] ?? 0 ) ),
 			'image_url'        => esc_url_raw( (string) ( $data['image_url'] ?? '' ) ),
 			'permalink'        => esc_url_raw( (string) ( $data['permalink'] ?? '' ) ),
 			'updated_at'       => (string) ( $data['updated_at'] ?? current_time( 'mysql' ) ),
@@ -1183,10 +1156,10 @@ class Indexer {
 			_prime_post_caches( array_values( array_unique( $thumb_ids ) ), false, true );
 		}
 
-		$search_title    = (bool) get_option( 'wcs_search_title', 1 );
-		$search_sku      = (bool) get_option( 'wcs_search_sku', 1 );
-		$search_content  = (bool) get_option( 'wcs_search_content', 1 );
-		$search_taxonomy = (bool) get_option( 'wcs_search_taxonomy', 1 );
+		$search_title    = (bool) get_option( 'otsw_search_title', 1 );
+		$search_sku      = (bool) get_option( 'otsw_search_sku', 1 );
+		$search_content  = (bool) get_option( 'otsw_search_content', 1 );
+		$search_taxonomy = (bool) get_option( 'otsw_search_taxonomy', 1 );
 		$now             = current_time( 'mysql' );
 		$taxonomies      = $search_taxonomy ? self::indexed_taxonomies() : array();
 		$variation_skus  = $search_sku ? self::get_variation_skus( $product_ids ) : array();
@@ -1251,7 +1224,6 @@ class Indexer {
 				'price_max'      => (float) $lookup->max_price,
 				'stock_status'   => (string) $lookup->stock_status,
 				'total_sales'    => (int) $lookup->total_sales,
-				'sales_30d'      => 0,
 				'image_url'      => $image_url,
 				'permalink'      => (string) get_permalink( $post ),
 				'updated_at'     => $now,
@@ -1266,8 +1238,8 @@ class Indexer {
 		}
 
 		// Single multi-row REPLACE for the whole chunk.
-		$columns      = array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'sales_30d', 'image_url', 'permalink', 'updated_at' );
-		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%s,%s,%f,%f,%s,%d,%d,%s,%s,%s)';
+		$columns      = array( 'product_id', 'title', 'title_normalized', 'title_padded', 'sku', 'sku_normalized', 'content', 'excerpt', 'price_min', 'price_max', 'stock_status', 'total_sales', 'image_url', 'permalink', 'updated_at' );
+		$row_pattern  = '(%d,%s,%s,%s,%s,%s,%s,%s,%f,%f,%s,%d,%s,%s,%s)';
 		$placeholders = implode( ',', array_fill( 0, count( $rows ), $row_pattern ) );
 
 		$values = array();
@@ -1305,9 +1277,9 @@ class Indexer {
 		global $wpdb;
 
 		if ( empty( $table_name ) ) {
-			$table_name = $wpdb->prefix . 'wcs_search_index';
-			if ( get_option( 'wcs_is_indexing', false ) ) {
-				$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+			$table_name = $wpdb->prefix . 'otsw_search_index';
+			if ( get_option( 'otsw_is_indexing', false ) ) {
+				$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 				self::delete_with_retry( $stage_table, $product_id );
 			}
 		}
@@ -1379,10 +1351,10 @@ class Indexer {
 	 * @param int $product_id Product to retry removing.
 	 */
 	private static function schedule_delete_retry( int $product_id ): void {
-		if ( wp_next_scheduled( 'wcs_retry_product_delete', array( $product_id ) ) ) {
+		if ( wp_next_scheduled( 'otsw_retry_product_delete', array( $product_id ) ) ) {
 			return;
 		}
-		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_delete', array( $product_id ) ) ) {
+		if ( ! wp_schedule_single_event( time() + 30, 'otsw_retry_product_delete', array( $product_id ) ) ) {
 			Logger::log( sprintf( 'WP-Cron also refused to schedule a removal retry for product %d — it may still be searchable; check manually or run a full rebuild', $product_id ), 'warning' );
 		}
 	}
@@ -1416,7 +1388,7 @@ class Indexer {
 	public static function retry_product_delete( int $product_id ): void {
 		global $wpdb;
 
-		$attempts_key = 'wcs_delete_retry_' . $product_id;
+		$attempts_key = 'otsw_delete_retry_' . $product_id;
 		$attempts     = (int) get_transient( $attempts_key );
 
 		if ( $attempts >= 5 ) {
@@ -1425,12 +1397,12 @@ class Indexer {
 			return;
 		}
 
-		$live_table = $wpdb->prefix . 'wcs_search_index';
+		$live_table = $wpdb->prefix . 'otsw_search_index';
 		$live_ok    = false !== $wpdb->delete( $live_table, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 
 		$stage_ok = true;
-		if ( get_option( 'wcs_is_indexing', false ) ) {
-			$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		if ( get_option( 'otsw_is_indexing', false ) ) {
+			$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 			$stage_ok    = false !== $wpdb->delete( $stage_table, array( 'product_id' => $product_id ), array( '%d' ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 		}
 
@@ -1441,7 +1413,7 @@ class Indexer {
 		}
 
 		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
-		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_delete', array( $product_id ) ) ) {
+		if ( ! wp_schedule_single_event( time() + 30, 'otsw_retry_product_delete', array( $product_id ) ) ) {
 			Logger::log( sprintf( 'WP-Cron refused to reschedule a removal retry for product %d (attempt %d/5) — it may still be searchable; check manually or run a full rebuild', $product_id, $attempts + 1 ), 'warning' );
 		}
 	}
@@ -1497,7 +1469,7 @@ class Indexer {
 	/**
 	 * Trigger a full rebuild when an index field setting is toggled.
 	 *
-	 * Fires on update_option_{wcs_search_title|sku|content|taxonomy}. Changing
+	 * Fires on update_option_{otsw_search_title|sku|content|taxonomy}. Changing
 	 * which fields are indexed makes every existing row stale — incremental
 	 * updates are not sufficient because the rows were built under the old config.
 	 * The $rebuild_queued flag prevents duplicate rebuilds when multiple settings
@@ -1548,11 +1520,11 @@ class Indexer {
 		}
 
 		// Cancel every pending/in-progress batch so no stale chain races the new one.
-		as_unschedule_all_actions( 'wcs_rebuild_index_batch', array(), 'turbo-search-for-woocommerce' );
+		as_unschedule_all_actions( 'otsw_rebuild_index_batch', array(), 'ozulabs-turbo-search-for-woocommerce' );
 
 		global $wpdb;
-		$main_table  = $wpdb->prefix . 'wcs_search_index';
-		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		$main_table  = $wpdb->prefix . 'otsw_search_index';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 
 		// Ensure the staging table exists before TRUNCATE. schedule_full_rebuild() is
 		// called from term/setting-change hooks, not the AJAX button — those paths do
@@ -1572,24 +1544,24 @@ class Indexer {
 
 		if ( ! $create_ok || ! $truncate_ok ) {
 			Logger::log( sprintf( 'Rebuild setup failed for %s (create_ok=%d truncate_ok=%d): %s', $stage_table, (int) $create_ok, (int) $truncate_ok, $wpdb->last_error ), 'warning' );
-			update_option( 'wcs_last_rebuild_error', 'rebuild_setup_failed', false );
+			update_option( 'otsw_last_rebuild_error', 'rebuild_setup_failed', false );
 			return;
 		}
 
-		// Typo-correction vocabulary (wcs_search_terms*) is a Pro-only feature —
+		// Typo-correction vocabulary (otsw_search_terms*) is a Pro-only feature —
 		// this edition never creates those tables, so there is nothing to reset
 		// here (see PORTING.md). Regression: this used to unconditionally run
-		// CREATE TABLE ... LIKE wp_wcs_search_terms / TRUNCATE against tables
+		// CREATE TABLE ... LIKE wp_otsw_search_terms / TRUNCATE against tables
 		// that never exist in Free, throwing a real SQL error on every rebuild.
 
 		// Millisecond precision so two rebuilds triggered within the same
 		// second (e.g. a settings save plus a term edit) get distinct epochs.
 		$epoch = (int) ( microtime( true ) * 1000 );
-		update_option( 'wcs_rebuild_epoch', $epoch, false );
-		update_option( 'wcs_is_indexing', 1, false );
-		update_option( 'wcs_reindex_processed', 0, false );
-		delete_option( 'wcs_last_rebuild_error' );
-		delete_option( 'wcs_rebuild_failed_count' );
+		update_option( 'otsw_rebuild_epoch', $epoch, false );
+		update_option( 'otsw_is_indexing', 1, false );
+		update_option( 'otsw_reindex_processed', 0, false );
+		delete_option( 'otsw_last_rebuild_error' );
+		delete_option( 'otsw_rebuild_failed_count' );
 		self::log( sprintf( 'NEW REBUILD epoch=%d', $epoch ) );
 		self::enqueue_batch_with_retry( 0, $epoch );
 	}
@@ -1607,7 +1579,7 @@ class Indexer {
 	 * flush`) run immediately after a schema-migrating upgrade logged
 	 * "as_enqueue_async_action() was called before the Action Scheduler data
 	 * store was initialized" and silently dropped the call — no action row,
-	 * no error option, wcs_is_indexing stuck at 1 forever with nothing
+	 * no error option, otsw_is_indexing stuck at 1 forever with nothing
 	 * driving it. The same call, with the same failure mode, is also made
 	 * from do_process_batch() for every *continuation* batch after the
 	 * first — a transient Action Scheduler hiccup there would strand a
@@ -1627,17 +1599,17 @@ class Indexer {
 	private static function enqueue_batch_with_retry( int $last_id, int $epoch ): void {
 		// $unique=false, $priority=10 — the trailing args were previously
 		// (0, true), which cast true to priority 1 instead of the intended 10.
-		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+		$action_id = as_enqueue_async_action( 'otsw_rebuild_index_batch', array(
 			'last_id' => $last_id,
 			'epoch'   => $epoch,
-		), 'turbo-search-for-woocommerce', false, 10 );
+		), 'ozulabs-turbo-search-for-woocommerce', false, 10 );
 
 		if ( $action_id ) {
 			return;
 		}
 
 		self::log( sprintf( 'Batch enqueue failed (last_id=%d epoch=%d) — falling back to WP-Cron retry', $last_id, $epoch ) );
-		if ( ! wp_next_scheduled( 'wcs_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
+		if ( ! wp_next_scheduled( 'otsw_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
 			self::schedule_retry_or_fail( $epoch, $last_id );
 		}
 	}
@@ -1650,7 +1622,7 @@ class Indexer {
 	 * would leave a rebuild stranded with absolutely nothing driving it: no
 	 * Action Scheduler action pending (that's what got us here) AND no cron
 	 * event pending either, so retry_rebuild_scheduling() would simply never
-	 * run and wcs_is_indexing would sit at 1 forever with no path to the
+	 * run and otsw_is_indexing would sit at 1 forever with no path to the
 	 * eventual 'schedule_enqueue_failed' error this whole retry chain exists
 	 * to produce. Failing the rebuild immediately here at least gives the
 	 * admin the same actionable error retry exhaustion would have, instead
@@ -1660,13 +1632,13 @@ class Indexer {
 	 * @param int $last_id Cursor the retried batch should resume from.
 	 */
 	private static function schedule_retry_or_fail( int $epoch, int $last_id ): void {
-		if ( wp_schedule_single_event( time() + 30, 'wcs_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
+		if ( wp_schedule_single_event( time() + 30, 'otsw_retry_rebuild_scheduling', array( $epoch, $last_id ) ) ) {
 			return;
 		}
 
 		Logger::log( sprintf( 'WP-Cron refused to schedule the rebuild retry (epoch=%d last_id=%d) — nothing left to drive this rebuild, halting', $epoch, $last_id ), 'warning' );
-		update_option( 'wcs_last_rebuild_error', 'schedule_enqueue_failed', false );
-		update_option( 'wcs_is_indexing', 0, false );
+		update_option( 'otsw_last_rebuild_error', 'schedule_enqueue_failed', false );
+		update_option( 'otsw_is_indexing', 0, false );
 	}
 
 	/**
@@ -1680,28 +1652,28 @@ class Indexer {
 	 * @param int $last_id Cursor the retried batch should start from.
 	 */
 	public static function retry_rebuild_scheduling( int $epoch, int $last_id = 0 ): void {
-		if ( (int) get_option( 'wcs_rebuild_epoch', 0 ) !== $epoch ) {
+		if ( (int) get_option( 'otsw_rebuild_epoch', 0 ) !== $epoch ) {
 			return; // Superseded by a newer rebuild — this retry is stale.
 		}
 		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
 			return;
 		}
 
-		$attempts_key = 'wcs_schedule_retry_' . $epoch . '_' . $last_id;
+		$attempts_key = 'otsw_schedule_retry_' . $epoch . '_' . $last_id;
 		$attempts     = (int) get_transient( $attempts_key );
 
 		if ( $attempts >= 5 ) {
 			Logger::log( sprintf( 'Rebuild scheduling retries exhausted (epoch=%d last_id=%d) — halting', $epoch, $last_id ), 'warning' );
-			update_option( 'wcs_last_rebuild_error', 'schedule_enqueue_failed', false );
-			update_option( 'wcs_is_indexing', 0, false );
+			update_option( 'otsw_last_rebuild_error', 'schedule_enqueue_failed', false );
+			update_option( 'otsw_is_indexing', 0, false );
 			delete_transient( $attempts_key );
 			return;
 		}
 
-		$action_id = as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+		$action_id = as_enqueue_async_action( 'otsw_rebuild_index_batch', array(
 			'last_id' => $last_id,
 			'epoch'   => $epoch,
-		), 'turbo-search-for-woocommerce', false, 10 );
+		), 'ozulabs-turbo-search-for-woocommerce', false, 10 );
 
 		if ( $action_id ) {
 			delete_transient( $attempts_key );
@@ -1729,9 +1701,9 @@ class Indexer {
 			return;
 		}
 
-		$attempts_key = 'wcs_product_retry_' . $product_id;
+		$attempts_key = 'otsw_product_retry_' . $product_id;
 
-		if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+		if ( as_has_scheduled_action( 'otsw_update_single_product', array( 'product_id' => $product_id ) ) ) {
 			// Already queued since — e.g. the product was saved again, which
 			// enqueues its own fresh action independently of this retry
 			// chain. Clear the counter here too, not just on this chain's
@@ -1751,14 +1723,14 @@ class Indexer {
 			return;
 		}
 
-		$action_id = as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' );
+		$action_id = as_enqueue_async_action( 'otsw_update_single_product', array( 'product_id' => $product_id ), 'ozulabs-turbo-search-for-woocommerce' );
 		if ( $action_id ) {
 			delete_transient( $attempts_key );
 			return;
 		}
 
 		set_transient( $attempts_key, $attempts + 1, HOUR_IN_SECONDS );
-		if ( ! wp_schedule_single_event( time() + 30, 'wcs_retry_product_enqueue', array( $product_id ) ) ) {
+		if ( ! wp_schedule_single_event( time() + 30, 'otsw_retry_product_enqueue', array( $product_id ) ) ) {
 			Logger::log( sprintf( 'WP-Cron refused to reschedule the incremental-update retry for product %d (attempt %d/5) — it will resync on its next save or a full rebuild', $product_id, $attempts + 1 ), 'warning' );
 			self::add_pending_product_update( $product_id );
 		}
@@ -1775,14 +1747,14 @@ class Indexer {
 	 *
 	 * Drained by drain_pending_product_updates(), which runs from
 	 * run_transient_gc() — already wired to both the daily
-	 * wcs_daily_transient_gc cron and every cache-bust (including a
+	 * otsw_daily_transient_gc cron and every cache-bust (including a
 	 * successful full rebuild's own execute_cache_bust() call) — rather than
 	 * a new dedicated schedule.
 	 *
 	 * @param int $product_id Product to remember.
 	 */
 	private static function add_pending_product_update( int $product_id ): void {
-		$pending = get_option( 'wcs_pending_product_updates', array() );
+		$pending = get_option( 'otsw_pending_product_updates', array() );
 		if ( ! is_array( $pending ) ) {
 			$pending = array();
 		}
@@ -1798,7 +1770,7 @@ class Indexer {
 			unset( $pending[ key( $pending ) ] );
 		}
 
-		update_option( 'wcs_pending_product_updates', $pending, false );
+		update_option( 'otsw_pending_product_updates', $pending, false );
 	}
 
 	/**
@@ -1810,7 +1782,7 @@ class Indexer {
 			return;
 		}
 
-		$pending = get_option( 'wcs_pending_product_updates', array() );
+		$pending = get_option( 'otsw_pending_product_updates', array() );
 		if ( ! is_array( $pending ) || empty( $pending ) ) {
 			return;
 		}
@@ -1819,12 +1791,12 @@ class Indexer {
 		foreach ( array_keys( $pending ) as $product_id ) {
 			$product_id = (int) $product_id;
 
-			if ( as_has_scheduled_action( 'wcs_update_single_product', array( 'product_id' => $product_id ) ) ) {
+			if ( as_has_scheduled_action( 'otsw_update_single_product', array( 'product_id' => $product_id ) ) ) {
 				unset( $remaining[ $product_id ] );
 				continue;
 			}
 
-			if ( as_enqueue_async_action( 'wcs_update_single_product', array( 'product_id' => $product_id ), 'turbo-search-for-woocommerce' ) ) {
+			if ( as_enqueue_async_action( 'otsw_update_single_product', array( 'product_id' => $product_id ), 'ozulabs-turbo-search-for-woocommerce' ) ) {
 				unset( $remaining[ $product_id ] );
 			}
 			// Left in $remaining on failure — picked up again at the next drain.
@@ -1835,9 +1807,9 @@ class Indexer {
 		}
 
 		if ( empty( $remaining ) ) {
-			delete_option( 'wcs_pending_product_updates' );
+			delete_option( 'otsw_pending_product_updates' );
 		} else {
-			update_option( 'wcs_pending_product_updates', $remaining, false );
+			update_option( 'otsw_pending_product_updates', $remaining, false );
 		}
 	}
 
@@ -1855,7 +1827,7 @@ class Indexer {
 			return;
 		}
 
-		if ( as_has_scheduled_action( 'wcs_debounce_cache_bust' ) ) {
+		if ( as_has_scheduled_action( 'otsw_debounce_cache_bust' ) ) {
 			self::$bust_queued = true;
 			return;
 		}
@@ -1872,7 +1844,7 @@ class Indexer {
 		// the fallback, trading a touch more cache churn (only on an actual
 		// AS scheduling failure, not the common path) for a bound on
 		// staleness that doesn't depend on unrelated future activity.
-		$action_id = as_schedule_single_action( time() + 300, 'wcs_debounce_cache_bust', array(), 'turbo-search-for-woocommerce' );
+		$action_id = as_schedule_single_action( time() + 300, 'otsw_debounce_cache_bust', array(), 'ozulabs-turbo-search-for-woocommerce' );
 		if ( $action_id ) {
 			self::$bust_queued = true;
 			return;
@@ -1887,10 +1859,10 @@ class Indexer {
 	 * Actually increment the cache version.
 	 */
 	public static function execute_cache_bust(): void {
-		$current = (int) get_option( 'wcs_cache_version', 1 );
+		$current = (int) get_option( 'otsw_cache_version', 1 );
 		// autoload=true so every subsequent request gets this from WordPress's
 		// initial batch options query instead of a separate SELECT.
-		update_option( 'wcs_cache_version', $current + 1, true );
+		update_option( 'otsw_cache_version', $current + 1, true );
 		// True UTC time(), NOT current_time('timestamp'): the latter adds the
 		// site's UTC offset (e.g. +3h for Africa/Nairobi), but the settings
 		// page compares this value with human_time_diff(), whose default
@@ -1899,7 +1871,7 @@ class Indexer {
 		// offset (a real rebuild that just finished showed "3 hours ago" on a
 		// UTC+3 site). current_time() is for *display formatting* only; any
 		// value compared against time() must itself come from time().
-		update_option( 'wcs_last_indexed', time(), false );
+		update_option( 'otsw_last_indexed', time(), false );
 		self::run_transient_gc();
 	}
 
@@ -1977,11 +1949,11 @@ class Indexer {
 		 * managed hosting with a `php_admin_value` memory_limit that
 		 * WordPress cannot override via WP_MEMORY_LIMIT:
 		 *
-		 *   add_filter( 'wcs_batch_size', fn() => 25 );
+		 *   add_filter( 'otsw_batch_size', fn() => 25 );
 		 *
 		 * @param int $size Computed batch size (10–200 by default).
 		 */
-		return (int) apply_filters( 'wcs_batch_size', $size );
+		return (int) apply_filters( 'otsw_batch_size', $size );
 	}
 
 	/**
@@ -2032,7 +2004,7 @@ class Indexer {
 		// slow growth. A generous 1-day cutoff is safe regardless of how any
 		// individual limiter's own window is configured — a row that hasn't
 		// been touched in a day is not mid-window for any sane window length.
-		$rl_table    = $wpdb->prefix . 'wcs_rate_limits';
+		$rl_table    = $wpdb->prefix . 'otsw_rate_limits';
 		$rl_suppress = $wpdb->suppress_errors( true );
 		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
 			'DELETE FROM %i WHERE window_start < %d',
@@ -2042,14 +2014,14 @@ class Indexer {
 		$wpdb->suppress_errors( $rl_suppress );
 
 		// Search analytics logging (and its retention prune) is a Pro
-		// feature — this edition never creates wcs_search_log, so there is
+		// feature — this edition never creates otsw_search_log, so there is
 		// nothing to prune here.
 
 		if ( wp_using_ext_object_cache() ) {
 			return; // Redis/Memcached handle their own transient TTL eviction.
 		}
 
-		$current_version = (int) get_option( 'wcs_cache_version', 1 );
+		$current_version = (int) get_option( 'otsw_cache_version', 1 );
 
 		// Delete timeout rows for old versions. Both conditions use a literal
 		// prefix so MySQL can use the option_name index on both sides.
@@ -2057,8 +2029,8 @@ class Indexer {
 			"DELETE FROM {$wpdb->options}
 			 WHERE option_name LIKE %s
 			   AND option_name NOT LIKE %s",
-			$wpdb->esc_like( '_transient_timeout_wcs_v' ) . '%',
-			$wpdb->esc_like( "_transient_timeout_wcs_v{$current_version}_" ) . '%'
+			$wpdb->esc_like( '_transient_timeout_otsw_v' ) . '%',
+			$wpdb->esc_like( "_transient_timeout_otsw_v{$current_version}_" ) . '%'
 		) );
 
 		// Delete value rows for old versions. After the query above, old timeout
@@ -2069,8 +2041,8 @@ class Indexer {
 			"DELETE FROM {$wpdb->options}
 			 WHERE option_name LIKE %s
 			   AND option_name NOT LIKE %s",
-			$wpdb->esc_like( '_transient_wcs_v' ) . '%',
-			$wpdb->esc_like( "_transient_wcs_v{$current_version}_" ) . '%'
+			$wpdb->esc_like( '_transient_otsw_v' ) . '%',
+			$wpdb->esc_like( "_transient_otsw_v{$current_version}_" ) . '%'
 		) );
 	}
 }

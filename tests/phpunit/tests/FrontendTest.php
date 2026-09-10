@@ -2,47 +2,47 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Frontend;
+use OTSW\Search\Frontend;
 
 final class FrontendTest extends TestCase {
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 		update_option( 'woocommerce_currency', 'USD' );
 	}
 
 	// ── enqueue_assets ───────────────────────────────────────────────────────
 
 	public function test_assets_are_enqueued_with_inline_config(): void {
-		update_option( 'wcs_min_chars', 4 );
+		update_option( 'otsw_min_chars', 4 );
 
 		Frontend::enqueue_assets();
 
-		$this->assertContains( 'wcs-search-css', $GLOBALS['wcs_test_enqueued']['style'] );
-		$this->assertContains( 'wcs-search-js', $GLOBALS['wcs_test_enqueued']['script'] );
+		$this->assertContains( 'otsw-search-css', $GLOBALS['otsw_test_enqueued']['style'] );
+		$this->assertContains( 'otsw-search-js', $GLOBALS['otsw_test_enqueued']['script'] );
 
-		$inline = $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0];
-		$this->assertStringStartsWith( 'const wcs_config = ', $inline );
+		$inline = $GLOBALS['otsw_test_inline_js']['otsw-search-js'][0];
+		$this->assertStringStartsWith( 'const otsw_config = ', $inline );
 
-		$config = json_decode( substr( $inline, strlen( 'const wcs_config = ' ), -1 ), true );
+		$config = json_decode( substr( $inline, strlen( 'const otsw_config = ' ), -1 ), true );
 		$this->assertSame( 4, $config['min_chars'] );
 		$this->assertSame( 'USD', $config['currency']['code'] );
 		$this->assertArrayHasKey( 'index_building', $config['i18n'] );
-		$this->assertStringContainsString( '/wcs/v1/search', $config['api_url'] );
+		$this->assertStringContainsString( '/otsw/v1/search', $config['api_url'] );
 		$this->assertNotEmpty( $config['nonce'] );
 	}
 
 	public function test_recent_searches_config_defaults_and_is_configurable(): void {
 		Frontend::enqueue_assets();
-		$config = json_decode( substr( $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0], strlen( 'const wcs_config = ' ), -1 ), true );
+		$config = json_decode( substr( $GLOBALS['otsw_test_inline_js']['otsw-search-js'][0], strlen( 'const otsw_config = ' ), -1 ), true );
 		$this->assertTrue( $config['recent_searches']['enabled'], 'on by default, matching existing behavior before this was configurable' );
 		$this->assertSame( 5, $config['recent_searches']['count'] );
 
-		wcs_tests_reset();
-		update_option( 'wcs_enable_recent_searches', false );
-		update_option( 'wcs_recent_searches_count', 3 );
+		otsw_tests_reset();
+		update_option( 'otsw_enable_recent_searches', false );
+		update_option( 'otsw_recent_searches_count', 3 );
 		Frontend::enqueue_assets();
-		$config = json_decode( substr( $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0], strlen( 'const wcs_config = ' ), -1 ), true );
+		$config = json_decode( substr( $GLOBALS['otsw_test_inline_js']['otsw-search-js'][0], strlen( 'const otsw_config = ' ), -1 ), true );
 		$this->assertFalse( $config['recent_searches']['enabled'] );
 		$this->assertSame( 3, $config['recent_searches']['count'] );
 	}
@@ -57,14 +57,11 @@ final class FrontendTest extends TestCase {
 		// quote/ampersand/angle-bracket and silently reproduce the bug.
 		Frontend::enqueue_assets();
 
-		$inline = $GLOBALS['wcs_test_inline_js']['wcs-search-js'][0];
-		$config = json_decode( substr( $inline, strlen( 'const wcs_config = ' ), -1 ), true );
+		$inline = $GLOBALS['otsw_test_inline_js']['otsw-search-js'][0];
+		$config = json_decode( substr( $inline, strlen( 'const otsw_config = ' ), -1 ), true );
 
 		$this->assertSame( 'View all results for "%s"', $config['i18n']['view_all'] );
 		$this->assertStringNotContainsString( '&quot;', $config['i18n']['view_all'] );
-
-		$this->assertSame( 'Showing results for "%s"', $config['i18n']['showingResultsFor'] );
-		$this->assertStringNotContainsString( '&quot;', $config['i18n']['showingResultsFor'] );
 
 		foreach ( $config['i18n'] as $key => $string ) {
 			$this->assertStringNotContainsString( '&amp;', $string, "i18n.$key must not be HTML-entity-escaped" );
@@ -78,7 +75,7 @@ final class FrontendTest extends TestCase {
 		try {
 			Frontend::ajax_refresh_nonce();
 			$this->fail( 'expected JSON response' );
-		} catch ( WCS_Test_JSON_Response $r ) {
+		} catch ( OTSW_Test_JSON_Response $r ) {
 			$this->assertTrue( $r->success );
 			$this->assertSame( 'nonce-wp_rest', $r->payload['nonce'] );
 		}
@@ -88,14 +85,14 @@ final class FrontendTest extends TestCase {
 		for ( $i = 0; $i < 10; $i++ ) {
 			try {
 				Frontend::ajax_refresh_nonce();
-			} catch ( WCS_Test_JSON_Response $r ) {
+			} catch ( OTSW_Test_JSON_Response $r ) {
 				$this->assertTrue( $r->success, "request $i should pass" );
 			}
 		}
 		try {
 			Frontend::ajax_refresh_nonce();
 			$this->fail( 'expected JSON response' );
-		} catch ( WCS_Test_JSON_Response $r ) {
+		} catch ( OTSW_Test_JSON_Response $r ) {
 			$this->assertFalse( $r->success );
 			$this->assertSame( 429, $r->status );
 		}
@@ -108,8 +105,8 @@ final class FrontendTest extends TestCase {
 		$this->assertTrue( shortcode_exists( 'turbo_search' ) );
 		$this->assertTrue( shortcode_exists( 'turbo_search_button' ) );
 		$this->assertSame(
-			$GLOBALS['wcs_test_shortcodes']['turbo_search'],
-			$GLOBALS['wcs_test_shortcodes']['turbo_search_button']
+			$GLOBALS['otsw_test_shortcodes']['turbo_search'],
+			$GLOBALS['otsw_test_shortcodes']['turbo_search_button']
 		);
 	}
 
@@ -125,7 +122,7 @@ final class FrontendTest extends TestCase {
 	public function test_shortcode_alias_uses_its_own_attribute_filter_context(): void {
 		Frontend::render_shortcode( array(), '', 'turbo_search_button' );
 
-		$this->assertSame( array( 'turbo_search_button' ), $GLOBALS['wcs_test_shortcode_atts_tags'] );
+		$this->assertSame( array( 'turbo_search_button' ), $GLOBALS['otsw_test_shortcode_atts_tags'] );
 	}
 
 	public function test_shortcode_attributes_are_applied_and_escaped(): void {
@@ -141,7 +138,7 @@ final class FrontendTest extends TestCase {
 
 	public function test_shortcode_enqueues_assets_when_missing(): void {
 		Frontend::render_shortcode( array() );
-		$this->assertContains( 'wcs-search-js', $GLOBALS['wcs_test_enqueued']['script'] );
+		$this->assertContains( 'otsw-search-js', $GLOBALS['otsw_test_enqueued']['script'] );
 	}
 
 	// ── dropdown portal ──────────────────────────────────────────────────────

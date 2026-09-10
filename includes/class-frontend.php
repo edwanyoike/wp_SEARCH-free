@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -21,8 +21,8 @@ class Frontend {
 	public static function init(): void {
 		add_action( 'wp_enqueue_scripts', array( __CLASS__, 'enqueue_assets' ) );
 		add_action( 'wp_footer', array( __CLASS__, 'inject_dropdown_container' ) );
-		add_action( 'wp_ajax_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
-		add_action( 'wp_ajax_nopriv_wcs_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
+		add_action( 'wp_ajax_otsw_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
+		add_action( 'wp_ajax_nopriv_otsw_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
 		// [turbo_search_button] is Pro's shortcode tag; registering it here
 		// too (as an alias rendering this edition's plain form) means a
 		// site's shortcode keeps working either way if it ever switches
@@ -40,23 +40,23 @@ class Frontend {
 		// in the global header, so restricting to WooCommerce pages would leave the
 		// search input un-enhanced on blog posts, static pages, etc.
 
-		$version = WCS_VERSION;
+		$version = OTSW_VERSION;
 		if ( WP_DEBUG ) {
 			$version = (string) time(); // Cache bust in dev
 		}
 
-		wp_enqueue_style( 'wcs-search-css', WCS_PLUGIN_URL . 'assets/css/search.css', array(), $version );
-		wp_enqueue_script( 'wcs-search-js', WCS_PLUGIN_URL . 'assets/js/search.js', array(), $version, true );
+		wp_enqueue_style( 'otsw-search-css', OTSW_PLUGIN_URL . 'assets/css/search.css', array(), $version );
+		wp_enqueue_script( 'otsw-search-js', OTSW_PLUGIN_URL . 'assets/js/search.js', array(), $version, true );
 
 		$config = array(
-			'api_url'           => esc_url_raw( rest_url( 'wcs/v1/search' ) ),
+			'api_url'           => esc_url_raw( rest_url( 'otsw/v1/search' ) ),
 			'nonce'             => wp_create_nonce( 'wp_rest' ),
-			'nonce_refresh_url' => esc_url_raw( admin_url( 'admin-ajax.php?action=wcs_refresh_nonce' ) ),
-			'version'           => WCS_VERSION,
-			'min_chars'         => (int) get_option( 'wcs_min_chars', 2 ),
+			'nonce_refresh_url' => esc_url_raw( admin_url( 'admin-ajax.php?action=otsw_refresh_nonce' ) ),
+			'version'           => OTSW_VERSION,
+			'min_chars'         => (int) get_option( 'otsw_min_chars', 2 ),
 			'recent_searches'   => array(
-				'enabled' => (bool) get_option( 'wcs_enable_recent_searches', true ),
-				'count'   => min( 10, max( 1, (int) get_option( 'wcs_recent_searches_count', 5 ) ) ),
+				'enabled' => (bool) get_option( 'otsw_enable_recent_searches', true ),
+				'count'   => min( 10, max( 1, (int) get_option( 'otsw_recent_searches_count', 5 ) ) ),
 			),
 			// Plain __(), not esc_html__(): these strings are JSON-encoded into
 			// a JS object and rendered via .textContent (search.js), which does
@@ -65,25 +65,19 @@ class Frontend {
 			// character — exactly what happened to 'view_all' before this fix,
 			// since it's the only string here containing quote characters.
 			'i18n'              => array(
-				'no_results'        => __( 'No products found.', 'turbo-search-for-woocommerce' ),
-				'searching'         => __( 'Searching products…', 'turbo-search-for-woocommerce' ),
-				'try_another'       => __( 'Try another spelling or a shorter search.', 'turbo-search-for-woocommerce' ),
-				'search_error'      => __( 'Search is temporarily unavailable.', 'turbo-search-for-woocommerce' ),
-				'try_again'         => __( 'Please try again.', 'turbo-search-for-woocommerce' ),
-				'product_results'   => __( 'Products', 'turbo-search-for-woocommerce' ),
-				'results_label'     => __( 'Product search results', 'turbo-search-for-woocommerce' ),
-				'recent_searches'   => __( 'Recent searches', 'turbo-search-for-woocommerce' ),
-				'clear_recent'      => __( 'Clear', 'turbo-search-for-woocommerce' ),
-				'out_of_stock'      => __( 'Out of Stock', 'turbo-search-for-woocommerce' ),
-				'index_building'    => __( 'Search is temporarily unavailable.', 'turbo-search-for-woocommerce' ),
-				'category'          => __( 'Category', 'turbo-search-for-woocommerce' ),
-				'brand'             => __( 'Brand', 'turbo-search-for-woocommerce' ),
-				/* translators: %d: number of products in the category/brand */
-				'products_count'    => __( '%d products', 'turbo-search-for-woocommerce' ),
+				'no_results'      => __( 'No products found.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'searching'       => __( 'Searching products…', 'ozulabs-turbo-search-for-woocommerce' ),
+				'try_another'     => __( 'Try another spelling or a shorter search.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'search_error'    => __( 'Search is temporarily unavailable.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'try_again'       => __( 'Please try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'product_results' => __( 'Products', 'ozulabs-turbo-search-for-woocommerce' ),
+				'results_label'   => __( 'Product search results', 'ozulabs-turbo-search-for-woocommerce' ),
+				'recent_searches' => __( 'Recent searches', 'ozulabs-turbo-search-for-woocommerce' ),
+				'clear_recent'    => __( 'Clear', 'ozulabs-turbo-search-for-woocommerce' ),
+				'out_of_stock'    => __( 'Out of Stock', 'ozulabs-turbo-search-for-woocommerce' ),
+				'index_building'  => __( 'Search is temporarily unavailable.', 'ozulabs-turbo-search-for-woocommerce' ),
 				/* translators: %s: the search query */
-				'view_all'          => __( 'View all results for "%s"', 'turbo-search-for-woocommerce' ),
-				/* translators: %s: the corrected search term actually used */
-				'showingResultsFor' => __( 'Showing results for "%s"', 'turbo-search-for-woocommerce' ),
+				'view_all'        => __( 'View all results for "%s"', 'ozulabs-turbo-search-for-woocommerce' ),
 			),
 			'currency'          => array(
 				'code'         => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : get_option( 'woocommerce_currency', 'USD' ),
@@ -95,7 +89,7 @@ class Frontend {
 			),
 		);
 
-		wp_add_inline_script( 'wcs-search-js', 'const wcs_config = ' . wp_json_encode( $config ) . ';', 'before' );
+		wp_add_inline_script( 'otsw-search-js', 'const otsw_config = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
 
 	/**
@@ -109,12 +103,12 @@ class Frontend {
 	public static function ajax_refresh_nonce(): void {
 		// Throttle to 10 refreshes per minute per IP — prevents bots using this
 		// endpoint as a free nonce dispenser that bypasses the search rate limit.
-		// Apply the same wcs_get_client_ip filter used by Search_Handler so that
+		// Apply the same otsw_get_client_ip filter used by Search_Handler so that
 		// proxy-header overrides affect both endpoints consistently. Defaults to
 		// REMOTE_ADDR, which is safe; site owners who override via the filter must
 		// guard against X-Forwarded-For spoofing (see Search_Handler::get_client_ip).
-		$ip = (string) apply_filters( 'wcs_get_client_ip', sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) ) );
-		if ( ! Rate_Limiter::allow( 'wcs_nr_' . md5( $ip ), 10, MINUTE_IN_SECONDS ) ) {
+		$ip = (string) apply_filters( 'otsw_get_client_ip', sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ?? '' ) ) );
+		if ( ! Rate_Limiter::allow( 'otsw_nr_' . md5( $ip ), 10, MINUTE_IN_SECONDS ) ) {
 			wp_send_json_error( null, 429 );
 			return;
 		}
@@ -145,8 +139,8 @@ class Frontend {
 		$shortcode = 'turbo_search_button' === $tag ? $tag : 'turbo_search';
 		$atts      = shortcode_atts(
 			array(
-				'placeholder' => esc_attr__( 'Search products…', 'turbo-search-for-woocommerce' ),
-				'button'      => esc_attr__( 'Search', 'turbo-search-for-woocommerce' ),
+				'placeholder' => esc_attr__( 'Search products…', 'ozulabs-turbo-search-for-woocommerce' ),
+				'button'      => esc_attr__( 'Search', 'ozulabs-turbo-search-for-woocommerce' ),
 				'class'       => '',
 			),
 			$atts,
@@ -155,9 +149,9 @@ class Frontend {
 
 		// Ensure assets are on the page even if the shortcode is used on a page
 		// that somehow skipped wp_enqueue_scripts (e.g. a widget loaded late).
-		if ( ! wp_script_is( 'wcs-search-js', 'enqueued' ) ) {
-			wp_enqueue_style( 'wcs-search-css' );
-			wp_enqueue_script( 'wcs-search-js' );
+		if ( ! wp_script_is( 'otsw-search-js', 'enqueued' ) ) {
+			wp_enqueue_style( 'otsw-search-css' );
+			wp_enqueue_script( 'otsw-search-js' );
 		}
 
 		$wrapper_class = 'wcs-form-wrap';
@@ -179,8 +173,8 @@ class Frontend {
 			esc_url( home_url( '/' ) ),
 			esc_attr( $atts['placeholder'] ),
 			esc_attr( get_search_query() ),
-			esc_attr__( 'Search products', 'turbo-search-for-woocommerce' ),
-			esc_attr__( 'Search', 'turbo-search-for-woocommerce' ),
+			esc_attr__( 'Search products', 'ozulabs-turbo-search-for-woocommerce' ),
+			esc_attr__( 'Search', 'ozulabs-turbo-search-for-woocommerce' ),
 			$search_icon
 		);
 	}

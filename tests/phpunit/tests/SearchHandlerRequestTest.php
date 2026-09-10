@@ -2,8 +2,8 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Query_Normalizer;
-use WCS\Search\Search_Handler;
+use OTSW\Search\Query_Normalizer;
+use OTSW\Search\Search_Handler;
 
 /**
  * Full handle_request() flow: permission checks, cache hierarchy, currency
@@ -15,18 +15,18 @@ final class SearchHandlerRequestTest extends TestCase {
 	private Fake_WPDB $wpdb;
 
 	protected function setUp(): void {
-		wcs_tests_reset();
-		$GLOBALS['wcs_test_usleeps'] = array();
+		otsw_tests_reset();
+		$GLOBALS['otsw_test_usleeps'] = array();
 		$this->wpdb                  = new Fake_WPDB();
 		$GLOBALS['wpdb']             = $this->wpdb;
 
 		update_option( 'woocommerce_currency', 'USD' );
-		update_option( 'wcs_cache_version', 1 );
-		update_option( 'wcs_min_chars', 2 );
-		update_option( 'wcs_result_count', 6 );
-		update_option( 'wcs_show_out_of_stock', 1 );
-		update_option( 'wcs_ft_parser', 'default' );
-		update_option( 'wcs_last_indexed', 1234567890 ); // index built
+		update_option( 'otsw_cache_version', 1 );
+		update_option( 'otsw_min_chars', 2 );
+		update_option( 'otsw_result_count', 6 );
+		update_option( 'otsw_show_out_of_stock', 1 );
+		update_option( 'otsw_ft_parser', 'default' );
+		update_option( 'otsw_last_indexed', 1234567890 ); // index built
 	}
 
 	private function request( array $params ): WP_REST_Response {
@@ -42,7 +42,7 @@ final class SearchHandlerRequestTest extends TestCase {
 		// returned, so a fake that replayed the same rows for every tier would
 		// hand back duplicates no real query could produce.
 		$this->wpdb->handler = static function ( string $sql, string $type ) use ( $rows ) {
-			if ( 'results' !== $type || ! str_contains( $sql, 'wcs_search_index' ) ) {
+			if ( 'results' !== $type || ! str_contains( $sql, 'otsw_search_index' ) ) {
 				return null;
 			}
 			if ( preg_match( '/NOT IN \(([\d,]+)\)/', $sql, $m ) ) {
@@ -71,7 +71,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	// ── Permissions ──────────────────────────────────────────────────────────
 
 	public function test_invalid_nonce_is_rejected_with_403(): void {
-		$GLOBALS['wcs_test_nonce_valid'] = false;
+		$GLOBALS['otsw_test_nonce_valid'] = false;
 		$result = Search_Handler::check_permissions( new WP_REST_Request( array( '_wpnonce' => 'x' ) ) );
 		$this->assertInstanceOf( WP_Error::class, $result );
 		$this->assertSame( 'rest_forbidden', $result->get_error_code() );
@@ -95,7 +95,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	}
 
 	public function test_min_chars_is_enforced_server_side(): void {
-		update_option( 'wcs_min_chars', 3 );
+		update_option( 'otsw_min_chars', 3 );
 		$this->assertSame( array(), $this->request( array( 'q' => 'ab' ) )->data );
 		$this->assertSame( array(), $this->wpdb->queries, 'short queries must not reach the database' );
 	}
@@ -109,8 +109,8 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$this->assertCount( 1, $response->data );
 		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
-		$this->assertArrayHasKey( $key, $GLOBALS['wcs_test_transients']['data'] );
-		$this->assertSame( DAY_IN_SECONDS, $GLOBALS['wcs_test_transients']['expiry'][ $key ] );
+		$this->assertArrayHasKey( $key, $GLOBALS['otsw_test_transients']['data'] );
+		$this->assertSame( DAY_IN_SECONDS, $GLOBALS['otsw_test_transients']['expiry'][ $key ] );
 	}
 
 	public function test_transient_hit_skips_the_database(): void {
@@ -125,7 +125,7 @@ final class SearchHandlerRequestTest extends TestCase {
 
 	public function test_cache_version_bump_invalidates_old_entries(): void {
 		set_transient( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), array( $this->row( 9 ) ), DAY_IN_SECONDS );
-		update_option( 'wcs_cache_version', 2 );
+		update_option( 'otsw_cache_version', 2 );
 		$this->scriptRows( array( $this->row( 1 ) ) );
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
@@ -137,36 +137,36 @@ final class SearchHandlerRequestTest extends TestCase {
 	// ── Stampede mutex / poller ──────────────────────────────────────────────
 
 	public function test_poller_waits_then_serves_builder_result_from_cache(): void {
-		$GLOBALS['wcs_test_ext_cache'] = true;  // mutex only active with a shared cache
-		$GLOBALS['wcs_test_cache_add'] = false; // someone else holds the lock
+		$GLOBALS['otsw_test_ext_cache'] = true;  // mutex only active with a shared cache
+		$GLOBALS['otsw_test_cache_add'] = false; // someone else holds the lock
 		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
 
 		// Simulate the concurrent builder finishing while this worker polls:
 		// reads of the key miss (initial read + first poll), then the value
 		// appears on the second poll.
 		$reads = 0;
-		$GLOBALS['wcs_test_transient_read_hook'] = static function ( string $read_key ) use ( $key, &$reads ): void {
+		$GLOBALS['otsw_test_transient_read_hook'] = static function ( string $read_key ) use ( $key, &$reads ): void {
 			if ( $read_key === $key && 3 === ++$reads ) {
-				$GLOBALS['wcs_test_transients']['data'][ $key ] = array( array( 'product_id' => 77 ) );
+				$GLOBALS['otsw_test_transients']['data'][ $key ] = array( array( 'product_id' => 77 ) );
 			}
 		};
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( 77, $response->data[0]['product_id'] );
-		$this->assertNotEmpty( $GLOBALS['wcs_test_usleeps'], 'poller must have slept at least once' );
+		$this->assertNotEmpty( $GLOBALS['otsw_test_usleeps'], 'poller must have slept at least once' );
 		$this->assertSame( array(), $this->wpdb->queries, 'poller path must not run its own query' );
 	}
 
 	public function test_poller_gives_up_and_queries_directly(): void {
-		$GLOBALS['wcs_test_ext_cache'] = true;
-		$GLOBALS['wcs_test_cache_add'] = false;
+		$GLOBALS['otsw_test_ext_cache'] = true;
+		$GLOBALS['otsw_test_cache_add'] = false;
 		$this->scriptRows( array( $this->row( 3 ) ) );
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( 3, $response->data[0]['product_id'] );
-		$this->assertCount( 3, $GLOBALS['wcs_test_usleeps'], 'poller is capped at 3 sleeps' );
+		$this->assertCount( 3, $GLOBALS['otsw_test_usleeps'], 'poller is capped at 3 sleeps' );
 		$this->assertNotEmpty( $this->wpdb->queries );
 	}
 
@@ -181,7 +181,7 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->assertSame( '100.00', $response->data[0]['price_min'] );
 		// Cached under the store-default (USD) key, not an EUR-specific one.
 		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
-		$this->assertSame( '100.00', $GLOBALS['wcs_test_transients']['data'][ $key ]['results'][0]['price_min'] );
+		$this->assertSame( '100.00', $GLOBALS['otsw_test_transients']['data'][ $key ]['results'][0]['price_min'] );
 	}
 
 	public function test_unknown_currency_falls_back_to_store_default(): void {
@@ -190,27 +190,27 @@ final class SearchHandlerRequestTest extends TestCase {
 		$response = $this->request( array( 'q' => 'lamp', 'currency' => 'ZZZ' ) );
 
 		$this->assertSame( '100.00', $response->data[0]['price_min'] );
-		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['wcs_test_transients']['data'] );
+		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['otsw_test_transients']['data'] );
 	}
 
 	// ── First-run window ─────────────────────────────────────────────────────
 
 	public function test_first_run_empty_results_signal_indexing_and_are_not_cached(): void {
-		update_option( 'wcs_last_indexed', 0 ); // never built
+		update_option( 'otsw_last_indexed', 0 ); // never built
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( array(), $response->data );
-		$this->assertSame( '1', $response->headers['X-WCS-Indexing'] ?? null );
-		$this->assertSame( array(), $GLOBALS['wcs_test_transients']['data'] ?? array() );
+		$this->assertSame( '1', $response->headers['X-OTSW-Indexing'] ?? null );
+		$this->assertSame( array(), $GLOBALS['otsw_test_transients']['data'] ?? array() );
 	}
 
 	public function test_after_first_build_empty_results_are_cached_normally(): void {
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( array(), $response->data );
-		$this->assertArrayNotHasKey( 'X-WCS-Indexing', $response->headers );
-		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['wcs_test_transients']['data'] );
+		$this->assertArrayNotHasKey( 'X-OTSW-Indexing', $response->headers );
+		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['otsw_test_transients']['data'] );
 	}
 
 	/**
@@ -219,7 +219,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	 * returns an empty array either way, and get_rows() previously reported
 	 * that straight to query_database() with no way to tell the two apart.
 	 * A transient database error (lock-wait timeout, mid-migration schema
-	 * mismatch, a malformed query from a wcs_indexed_taxonomies-style
+	 * mismatch, a malformed query from a otsw_indexed_taxonomies-style
 	 * filter) would therefore get cached as a confident "no products found"
 	 * for up to 24h, with no admin-visible signal since the error was
 	 * suppressed. A failed query must now be excluded from both cache
@@ -234,8 +234,8 @@ final class SearchHandlerRequestTest extends TestCase {
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( array(), $response->data );
-		$this->assertSame( '1', $response->headers['X-WCS-Query-Error'] ?? null );
-		$this->assertSame( array(), $GLOBALS['wcs_test_transients']['data'] ?? array(), 'a failed query must never be cached as a real empty result' );
+		$this->assertSame( '1', $response->headers['X-OTSW-Query-Error'] ?? null );
+		$this->assertSame( array(), $GLOBALS['otsw_test_transients']['data'] ?? array(), 'a failed query must never be cached as a real empty result' );
 	}
 
 	/**
@@ -250,7 +250,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	 */
 	public function test_partial_results_after_a_tier_failure_are_returned_but_never_cached(): void {
 		$this->wpdb->handler = function ( string $sql, string $type ) {
-			if ( 'results' !== $type || ! str_contains( $sql, 'wcs_search_index' ) ) {
+			if ( 'results' !== $type || ! str_contains( $sql, 'otsw_search_index' ) ) {
 				return null;
 			}
 			if ( str_contains( $sql, 'MATCH(' ) ) {
@@ -270,16 +270,51 @@ final class SearchHandlerRequestTest extends TestCase {
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertCount( 1, $response->data, 'the shopper still sees whatever a later, unaffected tier actually found' );
-		$this->assertSame( '1', $response->headers['X-WCS-Query-Error'] ?? null );
-		$this->assertSame( array(), $GLOBALS['wcs_test_transients']['data'] ?? array(), 'a degraded result must not outlive the outage in the cache' );
+		$this->assertSame( '1', $response->headers['X-OTSW-Query-Error'] ?? null );
+		$this->assertSame( array(), $GLOBALS['otsw_test_transients']['data'] ?? array(), 'a degraded result must not outlive the outage in the cache' );
 	}
 
 	public function test_genuine_zero_results_are_still_cached_normally_without_a_query_error_header(): void {
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( array(), $response->data );
-		$this->assertArrayNotHasKey( 'X-WCS-Query-Error', $response->headers );
-		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['wcs_test_transients']['data'] );
+		$this->assertArrayNotHasKey( 'X-OTSW-Query-Error', $response->headers );
+		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['otsw_test_transients']['data'] );
+	}
+
+	/**
+	 * Regression: a per-IP expensive-fallback-tier throttle must never let an
+	 * incomplete (relaxation-skipped) empty result poison the SHARED 24h
+	 * cache — a later request for the same query from a different visitor
+	 * would otherwise be served that same throttled visitor's empty result
+	 * with no relaxation pass ever having run for it.
+	 */
+	public function test_throttled_fallback_result_is_returned_but_never_cached(): void {
+		update_option( 'otsw_fallback_rate_limit_requests', 1 );
+		update_option( 'otsw_fallback_rate_limit_window', 60 );
+		$this->wpdb->handler = function ( string $sql, string $type ) {
+			// The rate limiter's own DB-fallback UPSERT/SELECT must run for
+			// real (via Fake_WPDB's default handling) so its count is
+			// actually enforced across the two requests below — everything
+			// else in this test wants an empty index result.
+			if ( str_contains( $sql, 'otsw_rate_limits' ) ) {
+				return Fake_WPDB::defaultRun( $sql, $type );
+			}
+			return 'results' === $type ? array() : null;
+		};
+
+		// Two-word queries so the relaxation passes are actually eligible to
+		// run — see Search_Handler::query_database()'s guard conditions.
+		$this->request( array( 'q' => 'hazina lamp' ) ); // spends the one-request budget
+		$response = $this->request( array( 'q' => 'wazimu lamp' ) ); // budget already spent
+
+		$this->assertSame( array(), $response->data, 'the shopper still sees an empty dropdown, just not a cached one' );
+		$this->assertSame( '1', $response->headers['X-OTSW-Degraded'] ?? null );
+		$this->assertArrayNotHasKey(
+			Query_Normalizer::cache_key( 'wazimu lamp', 'USD', 1 ),
+			$GLOBALS['otsw_test_transients']['data'] ?? array(),
+			'a throttled result must never be written into the cache other visitors share'
+		);
 	}
 
 	// ── Zero-result logging (Pro feature — always inert in this edition) ────
@@ -287,7 +322,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	public function test_zero_result_searches_are_never_logged(): void {
 		$this->request( array( 'q' => 'unfindable thing' ) );
 
-		$log = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
+		$log = array_values( array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_log' ) ) );
 		$this->assertSame( array(), $log );
 	}
 
@@ -296,15 +331,15 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$this->request( array( 'q' => 'lamp' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_log' ) ) );
 	}
 
 	public function test_first_run_empty_results_are_not_logged(): void {
-		update_option( 'wcs_last_indexed', 0 );
+		update_option( 'otsw_last_indexed', 0 );
 
 		$this->request( array( 'q' => 'lamp' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_log' ) ) );
 	}
 
 	// ── Taxonomy suggestions (Pro feature — always inert in this edition) ───
@@ -313,7 +348,7 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->wpdb->handler = fn( string $sql, string $type ) => match ( true ) {
 			'results' === $type && str_contains( $sql, 'term_taxonomy' )
 				=> array( (object) array( 'term_id' => 9, 'name' => 'Lamps', 'taxonomy' => 'product_cat', 'count' => 12 ) ),
-			'results' === $type && str_contains( $sql, 'wcs_search_index' )
+			'results' === $type && str_contains( $sql, 'otsw_search_index' )
 				=> array( $this->row( 1 ) ),
 			default => null,
 		};
@@ -325,7 +360,7 @@ final class SearchHandlerRequestTest extends TestCase {
 	}
 
 	public function test_suggestions_can_be_disabled_by_filter(): void {
-		add_filter( 'wcs_taxonomy_suggestions_count', static fn() => 0 );
+		add_filter( 'otsw_taxonomy_suggestions_count', static fn() => 0 );
 		$this->scriptRows( array( $this->row( 1 ) ) );
 
 		$this->request( array( 'q' => 'lamp' ) );
@@ -334,11 +369,11 @@ final class SearchHandlerRequestTest extends TestCase {
 	}
 
 	public function test_zero_result_logging_can_be_disabled_by_filter(): void {
-		add_filter( 'wcs_log_zero_results', '__return_false' );
+		add_filter( 'otsw_log_zero_results', '__return_false' );
 
 		$this->request( array( 'q' => 'unfindable' ) );
 
-		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'wcs_search_log' ) ) );
+		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_log' ) ) );
 	}
 
 	// ── Corrected-query header (typo correction is a Pro feature) ───────────
@@ -348,14 +383,14 @@ final class SearchHandlerRequestTest extends TestCase {
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
-		$this->assertArrayNotHasKey( 'X-WCS-Corrected-Query', $response->headers );
+		$this->assertArrayNotHasKey( 'X-OTSW-Corrected-Query', $response->headers );
 	}
 
 	public function test_zero_result_query_never_gets_a_corrected_header(): void {
 		$response = $this->request( array( 'q' => 'lampp' ) );
 
 		$this->assertSame( array(), $response->data );
-		$this->assertArrayNotHasKey( 'X-WCS-Corrected-Query', $response->headers );
+		$this->assertArrayNotHasKey( 'X-OTSW-Corrected-Query', $response->headers );
 	}
 
 	public function test_pre_upgrade_plain_array_cache_entries_still_read_correctly(): void {
@@ -368,6 +403,6 @@ final class SearchHandlerRequestTest extends TestCase {
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( 5, $response->data[0]['product_id'] );
-		$this->assertArrayNotHasKey( 'X-WCS-Corrected-Query', $response->headers );
+		$this->assertArrayNotHasKey( 'X-OTSW-Corrected-Query', $response->headers );
 	}
 }

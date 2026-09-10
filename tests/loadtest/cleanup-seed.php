@@ -54,6 +54,6 @@ WP_CLI::success( "Deleted {$deleted} seeded products." );
 
 // Trigger a re-index to sync
 if ( function_exists( 'as_schedule_single_action' ) ) {
-    as_schedule_single_action( time(), 'wcs_process_batch', [ 'offset' => 0 ], 'turbo-search-for-woocommerce' );
+    as_schedule_single_action( time(), 'otsw_process_batch', [ 'offset' => 0 ], 'ozulabs-turbo-search-for-woocommerce' );
     WP_CLI::success( 'Re-index queued to sync the search index.' );
 }

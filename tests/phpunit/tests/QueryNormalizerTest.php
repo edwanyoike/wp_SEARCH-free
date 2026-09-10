@@ -2,12 +2,12 @@
 declare(strict_types=1);
 
 use PHPUnit\Framework\TestCase;
-use WCS\Search\Query_Normalizer;
+use OTSW\Search\Query_Normalizer;
 
 final class QueryNormalizerTest extends TestCase {
 
 	protected function setUp(): void {
-		wcs_tests_reset();
+		otsw_tests_reset();
 	}
 
 	// ── normalize() ─────────────────────────────────────────────────────────
@@ -165,19 +165,19 @@ final class QueryNormalizerTest extends TestCase {
 
 	public function test_stopword_list_is_filterable(): void {
 		$filter = static fn(): array => array( 'bacon' );
-		add_filter( 'wcs_stopwords', $filter );
+		add_filter( 'otsw_stopwords', $filter );
 		$this->assertSame(
 			array( 'pieces' ),
 			Query_Normalizer::remove_stopwords( array( 'bacon', 'pieces' ) )
 		);
-		remove_filter( 'wcs_stopwords', $filter );
+		remove_filter( 'otsw_stopwords', $filter );
 	}
 
 	// ── cache_key() ─────────────────────────────────────────────────────────
 
 	public function test_cache_key_shape_and_determinism(): void {
 		$key = Query_Normalizer::cache_key( 'abc 123', 'USD', 7 );
-		$this->assertSame( 'wcs_v7_' . Query_Normalizer::site_scope() . '_USD_' . md5( 'abc 123' ), $key );
+		$this->assertSame( 'otsw_v7_' . Query_Normalizer::site_scope() . '_USD_' . md5( 'abc 123' ), $key );
 		$this->assertSame( $key, Query_Normalizer::cache_key( 'abc 123', 'USD', 7 ) );
 	}
 
@@ -198,48 +198,22 @@ final class QueryNormalizerTest extends TestCase {
 	 * straight out of shared memory.
 	 */
 	public function test_cache_key_varies_by_site(): void {
-		$GLOBALS['wcs_test_blog_id'] = 1;
+		$GLOBALS['otsw_test_blog_id'] = 1;
 		$site1 = Query_Normalizer::cache_key( 'abc', 'USD', 1 );
 
-		$GLOBALS['wcs_test_blog_id'] = 2;
+		$GLOBALS['otsw_test_blog_id'] = 2;
 		$site2 = Query_Normalizer::cache_key( 'abc', 'USD', 1 );
 
 		$this->assertNotSame( $site1, $site2 );
 	}
 
-	// ── Synonyms (Pro feature — always inert in this edition) ────────────────
+	// ── Word expansion (synonyms/variants are a Pro feature — always the exact
+	// typed word only in this edition) ────────────────────────────────────────
 
-	public function test_expand_ignores_synonym_option_and_returns_typed_word_only(): void {
-		update_option( 'wcs_synonyms', "sofa, couch, settee\ntee, tshirt" );
-		Query_Normalizer::flush_synonym_cache();
-
+	public function test_expand_returns_only_the_typed_word(): void {
 		$this->assertSame( array( 'sofa' ), Query_Normalizer::expand( 'sofa' ) );
-		$this->assertSame( array( 'tshirt' ), Query_Normalizer::expand( 'tshirt' ) );
-	}
-
-	public function test_synonym_groups_filter_has_no_effect(): void {
-		add_filter( 'wcs_synonym_groups', static function ( array $groups ): array {
-			$groups[] = array( 'trousers', 'pants' );
-			return $groups;
-		} );
-		Query_Normalizer::flush_synonym_cache();
-
-		$this->assertSame( array( 'pants' ), Query_Normalizer::expand( 'pants' ) );
-	}
-
-	// ── Automatic word variants (Pro feature — always inert in this edition) ─
-
-	public function test_word_variants_always_empty(): void {
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'lamps' ) );
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'lamp' ) );
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'boxes' ) );
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'iphone14' ) );
 		$this->assertSame( array( 'lamp' ), Query_Normalizer::expand( 'lamp' ) );
-	}
-
-	public function test_short_words_and_double_s_words_get_no_variants(): void {
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'tv' ) );
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'glass' ) );
+		$this->assertSame( array( 'iphone14' ), Query_Normalizer::expand( 'iphone14' ) );
 	}
 
 	public function test_normalize_sku_collapses_punctuation_variants(): void {
@@ -250,25 +224,4 @@ final class QueryNormalizerTest extends TestCase {
 		$this->assertSame( '', Query_Normalizer::normalize_sku( '---' ) );
 	}
 
-	public function test_vocabulary_terms_extracts_letterful_tokens_only(): void {
-		$this->assertSame(
-			array( 'red', 'lamp' ),
-			Query_Normalizer::vocabulary_terms( 'Red LAMP X1 123 ab' )
-		);
-	}
-
-	public function test_vocabulary_terms_do_not_split_across_comma_suffixed_duplicates(): void {
-		// Regression (found live on narukistore.com): titles like
-		// "ZAHURI African Zulu Necklace, Beaded Tribal necklace" must
-		// produce a single "necklace" term, not "necklace" and "necklace,".
-		$this->assertSame(
-			array( 'necklace', 'beaded', 'tribal', 'necklace' ),
-			Query_Normalizer::vocabulary_terms( 'Necklace, Beaded Tribal necklace' )
-		);
-	}
-
-	public function test_digit_tokens_get_no_boundary_split(): void {
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'iphone14' ) );
-		$this->assertSame( array(), Query_Normalizer::word_variants( 'mk2' ) );
-	}
 }

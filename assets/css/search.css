@@ -209,18 +209,6 @@ mark.wcs-highlight {
 	}
 }
 
-.wcs-corrected-notice {
-	padding: 8px 16px;
-	font-size: 12px;
-	color: #64748b;
-	background: var(--wcs-hover);
-	border-bottom: 1px solid var(--wcs-border);
-}
-
-.wcs-corrected-notice strong {
-	color: var(--wcs-text);
-}
-
 /* ── [turbo_search] shortcode form ─────────────────────────────────────────── */
 form.wcs-form-wrap {
 	display: flex !important;
@@ -363,22 +351,3 @@ form.wcs-form-wrap .wcs-form-btn svg {
 	}
 }
 
-/* Category / brand suggestion rows */
-.wcs-result-item.wcs-result-tax {
-	display: flex;
-	align-items: center;
-	justify-content: space-between;
-	gap: 10px;
-	padding: 8px 12px;
-	background: rgba(0, 0, 0, 0.025);
-	font-size: 0.92em;
-}
-.wcs-result-tax .wcs-badge-tax {
-	flex-shrink: 0;
-	font-size: 11px;
-	color: #666;
-	background: rgba(0, 0, 0, 0.06);
-	border-radius: 10px;
-	padding: 2px 8px;
-	white-space: nowrap;
-}

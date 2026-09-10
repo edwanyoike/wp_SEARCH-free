@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -23,22 +23,22 @@ class Admin_Settings {
 		add_action( 'admin_init', array( __CLASS__, 'register_settings' ) );
 		add_action( 'admin_enqueue_scripts', array( __CLASS__, 'enqueue_admin_assets' ) );
 		add_action( 'admin_notices', array( __CLASS__, 'render_admin_notices' ) );
-		add_action( 'wp_ajax_wcs_dismiss_notice', array( __CLASS__, 'ajax_dismiss_notice' ) );
-		add_action( 'wp_ajax_wcs_rebuild_index', array( __CLASS__, 'ajax_rebuild_index' ) );
-		add_action( 'wp_ajax_wcs_get_index_status', array( __CLASS__, 'ajax_get_index_status' ) );
-		add_action( 'wp_ajax_wcs_delete_all_data', array( __CLASS__, 'ajax_delete_all_data' ) );
-		add_filter( 'plugin_action_links_' . WCS_PLUGIN_BASENAME, array( __CLASS__, 'add_plugin_action_links' ) );
+		add_action( 'wp_ajax_otsw_dismiss_notice', array( __CLASS__, 'ajax_dismiss_notice' ) );
+		add_action( 'wp_ajax_otsw_rebuild_index', array( __CLASS__, 'ajax_rebuild_index' ) );
+		add_action( 'wp_ajax_otsw_get_index_status', array( __CLASS__, 'ajax_get_index_status' ) );
+		add_action( 'wp_ajax_otsw_delete_all_data', array( __CLASS__, 'ajax_delete_all_data' ) );
+		add_filter( 'plugin_action_links_' . OTSW_PLUGIN_BASENAME, array( __CLASS__, 'add_plugin_action_links' ) );
 	}
 
 	public static function ajax_dismiss_notice(): void {
-		check_ajax_referer( 'wcs_dismiss_notice' );
+		check_ajax_referer( 'otsw_dismiss_notice' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
 
 		$notice_id = isset( $_POST['notice_id'] ) ? sanitize_key( $_POST['notice_id'] ) : '';
 
-		$allowed = array( 'wcs_notice_mu_bypass', 'wcs_notice_no_cache' );
+		$allowed = array( 'otsw_notice_mu_bypass', 'otsw_notice_no_cache' );
 		if ( ! in_array( $notice_id, $allowed, true ) ) {
 			wp_send_json_error( 'invalid_notice', 400 );
 		}
@@ -61,25 +61,25 @@ class Admin_Settings {
 	public static function render_admin_notices(): void {
 		// Only show on our own settings page.
 		$screen = get_current_screen();
-		if ( ! $screen || 'toplevel_page_wcs-fast-search' !== $screen->id ) {
+		if ( ! $screen || 'toplevel_page_otsw-fast-search' !== $screen->id ) {
 			return;
 		}
 
 		$user_id = get_current_user_id();
 
 		// ── Notice -1: schema creation failed (e.g. MySQL rejected the DDL) ──
-		$schema_error = (string) get_option( 'wcs_schema_error', '' );
+		$schema_error = (string) get_option( 'otsw_schema_error', '' );
 		if ( $schema_error ) {
 			?>
 			<div class="notice notice-error">
 				<p>
-					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Search Index Table Could Not Be Created', 'turbo-search-for-woocommerce' ); ?></strong>
+					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Search Index Table Could Not Be Created', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>
 				<p>
-					<?php esc_html_e( 'The database rejected the search index schema, so search results will be empty. Database error:', 'turbo-search-for-woocommerce' ); ?>
+					<?php esc_html_e( 'The database rejected the search index schema, so search results will be empty. Database error:', 'ozulabs-turbo-search-for-woocommerce' ); ?>
 					<code><?php echo esc_html( $schema_error ); ?></code>
 				</p>
-				<p><em><?php esc_html_e( 'Please share this error with support@ozulabs.com. Deactivating and reactivating the plugin retries table creation.', 'turbo-search-for-woocommerce' ); ?></em></p>
+				<p><em><?php esc_html_e( 'Please share this error with support@ozulabs.com. Deactivating and reactivating the plugin retries table creation.', 'ozulabs-turbo-search-for-woocommerce' ); ?></em></p>
 			</div>
 			<?php
 		}
@@ -89,10 +89,10 @@ class Admin_Settings {
 			?>
 			<div class="notice notice-error">
 				<p>
-					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Action Scheduler Not Found', 'turbo-search-for-woocommerce' ); ?></strong>
+					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Action Scheduler Not Found', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>
 				<p>
-					<?php esc_html_e( 'Turbo Search for WooCommerce requires Action Scheduler to queue background indexing jobs. Action Scheduler is bundled with WooCommerce — please ensure WooCommerce is active. Without it, product indexing and live sync will not run.', 'turbo-search-for-woocommerce' ); ?>
+					<?php esc_html_e( 'Turbo Search for WooCommerce requires Action Scheduler to queue background indexing jobs. Action Scheduler is bundled with WooCommerce — please ensure WooCommerce is active. Without it, product indexing and live sync will not run.', 'ozulabs-turbo-search-for-woocommerce' ); ?>
 				</p>
 			</div>
 			<?php
@@ -100,47 +100,47 @@ class Admin_Settings {
 
 		// ── Notice 1: MU plugin not installed ────────────────────────────────
 		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
-		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'wcs_notice_mu_bypass_dismissed', true ) ) {
+		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'otsw_notice_mu_bypass_dismissed', true ) ) {
 			?>
-			<div class="notice notice-warning is-dismissible" data-wcs-notice="wcs_notice_mu_bypass">
+			<div class="notice notice-warning is-dismissible" data-wcs-notice="otsw_notice_mu_bypass">
 				<p>
-					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Cache Bypass Not Active', 'turbo-search-for-woocommerce' ); ?></strong>
+					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Cache Bypass Not Active', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>
 				<p>
 					<?php
 					esc_html_e(
 						'The cache-bypass file could not be installed into your wp-content/mu-plugins/ directory — your host may have it set to read-only. The plugin is fully functional and serving search results, but cached responses will use the standard WordPress REST route instead of the faster early-exit path.',
-						'turbo-search-for-woocommerce'
+						'ozulabs-turbo-search-for-woocommerce'
 					);
 					?>
 				</p>
-				<p><em><?php esc_html_e( 'To unlock maximum speed: ask your host to allow writes to wp-content/mu-plugins/, then deactivate and reactivate Turbo Search for WooCommerce.', 'turbo-search-for-woocommerce' ); ?></em></p>
+				<p><em><?php esc_html_e( 'To unlock maximum speed: ask your host to allow writes to wp-content/mu-plugins/, then deactivate and reactivate Turbo Search for WooCommerce.', 'ozulabs-turbo-search-for-woocommerce' ); ?></em></p>
 			</div>
 			<?php
 		}
 
 		// ── Notice 2: No persistent object cache ─────────────────────────────
-		if ( ! wp_using_ext_object_cache() && ! get_user_meta( $user_id, 'wcs_notice_no_cache_dismissed', true ) ) {
+		if ( ! wp_using_ext_object_cache() && ! get_user_meta( $user_id, 'otsw_notice_no_cache_dismissed', true ) ) {
 			?>
-			<div class="notice notice-info is-dismissible" data-wcs-notice="wcs_notice_no_cache">
+			<div class="notice notice-info is-dismissible" data-wcs-notice="otsw_notice_no_cache">
 				<p>
-					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Tip: Enable a Persistent Object Cache', 'turbo-search-for-woocommerce' ); ?></strong>
+					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Tip: Enable a Persistent Object Cache', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>
 				<p>
 					<?php
 					esc_html_e(
 						'Your site is currently caching search results in the database (wp_options). Everything works correctly, but adding a Redis or Memcached object cache will make cached search queries return in under 5 ms instead of a database round-trip.',
-						'turbo-search-for-woocommerce'
+						'ozulabs-turbo-search-for-woocommerce'
 					);
 					?>
 				</p>
-				<p><em><?php esc_html_e( 'Recommended: install the free "Redis Object Cache" plugin and enable Redis on your hosting plan.', 'turbo-search-for-woocommerce' ); ?></em></p>
+				<p><em><?php esc_html_e( 'Recommended: install the free "Redis Object Cache" plugin and enable Redis on your hosting plan.', 'ozulabs-turbo-search-for-woocommerce' ); ?></em></p>
 			</div>
 			<?php
 		}
 
 		// Dismiss persistence is handled by assets/js/admin.js (enqueued on this
-		// screen), which reads the nonce from the wcsAdmin config object.
+		// screen), which reads the nonce from the otswAdmin config object.
 	}
 
 	/**
@@ -150,8 +150,8 @@ class Admin_Settings {
 	 * @return array
 	 */
 	public static function add_plugin_action_links( array $links ): array {
-		$settings_url  = admin_url( 'admin.php?page=wcs-fast-search' );
-		$settings_link = '<a href="' . esc_url( $settings_url ) . '">' . esc_html__( 'Settings', 'turbo-search-for-woocommerce' ) . '</a>';
+		$settings_url  = admin_url( 'admin.php?page=otsw-fast-search' );
+		$settings_link = '<a href="' . esc_url( $settings_url ) . '">' . esc_html__( 'Settings', 'ozulabs-turbo-search-for-woocommerce' ) . '</a>';
 		array_unshift( $links, $settings_link );
 		return $links;
 	}
@@ -162,17 +162,17 @@ class Admin_Settings {
 	 */
 	public static function add_settings_page(): void {
 		add_menu_page(
-			esc_html__( 'Turbo Search Settings', 'turbo-search-for-woocommerce' ),
-			esc_html__( 'Turbo Search', 'turbo-search-for-woocommerce' ),
+			esc_html__( 'Turbo Search Settings', 'ozulabs-turbo-search-for-woocommerce' ),
+			esc_html__( 'Turbo Search', 'ozulabs-turbo-search-for-woocommerce' ),
 			'manage_options',
-			'wcs-fast-search',
+			'otsw-fast-search',
 			array( __CLASS__, 'render_settings_page' ),
 			// A plain file URL, not a base64 data URI: WordPress recolors
 			// base64-embedded SVG menu icons to a flat mask matching the
 			// admin color scheme, which would wash out the green icon. The
 			// ?ver= query string busts CDN/browser caches of the icon file
 			// whenever it changes alongside a plugin version bump.
-			WCS_PLUGIN_URL . 'assets/images/admin-menu-icon.svg?ver=' . WCS_VERSION,
+			OTSW_PLUGIN_URL . 'assets/images/admin-menu-icon.svg?ver=' . OTSW_VERSION,
 			58
 		);
 
@@ -186,18 +186,18 @@ class Admin_Settings {
 		// render_settings_page(); the tab whitelist there (and in
 		// settings-page.php's @var doc comment) stays the single source of
 		// truth for which tabs exist — keep both in sync with this list.
-		$wcs_tab_slugs = array(
-			'wcs-fast-search'          => __( 'Settings', 'turbo-search-for-woocommerce' ),
-			'wcs-fast-search&tab=data' => __( 'App Data', 'turbo-search-for-woocommerce' ),
-			'wcs-fast-search&tab=docs' => __( 'Documentation', 'turbo-search-for-woocommerce' ),
+		$otsw_tab_slugs = array(
+			'otsw-fast-search'          => __( 'Settings', 'ozulabs-turbo-search-for-woocommerce' ),
+			'otsw-fast-search&tab=data' => __( 'App Data', 'ozulabs-turbo-search-for-woocommerce' ),
+			'otsw-fast-search&tab=docs' => __( 'Documentation', 'ozulabs-turbo-search-for-woocommerce' ),
 		);
-		foreach ( $wcs_tab_slugs as $wcs_menu_slug => $wcs_tab_label ) {
+		foreach ( $otsw_tab_slugs as $otsw_menu_slug => $otsw_tab_label ) {
 			add_submenu_page(
-				'wcs-fast-search',
-				$wcs_tab_label,
-				$wcs_tab_label,
+				'otsw-fast-search',
+				$otsw_tab_label,
+				$otsw_tab_label,
 				'manage_options',
-				$wcs_menu_slug,
+				$otsw_menu_slug,
 				array( __CLASS__, 'render_settings_page' )
 			);
 		}
@@ -207,7 +207,7 @@ class Admin_Settings {
 	 * Register settings.
 	 */
 	public static function register_settings(): void {
-		register_setting( 'wcs_settings_group', 'wcs_result_count', array(
+		register_setting( 'otsw_settings_group', 'otsw_result_count', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				// Clamp to the same 1-20 range as the settings field. Plain
@@ -219,12 +219,12 @@ class Admin_Settings {
 			},
 			'default'           => 6,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_show_out_of_stock', array(
+		register_setting( 'otsw_settings_group', 'otsw_show_out_of_stock', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_min_chars', array(
+		register_setting( 'otsw_settings_group', 'otsw_min_chars', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				// Clamp to the same 1-10 range as the settings field. An
@@ -233,21 +233,21 @@ class Admin_Settings {
 			},
 			'default'           => 2,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_enable_recent_searches', array(
+		register_setting( 'otsw_settings_group', 'otsw_enable_recent_searches', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_recent_searches_count', array(
+		register_setting( 'otsw_settings_group', 'otsw_recent_searches_count', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
-				// Same clamp-not-absint reasoning as wcs_min_chars above — a
+				// Same clamp-not-absint reasoning as otsw_min_chars above — a
 				// blank/missing submission must not silently save as 0.
 				return min( 10, max( 1, absint( $value ) ) );
 			},
 			'default'           => 5,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_rate_limit_requests', array(
+		register_setting( 'otsw_settings_group', 'otsw_rate_limit_requests', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				// Floor of 5: low enough to matter, but a store owner mistyping
@@ -256,52 +256,52 @@ class Admin_Settings {
 			},
 			'default'           => 60,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_rate_limit_window', array(
+		register_setting( 'otsw_settings_group', 'otsw_rate_limit_window', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				return min( 3600, max( 10, absint( $value ) ) );
 			},
 			'default'           => MINUTE_IN_SECONDS,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_fallback_rate_limit_requests', array(
+		register_setting( 'otsw_settings_group', 'otsw_fallback_rate_limit_requests', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				return min( 1000, max( 1, absint( $value ) ) );
 			},
 			'default'           => 10,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_fallback_rate_limit_window', array(
+		register_setting( 'otsw_settings_group', 'otsw_fallback_rate_limit_window', array(
 			'type'              => 'integer',
 			'sanitize_callback' => static function ( $value ): int {
 				return min( 3600, max( 10, absint( $value ) ) );
 			},
 			'default'           => MINUTE_IN_SECONDS,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_search_title', array(
+		register_setting( 'otsw_settings_group', 'otsw_search_title', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_search_sku', array(
+		register_setting( 'otsw_settings_group', 'otsw_search_sku', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_search_content', array(
+		register_setting( 'otsw_settings_group', 'otsw_search_content', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		register_setting( 'wcs_settings_group', 'wcs_search_taxonomy', array(
+		register_setting( 'otsw_settings_group', 'otsw_search_taxonomy', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => true,
 		) );
-		// Own settings group (not wcs_settings_group) — it lives on the App Data
+		// Own settings group (not otsw_settings_group) — it lives on the App Data
 		// tab's own <form>, and options.php resets every registered option in a
 		// group to null if its field isn't present in the submitted form, so it
 		// must not share a group with fields that only render on the Settings tab.
-		register_setting( 'wcs_data_settings_group', 'wcs_delete_data_on_uninstall', array(
+		register_setting( 'otsw_data_settings_group', 'otsw_delete_data_on_uninstall', array(
 			'type'              => 'boolean',
 			'sanitize_callback' => 'rest_sanitize_boolean',
 			'default'           => false,
@@ -312,50 +312,50 @@ class Admin_Settings {
 	 * Enqueue the settings-page stylesheet and controller script.
 	 *
 	 * Loaded only on our own screen. All nonces and translatable strings the
-	 * JS needs are passed via the wcsAdmin config object — the page markup
+	 * JS needs are passed via the otswAdmin config object — the page markup
 	 * itself (in includes/views/) contains no inline scripts or styles.
 	 *
 	 * @param string $hook_suffix Current admin page hook.
 	 */
 	public static function enqueue_admin_assets( string $hook_suffix ): void {
-		if ( 'toplevel_page_wcs-fast-search' !== $hook_suffix ) {
+		if ( 'toplevel_page_otsw-fast-search' !== $hook_suffix ) {
 			return;
 		}
 
-		wp_enqueue_style( 'wcs-admin-css', WCS_PLUGIN_URL . 'assets/css/admin.css', array(), WCS_VERSION );
-		wp_enqueue_script( 'wcs-admin-js', WCS_PLUGIN_URL . 'assets/js/admin.js', array(), WCS_VERSION, true );
+		wp_enqueue_style( 'otsw-admin-css', OTSW_PLUGIN_URL . 'assets/css/admin.css', array(), OTSW_VERSION );
+		wp_enqueue_script( 'otsw-admin-js', OTSW_PLUGIN_URL . 'assets/js/admin.js', array(), OTSW_VERSION, true );
 
 		$config = array(
-			'isIndexing'  => (bool) get_option( 'wcs_is_indexing', false ),
+			'isIndexing'  => (bool) get_option( 'otsw_is_indexing', false ),
 			'nonces'      => array(
-				'status'  => wp_create_nonce( 'wcs_status' ),
-				'rebuild' => wp_create_nonce( 'wcs_rebuild' ),
-				'delete'  => wp_create_nonce( 'wcs_delete_all_data' ),
-				'dismiss' => wp_create_nonce( 'wcs_dismiss_notice' ),
+				'status'  => wp_create_nonce( 'otsw_status' ),
+				'rebuild' => wp_create_nonce( 'otsw_rebuild' ),
+				'delete'  => wp_create_nonce( 'otsw_delete_all_data' ),
+				'dismiss' => wp_create_nonce( 'otsw_dismiss_notice' ),
 			),
 			'i18n'        => array(
 				/* translators: 1: number of processed products, 2: total number of published products */
-				'progress'       => __( 'Processed %1$d of %2$d published products.', 'turbo-search-for-woocommerce' ),
-				'idle'           => __( 'Status: Idle / Complete', 'turbo-search-for-woocommerce' ),
-				'indexing'       => __( 'Status: Indexing…', 'turbo-search-for-woocommerce' ),
-				'swapping'       => __( 'Status: Finalizing — swapping live index…', 'turbo-search-for-woocommerce' ),
-				'optimizing'     => __( 'Status: Finalizing — optimizing index…', 'turbo-search-for-woocommerce' ),
+				'progress'       => __( 'Processed %1$d of %2$d published products.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'idle'           => __( 'Status: Idle / Complete', 'ozulabs-turbo-search-for-woocommerce' ),
+				'indexing'       => __( 'Status: Indexing…', 'ozulabs-turbo-search-for-woocommerce' ),
+				'swapping'       => __( 'Status: Finalizing — swapping live index…', 'ozulabs-turbo-search-for-woocommerce' ),
+				'optimizing'     => __( 'Status: Finalizing — optimizing index…', 'ozulabs-turbo-search-for-woocommerce' ),
 				/* translators: %d: product ID the rebuild is retrying from */
-				'recovering'     => __( 'Status: Recovering — retrying from product #%d…', 'turbo-search-for-woocommerce' ),
+				'recovering'     => __( 'Status: Recovering — retrying from product #%d…', 'ozulabs-turbo-search-for-woocommerce' ),
 				/* translators: %d: seconds until automatic recovery */
-				'timedOut'       => __( 'Status: Batch timed out — auto-recovering in %ds…', 'turbo-search-for-woocommerce' ),
-				'errRebuild'     => __( 'Error triggering rebuild.', 'turbo-search-for-woocommerce' ),
-				'errDelete'      => __( 'Error deleting plugin data.', 'turbo-search-for-woocommerce' ),
-				'confirmRebuild' => __( 'Are you sure you want to rebuild the entire search index? This will run in the background.', 'turbo-search-for-woocommerce' ),
-				'confirmDelete'  => __( 'This will permanently delete all plugin data including the search index, all settings, and cached results. The plugin stays active but you will need to rebuild the index afterwards. Are you absolutely sure?', 'turbo-search-for-woocommerce' ),
+				'timedOut'       => __( 'Status: Batch timed out — auto-recovering in %ds…', 'ozulabs-turbo-search-for-woocommerce' ),
+				'errRebuild'     => __( 'Error triggering rebuild.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'errDelete'      => __( 'Error deleting plugin data.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'confirmRebuild' => __( 'Are you sure you want to rebuild the entire search index? This will run in the background.', 'ozulabs-turbo-search-for-woocommerce' ),
+				'confirmDelete'  => __( 'This will permanently delete all plugin data including the search index, all settings, and cached results. The plugin stays active but you will need to rebuild the index afterwards. Are you absolutely sure?', 'ozulabs-turbo-search-for-woocommerce' ),
 			),
 			'errorLabels' => self::rebuild_error_labels(),
 		);
-		wp_add_inline_script( 'wcs-admin-js', 'const wcsAdmin = ' . wp_json_encode( $config ) . ';', 'before' );
+		wp_add_inline_script( 'otsw-admin-js', 'const otswAdmin = ' . wp_json_encode( $config ) . ';', 'before' );
 	}
 
 	/**
-	 * Human-readable text for known wcs_last_rebuild_error codes. Shared
+	 * Human-readable text for known otsw_last_rebuild_error codes. Shared
 	 * between the initial server-rendered page (tab-settings.php) and the
 	 * live AJAX status poll (assets/js/admin.js) so the two never drift.
 	 *
@@ -363,14 +363,14 @@ class Admin_Settings {
 	 */
 	public static function rebuild_error_labels(): array {
 		return array(
-			'stuck_no_batch_dispatched' => __( 'The last rebuild could not start — this usually means the server ran out of memory partway through. Click "Rebuild Index" to try again; consider lowering the batch size via the wcs_batch_size filter if this keeps happening.', 'turbo-search-for-woocommerce' ),
-			'staging_empty'             => __( 'The last rebuild produced no data and was discarded — your existing search index was kept. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
-			'schedule_enqueue_failed'   => __( 'The last rebuild could not be scheduled — the background job queue was not ready yet when this ran (this can happen right after an update). It was retried automatically several times without success. Click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
-			'partial_failure'           => __( 'The last rebuild finished, but one or more products failed to write to the new index and were skipped — check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for which ones. The rest of the catalog is searchable on the new index; re-saving an affected product will retry it.', 'turbo-search-for-woocommerce' ),
-			'batch_write_failed'        => __( 'The last rebuild was halted because every product in a batch failed to write to the new index — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
-			'batch_fetch_failed'        => __( 'The last rebuild was halted because the database repeatedly failed while reading the product list — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
-			'rebuild_setup_failed'      => __( 'The last rebuild could not start because the database failed to prepare a clean staging table — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
-			'swap_failed'               => __( 'The last rebuild finished building successfully but the final switch to the new index repeatedly failed — your existing search index was kept and is still active. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'turbo-search-for-woocommerce' ),
+			'stuck_no_batch_dispatched' => __( 'The last rebuild could not start — this usually means the server ran out of memory partway through. Click "Rebuild Index" to try again; consider lowering the batch size via the otsw_batch_size filter if this keeps happening.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'staging_empty'             => __( 'The last rebuild produced no data and was discarded — your existing search index was kept. Click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'schedule_enqueue_failed'   => __( 'The last rebuild could not be scheduled — the background job queue was not ready yet when this ran (this can happen right after an update). It was retried automatically several times without success. Click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'partial_failure'           => __( 'The last rebuild finished, but one or more products failed to write to the new index and were skipped — check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for which ones. The rest of the catalog is searchable on the new index; re-saving an affected product will retry it.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'batch_write_failed'        => __( 'The last rebuild was halted because every product in a batch failed to write to the new index — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'batch_fetch_failed'        => __( 'The last rebuild was halted because the database repeatedly failed while reading the product list — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'rebuild_setup_failed'      => __( 'The last rebuild could not start because the database failed to prepare a clean staging table — your existing search index was kept. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
+			'swap_failed'               => __( 'The last rebuild finished building successfully but the final switch to the new index repeatedly failed — your existing search index was kept and is still active. Check WooCommerce → Status → Logs (source: turbo-search-for-woocommerce) for the underlying database error, then click "Rebuild Index" to try again.', 'ozulabs-turbo-search-for-woocommerce' ),
 		);
 	}
 
@@ -387,23 +387,23 @@ class Admin_Settings {
 			$active_tab = 'settings';
 		}
 
-		$is_indexing  = (bool) get_option( 'wcs_is_indexing', false );
-		$last_indexed = (int) get_option( 'wcs_last_indexed', 0 );
+		$is_indexing  = (bool) get_option( 'otsw_is_indexing', false );
+		$last_indexed = (int) get_option( 'otsw_last_indexed', 0 );
 		// Only shown while idle — a fresh rebuild trigger clears this option,
 		// so a lingering value always reflects the current idle state.
-		$last_rebuild_error = $is_indexing ? '' : (string) get_option( 'wcs_last_rebuild_error', '' );
+		$last_rebuild_error = $is_indexing ? '' : (string) get_option( 'otsw_last_rebuild_error', '' );
 		$total              = 0;
 		$counts             = wp_count_posts( 'product' );
 		if ( isset( $counts->publish ) ) {
 			$total = (int) $counts->publish;
 		}
-		$processed = min( (int) get_option( 'wcs_reindex_processed', 0 ), max( 1, $total ) );
+		$processed = min( (int) get_option( 'otsw_reindex_processed', 0 ), max( 1, $total ) );
 
 		// Markup lives in view templates; behaviour in assets/js/admin.js
 		// (enqueued by enqueue_admin_assets). $active_tab, $is_indexing,
 		// $last_indexed, $last_rebuild_error, $total, $processed
 		// are consumed by the views.
-		include WCS_PLUGIN_DIR . 'includes/views/settings-page.php';
+		include OTSW_PLUGIN_DIR . 'includes/views/settings-page.php';
 	}
 
 
@@ -416,16 +416,16 @@ class Admin_Settings {
 	 * recreate the index table via the activator.
 	 */
 	public static function ajax_delete_all_data(): void {
-		check_ajax_referer( 'wcs_delete_all_data' );
+		check_ajax_referer( 'otsw_delete_all_data' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
 
 		global $wpdb;
 
-		$main_table  = $wpdb->prefix . 'wcs_search_index';
-		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
-		$rl_table    = $wpdb->prefix . 'wcs_rate_limits';
+		$main_table  = $wpdb->prefix . 'otsw_search_index';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
+		$rl_table    = $wpdb->prefix . 'otsw_rate_limits';
 
 		// Drop the index tables and the rate-limit counters. (The zero-result
 		// log and vocabulary sidecar are Pro-only tables this edition never creates.)
@@ -434,14 +434,14 @@ class Admin_Settings {
 		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $rl_table ) );    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 		// Delete plugin options via the API (invalidates object-cache entries too).
-		// Explicit list — a broad LIKE 'wcs_%' would also delete WooCommerce
-		// Subscriptions' options, which share the wcs_ prefix.
+		// Explicit list — a broad LIKE 'otsw_%' would also delete WooCommerce
+		// Subscriptions' options, which share the otsw_ prefix.
 		foreach ( Activator::PLUGIN_OPTIONS as $option ) {
 			delete_option( $option );
 		}
 
 		// Delete plugin transients by our exact key shapes — never
-		// '_transient_wcs_%', which matches WC Subscriptions' wcs_report_* transients.
+		// '_transient_otsw_%', which matches WC Subscriptions' otsw_report_* transients.
 		foreach ( Activator::TRANSIENT_PREFIXES as $prefix ) {
 			$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 				"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
@@ -452,11 +452,11 @@ class Admin_Settings {
 
 		// Cancel any pending Action Scheduler jobs.
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( null, array(), 'turbo-search-for-woocommerce' );
+			as_unschedule_all_actions( null, array(), 'ozulabs-turbo-search-for-woocommerce' );
 		}
 
 		// A global wp_cache_flush() previously ran here to guard against a stale
-		// wcs_db_version option value surviving in a persistent object cache
+		// otsw_db_version option value surviving in a persistent object cache
 		// (Redis/Memcached) after the direct SQL DELETE above, which bypasses
 		// the options API's own cache invalidation for anything it touches.
 		// That flush cleared every plugin's cached objects on this site, not
@@ -464,7 +464,7 @@ class Admin_Settings {
 		// their cache too, risking a stampede on a large store. The options
 		// this handler itself deletes above already go through delete_option(),
 		// which invalidates its own object-cache entry correctly; the specific
-		// residual risk (wcs_db_version reappearing stale) is independently
+		// residual risk (otsw_db_version reappearing stale) is independently
 		// guarded in Activator::init(), which writes it back with
 		// delete_option()+add_option() rather than update_option() for exactly
 		// this reason — see that method's own comment. No global flush needed.
@@ -472,11 +472,11 @@ class Admin_Settings {
 		// Invalidate OPcache entries for this plugin's files only — not the whole
 		// server — so stale bytecode doesn't outlive the data reset.
 		if ( function_exists( 'opcache_invalidate' ) ) {
-			$plugin_files = glob( WCS_PLUGIN_DIR . 'includes/*.php' );
+			$plugin_files = glob( OTSW_PLUGIN_DIR . 'includes/*.php' );
 			foreach ( false !== $plugin_files ? $plugin_files : array() as $file ) {
 				opcache_invalidate( $file, true );
 			}
-			opcache_invalidate( WCS_PLUGIN_DIR . 'turbo-search-for-woocommerce.php', true );
+			opcache_invalidate( OTSW_PLUGIN_DIR . 'turbo-search-for-woocommerce.php', true );
 		}
 
 		// The index table will be recreated on the next page load via Activator::init().
@@ -488,42 +488,42 @@ class Admin_Settings {
 	 * AJAX handler for rebuilding index.
 	 */
 	public static function ajax_rebuild_index(): void {
-		check_ajax_referer( 'wcs_rebuild' );
+		check_ajax_referer( 'otsw_rebuild' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
 
 		global $wpdb;
-		$main_table  = $wpdb->prefix . 'wcs_search_index';
-		$stage_table = $wpdb->prefix . 'wcs_search_index_stage';
+		$main_table  = $wpdb->prefix . 'otsw_search_index';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
 
 		// Create the staging table matching the live index schema. (The
 		// vocabulary sidecar staging table is Pro-only — this edition never
-		// creates wcs_search_terms in the first place.)
+		// creates otsw_search_terms in the first place.)
 		$wpdb->query( $wpdb->prepare( 'CREATE TABLE IF NOT EXISTS %i LIKE %i', $stage_table, $main_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 		$wpdb->query( $wpdb->prepare( 'TRUNCATE TABLE %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
 		if ( ! function_exists( 'as_enqueue_async_action' ) ) {
-			wp_send_json_error( esc_html__( 'Action Scheduler is not available. Please ensure WooCommerce is active.', 'turbo-search-for-woocommerce' ), 503 );
+			wp_send_json_error( esc_html__( 'Action Scheduler is not available. Please ensure WooCommerce is active.', 'ozulabs-turbo-search-for-woocommerce' ), 503 );
 			return;
 		}
 
 		// Cancel every pending/in-progress batch before starting fresh.
-		as_unschedule_all_actions( 'wcs_rebuild_index_batch', array(), 'turbo-search-for-woocommerce' );
+		as_unschedule_all_actions( 'otsw_rebuild_index_batch', array(), 'ozulabs-turbo-search-for-woocommerce' );
 
 		// Millisecond precision — see Indexer::schedule_full_rebuild().
 		$epoch = (int) ( microtime( true ) * 1000 );
-		update_option( 'wcs_rebuild_epoch', $epoch, false );
-		update_option( 'wcs_reindex_processed', 0, false );
-		update_option( 'wcs_is_indexing', 1, false );
-		delete_option( 'wcs_last_rebuild_error' );
+		update_option( 'otsw_rebuild_epoch', $epoch, false );
+		update_option( 'otsw_reindex_processed', 0, false );
+		update_option( 'otsw_is_indexing', 1, false );
+		delete_option( 'otsw_last_rebuild_error' );
 
 		// $unique=false, $priority=10 — the trailing args were previously
 		// (0, true), which cast true to priority 1 instead of the intended 10.
-		as_enqueue_async_action( 'wcs_rebuild_index_batch', array(
+		as_enqueue_async_action( 'otsw_rebuild_index_batch', array(
 			'last_id' => 0,
 			'epoch'   => $epoch,
-		), 'turbo-search-for-woocommerce', false, 10 );
+		), 'ozulabs-turbo-search-for-woocommerce', false, 10 );
 
 		wp_send_json_success();
 	}
@@ -555,12 +555,12 @@ class Admin_Settings {
 
 		try {
 			$store      = \ActionScheduler::store();
-			$claim      = $store->stake_claim( 1, null, array( 'wcs_rebuild_index_batch' ) );
+			$claim      = $store->stake_claim( 1, null, array( 'otsw_rebuild_index_batch' ) );
 			$action_ids = $claim->get_actions();
 			if ( $action_ids ) {
 				$runner = \ActionScheduler_QueueRunner::instance();
 				foreach ( $action_ids as $action_id ) {
-					$runner->process_action( $action_id, 'WCS Status Poll' );
+					$runner->process_action( $action_id, 'OTSW Status Poll' );
 				}
 			}
 		} catch ( \Throwable $e ) {
@@ -577,16 +577,16 @@ class Admin_Settings {
 	 * AJAX handler for getting index status.
 	 */
 	public static function ajax_get_index_status(): void {
-		check_ajax_referer( 'wcs_status' );
+		check_ajax_referer( 'otsw_status' );
 		if ( ! current_user_can( 'manage_options' ) ) {
 			wp_send_json_error( 'Forbidden', 403 );
 		}
 
-		$is_indexing = (bool) get_option( 'wcs_is_indexing', false );
+		$is_indexing = (bool) get_option( 'otsw_is_indexing', false );
 
 		if ( $is_indexing && class_exists( 'ActionScheduler_QueueRunner' ) ) {
 			self::drive_one_rebuild_batch();
-			$is_indexing = (bool) get_option( 'wcs_is_indexing', false );
+			$is_indexing = (bool) get_option( 'otsw_is_indexing', false );
 		}
 
 		$recovering = false;
@@ -611,7 +611,7 @@ class Admin_Settings {
 				   AND status = 'in-progress'
 				 ORDER BY last_attempt_gmt ASC
 				 LIMIT 1",
-				'wcs_rebuild_index_batch'
+				'otsw_rebuild_index_batch'
 			) );
 			if ( $dead ) {
 				$stall_secs = (int) $dead->age_s;
@@ -631,24 +631,24 @@ class Admin_Settings {
 						// below: the stuck action may still be live, and a second
 						// batch chain would race it.
 					}
-					if ( $marked && $epoch && (int) get_option( 'wcs_rebuild_epoch', 0 ) === $epoch ) {
+					if ( $marked && $epoch && (int) get_option( 'otsw_rebuild_epoch', 0 ) === $epoch ) {
 						$last_id = (int) ( $args['last_id'] ?? 0 );
 						// $unique=false, $priority=10 — the trailing args
 						// were previously (0, true), which cast true to
 						// priority 1 instead of the intended 10.
 						as_enqueue_async_action(
-							'wcs_rebuild_index_batch',
+							'otsw_rebuild_index_batch',
 							array(
 								'last_id' => $last_id,
 								'epoch'   => $epoch,
 							),
-							'turbo-search-for-woocommerce',
+							'ozulabs-turbo-search-for-woocommerce',
 							false,
 							10
 						);
 						$recovering = true;
 						$cursor     = $last_id;
-						update_option( 'wcs_rebuild_phase', 'batching', false );
+						update_option( 'otsw_rebuild_phase', 'batching', false );
 					}
 					$stall_secs = 0;
 				}
@@ -656,7 +656,7 @@ class Admin_Settings {
 
 			// Detect fully stuck rebuilds: flag says indexing but no pending OR
 			// in-progress batch exists at all. A genuine completion already
-			// clears wcs_is_indexing itself (see do_process_batch()'s SWAP
+			// clears otsw_is_indexing itself (see do_process_batch()'s SWAP
 			// branch) before this code can run, so reaching here with
 			// $is_indexing still true always means something went wrong —
 			// most often the very first as_enqueue_async_action() call for
@@ -675,51 +675,51 @@ class Admin_Settings {
 				 WHERE hook   = %s
 				   AND status IN ('pending','in-progress')
 				 LIMIT 1",
-				'wcs_rebuild_index_batch'
+				'otsw_rebuild_index_batch'
 			) );
 			if ( ! $active ) {
-				$stuck_epoch = (int) get_option( 'wcs_rebuild_epoch', 0 );
-				$retry_key   = 'wcs_batch_retry_missing_' . $stuck_epoch;
+				$stuck_epoch = (int) get_option( 'otsw_rebuild_epoch', 0 );
+				$retry_key   = 'otsw_batch_retry_missing_' . $stuck_epoch;
 				$attempts    = (int) get_transient( $retry_key );
 
 				if ( $stuck_epoch && $attempts < 3 && function_exists( 'as_enqueue_async_action' ) ) {
-					$resume_from = (int) get_option( 'wcs_rebuild_cursor', 0 );
+					$resume_from = (int) get_option( 'otsw_rebuild_cursor', 0 );
 					set_transient( $retry_key, $attempts + 1, HOUR_IN_SECONDS );
 					// $unique=false, $priority=10 — the trailing args were
 					// previously (0, true), which cast true to priority 1
 					// instead of the intended 10.
 					as_enqueue_async_action(
-						'wcs_rebuild_index_batch',
+						'otsw_rebuild_index_batch',
 						array(
 							'last_id' => $resume_from,
 							'epoch'   => $stuck_epoch,
 						),
-						'turbo-search-for-woocommerce',
+						'ozulabs-turbo-search-for-woocommerce',
 						false,
 						10
 					);
 					Logger::log( sprintf( 'No batch ever dispatched for epoch=%d — resuming from cursor=%d (attempt %d/3)', $stuck_epoch, $resume_from, $attempts + 1 ) );
 					$recovering = true;
 					$cursor     = $resume_from;
-					update_option( 'wcs_rebuild_phase', 'batching', false );
+					update_option( 'otsw_rebuild_phase', 'batching', false );
 				} else {
 					if ( $stuck_epoch ) {
 						Logger::log( sprintf( 'Resume attempts exhausted for epoch=%d — halting', $stuck_epoch ), 'warning' );
-						update_option( 'wcs_last_rebuild_error', 'stuck_no_batch_dispatched', false );
+						update_option( 'otsw_last_rebuild_error', 'stuck_no_batch_dispatched', false );
 					}
-					update_option( 'wcs_is_indexing', 0, false );
-					delete_option( 'wcs_rebuild_phase' );
+					update_option( 'otsw_is_indexing', 0, false );
+					delete_option( 'otsw_rebuild_phase' );
 					$is_indexing = false;
 				}
 			}
 
 			if ( $is_indexing ) {
-				$phase  = get_option( 'wcs_rebuild_phase', 'batching' );
-				$cursor = $cursor ? $cursor : (int) get_option( 'wcs_rebuild_cursor', 0 );
+				$phase  = get_option( 'otsw_rebuild_phase', 'batching' );
+				$cursor = $cursor ? $cursor : (int) get_option( 'otsw_rebuild_cursor', 0 );
 			}
 		}
 
-		$processed = (int) get_option( 'wcs_reindex_processed', 0 );
+		$processed = (int) get_option( 'otsw_reindex_processed', 0 );
 		$total     = 0;
 		$counts    = wp_count_posts( 'product' );
 		if ( isset( $counts->publish ) ) {
@@ -731,7 +731,7 @@ class Admin_Settings {
 		// Only surface an error while the index is genuinely idle — a fresh
 		// rebuild trigger clears this option, so a lingering value here always
 		// reflects the current (not some earlier) idle state.
-		$last_error = $is_indexing ? '' : (string) get_option( 'wcs_last_rebuild_error', '' );
+		$last_error = $is_indexing ? '' : (string) get_option( 'otsw_last_rebuild_error', '' );
 
 		wp_send_json_success( array(
 			'is_indexing' => $is_indexing,

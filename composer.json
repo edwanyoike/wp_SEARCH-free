@@ -1,9 +1,8 @@
 {
-    "name": "ozulabs/turbo-search-for-woocommerce",
+    "name": "ozulabs/ozulabs-turbo-search-for-woocommerce",
     "description": "High-performance WooCommerce search using native FULLTEXT indexing.",
     "type": "wordpress-plugin",
     "license": "GPL-2.0-or-later",
-    "version": "1.0.0",
     "require": {
         "php": ">=8.0"
     },

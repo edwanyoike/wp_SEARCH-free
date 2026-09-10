@@ -1,6 +1,6 @@
 /* assets/js/search.js */
 (function() {
-	if (typeof wcs_config === 'undefined') return;
+	if (typeof otsw_config === 'undefined') return;
 
 	let cache = new Map();
 	let controller = null;
@@ -19,7 +19,7 @@
 	dropdown.className = 'wcs-dropdown';
 	dropdown.id = 'wcs-listbox';
 	dropdown.setAttribute('role', 'listbox');
-	dropdown.setAttribute('aria-label', wcs_config.i18n.results_label || 'Product search results');
+	dropdown.setAttribute('aria-label', otsw_config.i18n.results_label || 'Product search results');
 	portal.appendChild(dropdown);
 
 	// Match any input[name="s"] — standard WooCommerce uses type="search",
@@ -55,7 +55,7 @@
 		input.addEventListener('input', debounce((e) => {
 			activeInput = input;
 			const query = e.target.value.trim();
-			const minChars = parseInt(wcs_config.min_chars, 10) || 2;
+			const minChars = parseInt(otsw_config.min_chars, 10) || 2;
 			if (query.length < minChars) {
 				searchSeq++;
 				if (controller) {
@@ -71,7 +71,7 @@
 
 		input.addEventListener('focus', () => {
 			activeInput = input;
-			const minChars = parseInt(wcs_config.min_chars, 10) || 2;
+			const minChars = parseInt(otsw_config.min_chars, 10) || 2;
 			const query = input.value.trim();
 			if (query.length >= minChars && query === renderedQuery && dropdown.children.length > 0) {
 				positionDropdown(input);
@@ -292,111 +292,47 @@
 		dropdown.style.width = Math.max(rect.width, minWidth) + 'px';
 	}
 
-	/**
-	 * Read a single cookie value by name, URL-decoding it.
-	 * Returns null when the cookie is absent.
-	 */
-	function readCookie(name) {
-		const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-		const match   = document.cookie.match(new RegExp('(?:^|;\\s*)' + escaped + '=([^;]*)'));
-		return match ? decodeURIComponent(match[1]) : null;
-	}
+	// Multi-currency switcher detection (getActiveCurrency()/readCookie()) was
+	// removed: this edition's server always returns prices in the store's own
+	// default currency (conversion is a Pro feature), so formatting a price
+	// under any other currency's symbol would mislabel an unconverted value.
 
 	/**
-	 * Return the ISO-4217 currency code that is active right now.
+	 * Format a numeric price for display, using WooCommerce's admin-configured
+	 * symbol, separators, decimal count, and position (from otsw_config). This
+	 * edition's server always returns prices in that same store-default
+	 * currency, so there is no other currency to format for.
 	 *
-	 * Checks the cookies written by the four most common WooCommerce
-	 * multi-currency switcher plugins in priority order. Falls back to the
-	 * code baked into wcs_config at page load (the store default).
-	 *
-	 * This must be called at search time — not once at init — so that a
-	 * mid-session currency switch is picked up without a page reload.
-	 */
-	function getActiveCurrency() {
-		const cookieNames = [
-			'wmc_current_currency',          // Villatheme CURCY / WooMultiCurrency
-			'woocs_current_currency',        // WOOCS — WooCommerce Currency Switcher
-			'woocommerce_current_currency',  // Official WooCommerce Multi-Currency
-			'_wpml_active_currency',         // WPML / WooCommerce Multilingual
-		];
-
-		for (const name of cookieNames) {
-			const val = readCookie(name);
-			if (val) {
-				// Sanitize: uppercase letters only, exactly 3 characters (ISO-4217).
-				const code = val.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 3);
-				if (code.length === 3) return code;
-			}
-		}
-
-		return wcs_config.currency.code;
-	}
-
-	/**
-	 * Format a numeric price for display.
-	 *
-	 * For the store-default currency: uses WooCommerce's admin-configured
-	 * symbol, separators, decimal count, and position (from wcs_config).
-	 *
-	 * For any other currency (e.g. after a mid-session switcher change):
-	 * delegates to the browser's Intl.NumberFormat, which knows the correct
-	 * symbol, decimal count, and grouping for every ISO-4217 currency.
-	 * This avoids showing a KES symbol on USD amounts when the visitor
-	 * switches currency without a full page reload.
-	 *
-	 * @param {number|string} value        Raw numeric price.
-	 * @param {string}        currencyCode Active ISO-4217 currency code.
+	 * @param {number|string} value Raw numeric price.
 	 * @returns {string}
 	 */
-	function formatPrice(value, currencyCode) {
+	function formatPrice(value) {
 		const parsedVal = parseFloat(value);
 		if (isNaN(parsedVal)) return '';
 
-		// Default currency — use WooCommerce's exact admin formatting.
-		if (!currencyCode || currencyCode === wcs_config.currency.code) {
-			const decimals    = wcs_config.currency.decimals != null ? wcs_config.currency.decimals : 2;
-			const decimalSep  = wcs_config.currency.decimal_sep  || '.';
-			const thousandSep = wcs_config.currency.thousand_sep || ',';
-			const symbol      = wcs_config.currency.symbol       || '$';
-			const position    = wcs_config.currency.position     || 'left';
+		const decimals    = otsw_config.currency.decimals != null ? otsw_config.currency.decimals : 2;
+		const decimalSep  = otsw_config.currency.decimal_sep  || '.';
+		const thousandSep = otsw_config.currency.thousand_sep || ',';
+		const symbol      = otsw_config.currency.symbol       || '$';
+		const position    = otsw_config.currency.position     || 'left';
 
-			let parts = parsedVal.toFixed(decimals).split('.');
-			parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandSep);
-			const formattedNum = parts.join(decimalSep);
+		let parts = parsedVal.toFixed(decimals).split('.');
+		parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, thousandSep);
+		const formattedNum = parts.join(decimalSep);
 
-			switch (position) {
-				case 'right':       return formattedNum + symbol;
-				case 'left_space':  return symbol + ' ' + formattedNum;
-				case 'right_space': return formattedNum + ' ' + symbol;
-				default:            return symbol + formattedNum;
-			}
-		}
-
-		// Non-default currency (mid-session switcher) — use browser Intl API.
-		// Intl.NumberFormat knows the correct symbol and decimal places for
-		// every ISO-4217 code without any server-side data.
-		try {
-			return new Intl.NumberFormat(undefined, {
-				style:    'currency',
-				currency: currencyCode,
-			}).format(parsedVal);
-		} catch (_) {
-			// Unrecognised currency code — show plain number + ISO code.
-			return parsedVal.toFixed(2) + ' ' + currencyCode;
+		switch (position) {
+			case 'right':       return formattedNum + symbol;
+			case 'left_space':  return symbol + ' ' + formattedNum;
+			case 'right_space': return formattedNum + ' ' + symbol;
+			default:            return symbol + formattedNum;
 		}
 	}
 
 	/**
 	 * Fetch search results for the given query.
-	 *
-	 * The active currency is read from switcher cookies at call time so that
-	 * a mid-session currency change is picked up immediately without a reload.
-	 * The in-memory cache is keyed by "query\0currency" so KES and USD results
-	 * for the same term are stored and served independently.
 	 */
 	function performSearch(query, input) {
-		const currency = getActiveCurrency();
-		const cacheKey = query + '\x00' + currency;
+		const cacheKey = query;
 		const seq = ++searchSeq;
 
 		if (cache.has(cacheKey)) {
@@ -406,7 +342,7 @@
 				controller.abort();
 				controller = null;
 			}
-			renderResults(cache.get(cacheKey), input, currency, query);
+			renderResults(cache.get(cacheKey), input, query);
 			return;
 		}
 
@@ -416,7 +352,7 @@
 		controller = new AbortController();
 		renderLoading(input);
 
-		doSearch(query, currency, false)
+		doSearch(query, false)
 			.then(data => {
 				// Never cache "index still building" or query-error responses —
 				// results should appear the moment the build finishes, and a
@@ -440,11 +376,11 @@
 					renderError(input);
 					return;
 				}
-				renderResults(data, input, currency, query);
+				renderResults(data, input, query);
 			})
 			.catch(err => {
 				if (err.name !== 'AbortError') {
-					console.error(`WCS Search [v${wcs_config.version}] Error:`, err);
+					console.error(`OTSW Search [v${otsw_config.version}] Error:`, err);
 					if (seq === searchSeq) renderError(input);
 				}
 			});
@@ -461,7 +397,7 @@
 		spinner.className = 'wcs-loading-spinner';
 		spinner.setAttribute('aria-hidden', 'true');
 		status.appendChild(spinner);
-		status.appendChild(document.createTextNode(wcs_config.i18n.searching || 'Searching products…'));
+		status.appendChild(document.createTextNode(otsw_config.i18n.searching || 'Searching products…'));
 		dropdown.appendChild(status);
 		positionDropdown(input);
 		showDropdown();
@@ -474,9 +410,9 @@
 		status.className = 'wcs-no-results wcs-search-error';
 		status.setAttribute('role', 'alert');
 		const message = document.createElement('strong');
-		message.textContent = wcs_config.i18n.search_error || 'Search is temporarily unavailable.';
+		message.textContent = otsw_config.i18n.search_error || 'Search is temporarily unavailable.';
 		const hint = document.createElement('span');
-		hint.textContent = wcs_config.i18n.try_again || 'Please try again.';
+		hint.textContent = otsw_config.i18n.try_again || 'Please try again.';
 		status.appendChild(message);
 		status.appendChild(hint);
 		dropdown.appendChild(status);
@@ -485,10 +421,10 @@
 	}
 
 	function getRecentSearches() {
-		if (wcs_config.recent_searches && wcs_config.recent_searches.enabled === false) return [];
-		const count = (wcs_config.recent_searches && wcs_config.recent_searches.count) || 5;
+		if (otsw_config.recent_searches && otsw_config.recent_searches.enabled === false) return [];
+		const count = (otsw_config.recent_searches && otsw_config.recent_searches.count) || 5;
 		try {
-			const stored = JSON.parse(window.localStorage.getItem('wcs_recent_searches') || '[]');
+			const stored = JSON.parse(window.localStorage.getItem('otsw_recent_searches') || '[]');
 			return Array.isArray(stored) ? stored.filter(item => typeof item === 'string').slice(0, count) : [];
 		} catch (_) {
 			return [];
@@ -496,12 +432,12 @@
 	}
 
 	function saveRecentSearch(query) {
-		if (wcs_config.recent_searches && wcs_config.recent_searches.enabled === false) return;
-		const count = (wcs_config.recent_searches && wcs_config.recent_searches.count) || 5;
+		if (otsw_config.recent_searches && otsw_config.recent_searches.enabled === false) return;
+		const count = (otsw_config.recent_searches && otsw_config.recent_searches.count) || 5;
 		try {
 			const recent = getRecentSearches().filter(item => item.toLowerCase() !== query.toLowerCase());
 			recent.unshift(query);
-			window.localStorage.setItem('wcs_recent_searches', JSON.stringify(recent.slice(0, count)));
+			window.localStorage.setItem('otsw_recent_searches', JSON.stringify(recent.slice(0, count)));
 		} catch (_) {}
 	}
 
@@ -513,13 +449,13 @@
 		const heading = document.createElement('div');
 		heading.className = 'wcs-section-heading wcs-recent-heading';
 		const label = document.createElement('span');
-		label.textContent = wcs_config.i18n.recent_searches || 'Recent searches';
+		label.textContent = otsw_config.i18n.recent_searches || 'Recent searches';
 		const clear = document.createElement('button');
 		clear.type = 'button';
 		clear.className = 'wcs-clear-recent';
-		clear.textContent = wcs_config.i18n.clear_recent || 'Clear';
+		clear.textContent = otsw_config.i18n.clear_recent || 'Clear';
 		clear.addEventListener('click', () => {
-			try { window.localStorage.removeItem('wcs_recent_searches'); } catch (_) {}
+			try { window.localStorage.removeItem('otsw_recent_searches'); } catch (_) {}
 			hideDropdown();
 		});
 		heading.appendChild(label);
@@ -551,25 +487,23 @@
 	 * so the visitor never has to reload the page to restore search.
 	 *
 	 * @param {string}  query    Sanitized search term.
-	 * @param {string}  currency Active ISO-4217 currency code.
 	 * @param {boolean} isRetry  True on the single automatic retry (prevents loops).
 	 * @returns {Promise<Array>}
 	 */
-	function doSearch(query, currency, isRetry) {
-		const url = new URL(wcs_config.api_url);
+	function doSearch(query, isRetry) {
+		const url = new URL(otsw_config.api_url);
 		url.searchParams.append('q', query);
-		url.searchParams.append('_wpnonce', wcs_config.nonce);
-		url.searchParams.append('currency', currency);
+		url.searchParams.append('_wpnonce', otsw_config.nonce);
 
 		return fetch(url, { signal: controller.signal })
 			.then(res => {
 				if (403 === res.status && !isRetry) {
-					return refreshNonce().then(() => doSearch(query, currency, true));
+					return refreshNonce().then(() => doSearch(query, true));
 				}
 				if (!res.ok) throw new Error('Network response was not ok');
 				// First-run signal: the index is still being built, so an empty
 				// array means "not ready yet", not "no matching products".
-				const indexing = res.headers.get('X-WCS-Indexing') === '1';
+				const indexing = res.headers.get('X-OTSW-Indexing') === '1';
 				// Set when the server hit a real database error somewhere in
 				// the search — as opposed to a genuine zero-row match — and
 				// therefore did not cache this response server-side either
@@ -578,12 +512,12 @@
 				// whether the client's own in-memory cache below may keep
 				// this response and whether an empty result gets the
 				// temporary-error treatment instead of a flat "no results".
-				const queryError = res.headers.get('X-WCS-Query-Error') === '1';
-				// Set when server-side typo correction silently substituted a
-				// different query — the corrected words, not what the shopper
-				// typed, are what actually appear in the result text, so
-				// highlighting must key off this instead of the raw input.
-				const corrected = res.headers.get('X-WCS-Corrected-Query');
+				// Set when this visitor's own rate limit throttled a relaxed
+				// fallback search — the empty result reflects their throttling,
+				// not a genuine zero-match outcome, so it gets the same
+				// not-cached, temporary-unavailable treatment as a query error.
+				const degraded = res.headers.get('X-OTSW-Degraded') === '1';
+				const queryError = res.headers.get('X-OTSW-Query-Error') === '1' || degraded;
 				return res.json().then(data => {
 					if (indexing && Array.isArray(data)) {
 						data.__indexing = true;
@@ -591,26 +525,23 @@
 					if (queryError && Array.isArray(data)) {
 						data.__queryError = true;
 					}
-					if (corrected && Array.isArray(data)) {
-						data.__corrected = corrected;
-					}
 					return data;
 				});
 			});
 	}
 
 	/**
-	 * Fetch a fresh wp_rest nonce and update wcs_config.nonce in place.
+	 * Fetch a fresh wp_rest nonce and update otsw_config.nonce in place.
 	 * Subsequent requests — including the in-flight retry — will use the new value.
 	 *
 	 * @returns {Promise<void>}
 	 */
 	function refreshNonce() {
-		return fetch(wcs_config.nonce_refresh_url)
+		return fetch(otsw_config.nonce_refresh_url)
 			.then(res => res.json())
 			.then(data => {
 				if (data.success && data.data && data.data.nonce) {
-					wcs_config.nonce = data.data.nonce;
+					otsw_config.nonce = data.data.nonce;
 				}
 			});
 	}
@@ -619,7 +550,7 @@
 	 * Append `text` to `el` as text nodes, wrapping each occurrence of any
 	 * word in `queryWords` in a <mark>. Built entirely from textContent /
 	 * createElement / createTextNode — never innerHTML — so arbitrary text
-	 * (including a compromised wcs_indexed_product_data filter's output)
+	 * (including a compromised otsw_indexed_product_data filter's output)
 	 * can never inject markup.
 	 *
 	 * @param {HTMLElement} el         Container to fill.
@@ -657,14 +588,9 @@
 		}
 	}
 
-	function renderResults(results, input, currency, query) {
+	function renderResults(results, input, query) {
 		renderedQuery = query;
-		// Highlight the words the server actually matched. When typo
-		// correction silently substituted a different query (e.g. "necklase"
-		// -> "necklace"), the corrected form is what appears in the result
-		// text — highlighting against the raw typo would never match anything.
-		const highlightSource = (results && results.__corrected) || query;
-		const queryWords = (highlightSource || '').trim().split(/\s+/).filter(Boolean);
+		const queryWords = (query || '').trim().split(/\s+/).filter(Boolean);
 
 		requestAnimationFrame(() => {
 			dropdown.innerHTML = '';
@@ -677,32 +603,16 @@
 				noResultsDiv.setAttribute('role', 'status');
 				const message = document.createElement('strong');
 				message.textContent = results.__indexing
-					? (wcs_config.i18n.index_building || wcs_config.i18n.no_results)
-					: wcs_config.i18n.no_results;
+					? (otsw_config.i18n.index_building || otsw_config.i18n.no_results)
+					: otsw_config.i18n.no_results;
 				noResultsDiv.appendChild(message);
 				if (!results.__indexing) {
 					const hint = document.createElement('span');
-					hint.textContent = wcs_config.i18n.try_another || 'Try another spelling or a shorter search.';
+					hint.textContent = otsw_config.i18n.try_another || 'Try another spelling or a shorter search.';
 					noResultsDiv.appendChild(hint);
 				}
 				dropdown.appendChild(noResultsDiv);
 			} else {
-				// Tell the shopper when we silently corrected their query —
-				// otherwise a misspelling like "kayo" showing "kato" results
-				// looks like broken search, not a helpful correction.
-				if (results.__corrected && results.__corrected !== query) {
-					const notice = document.createElement('div');
-					notice.className = 'wcs-corrected-notice';
-					const template = wcs_config.i18n.showingResultsFor || 'Showing results for "%s"';
-					const parts = template.split('%s');
-					notice.appendChild(document.createTextNode(parts[0] || ''));
-					const strong = document.createElement('strong');
-					strong.textContent = results.__corrected;
-					notice.appendChild(strong);
-					if (parts[1]) notice.appendChild(document.createTextNode(parts[1]));
-					dropdown.appendChild(notice);
-				}
-
 				results.forEach((item, index) => {
 					const a = document.createElement('a');
 					a.className = 'wcs-result-item';
@@ -719,26 +629,6 @@
 						}
 					} catch(e) {}
 					a.href = safeUrl;
-
-					// Category / brand suggestion rows — no image or price.
-					if (item.type === 'taxonomy') {
-						a.className += ' wcs-result-tax';
-						const label = document.createElement('span');
-						label.className = 'wcs-result-title';
-						label.textContent = item.title;
-						const badge = document.createElement('span');
-						badge.className = 'wcs-badge-tax';
-						const kind = item.taxonomy === 'product_brand'
-							? (wcs_config.i18n.brand || 'Brand')
-							: (wcs_config.i18n.category || 'Category');
-						badge.textContent = item.count > 1
-							? kind + ' · ' + (wcs_config.i18n.products_count || '%d products').replace('%d', item.count)
-							: kind;
-						a.appendChild(label);
-						a.appendChild(badge);
-						dropdown.appendChild(a);
-						return;
-					}
 
 					const img = document.createElement('img');
 					img.className = 'wcs-result-img';
@@ -777,9 +667,9 @@
 					const pMax = parseFloat(item.price_max);
 					if (pMin > 0) {
 						if (pMin !== pMax) {
-							priceStr = formatPrice(pMin, currency) + ' - ' + formatPrice(pMax, currency);
+							priceStr = formatPrice(pMin) + ' - ' + formatPrice(pMax);
 						} else {
-							priceStr = formatPrice(pMin, currency);
+							priceStr = formatPrice(pMin);
 						}
 					}
 					price.textContent = priceStr;
@@ -788,7 +678,7 @@
 					if (item.stock_status !== 'instock') {
 						const oosBadge = document.createElement('span');
 						oosBadge.className = 'wcs-badge-oos';
-						oosBadge.textContent = wcs_config.i18n.out_of_stock;
+						oosBadge.textContent = otsw_config.i18n.out_of_stock;
 						meta.appendChild(oosBadge);
 					}
 
@@ -811,12 +701,8 @@
 				// WooCommerce search results page, which works regardless of
 				// permalink structure since ?s= is a query var, not a rewrite rule.
 				// This branch only runs when results.length > 0 (see the empty
-				// check above), so it always has a query worth linking to. Uses
-				// the corrected query when typo correction fired — the native
-				// WooCommerce search page has no typo tolerance of its own, so
-				// linking the shopper's raw misspelling would likely land on an
-				// empty results page despite the dropdown just showing matches.
-				const viewAllQuery = highlightSource || query;
+				// check above), so it always has a query worth linking to.
+				const viewAllQuery = query;
 				const viewAll = document.createElement('a');
 				viewAll.className = 'wcs-result-item wcs-view-all';
 				viewAll.id = 'wcs-option-' + results.length;
@@ -826,7 +712,7 @@
 				url.searchParams.set('s', viewAllQuery);
 				url.searchParams.set('post_type', 'product');
 				viewAll.href = url.href;
-				viewAll.textContent = (wcs_config.i18n.view_all || 'View all results for "%s"').replace('%s', viewAllQuery);
+				viewAll.textContent = (otsw_config.i18n.view_all || 'View all results for "%s"').replace('%s', viewAllQuery);
 				dropdown.appendChild(viewAll);
 			}
 

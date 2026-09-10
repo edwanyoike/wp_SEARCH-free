@@ -11,18 +11,18 @@
 
 set -euo pipefail
 
-PLUGIN_SLUG="turbo-search-for-woocommerce"
+PLUGIN_SLUG="ozulabs-turbo-search-for-woocommerce"
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SHARED_DIST="$(cd "$REPO_DIR/.." && pwd)/dist/turbo-search-free"
 TMP_DIR="/tmp/${PLUGIN_SLUG}"
 
 cd "$REPO_DIR"
 
-VERSION=$(grep -m1 "define( 'WCS_VERSION'" "$REPO_DIR/turbo-search-for-woocommerce.php" \
+VERSION=$(grep -m1 "define( 'OTSW_VERSION'" "$REPO_DIR/turbo-search-for-woocommerce.php" \
           | sed "s/.*'\([^']*\)'.*/\1/") || true
 
 if [ -z "$VERSION" ]; then
-  echo "[post-commit] Warning: could not parse WCS_VERSION — skipping zip build."
+  echo "[post-commit] Warning: could not parse OTSW_VERSION — skipping zip build."
   exit 0
 fi
 

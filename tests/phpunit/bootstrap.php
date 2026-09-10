@@ -6,7 +6,7 @@ declare(strict_types=1);
  *
  * No database, Docker, or WordPress checkout required — the plugin's classes
  * use a small, well-defined slice of the WP API, stubbed here against
- * in-memory stores that tests can inspect and reset via wcs_tests_reset().
+ * in-memory stores that tests can inspect and reset via otsw_tests_reset().
  *
  * Deliberate limitation: these are unit tests of the plugin's own logic
  * (normalization, SQL construction, state machines, cleanup lists). Behaviour
@@ -63,10 +63,10 @@ function WP_Filesystem( $args = false, $context = false, $allow_relaxed_file_own
 	$GLOBALS['wp_filesystem'] = new Fake_WP_Filesystem_Direct();
 	return true;
 }
-define( 'WCS_VERSION', '0.0.0-test' );
-define( 'WCS_PLUGIN_DIR', dirname( __DIR__, 2 ) . '/' );
-define( 'WCS_PLUGIN_URL', 'https://example.test/wp-content/plugins/turbo-search-for-woocommerce/' );
-define( 'WCS_PLUGIN_BASENAME', 'turbo-search-for-woocommerce/turbo-search-for-woocommerce.php' );
+define( 'OTSW_VERSION', '0.0.0-test' );
+define( 'OTSW_PLUGIN_DIR', dirname( __DIR__, 2 ) . '/' );
+define( 'OTSW_PLUGIN_URL', 'https://example.test/wp-content/plugins/ozulabs-turbo-search-for-woocommerce/' );
+define( 'OTSW_PLUGIN_BASENAME', 'ozulabs-turbo-search-for-woocommerce/turbo-search-for-woocommerce.php' );
 define( 'MINUTE_IN_SECONDS', 60 );
 define( 'HOUR_IN_SECONDS', 3600 );
 define( 'DAY_IN_SECONDS', 86400 );
@@ -77,179 +77,175 @@ define( 'ARRAY_N', 'ARRAY_N' );
 
 // WP_PLUGIN_DIR hosts a symlink to this repo under the deployed plugin slug,
 // so the MU plugin's hardcoded require path resolves during parity tests.
-$wcs_tests_plugin_dir = sys_get_temp_dir() . '/wcs-tests-plugins';
-if ( ! is_dir( $wcs_tests_plugin_dir ) ) {
-	mkdir( $wcs_tests_plugin_dir, 0777, true );
+$otsw_tests_plugin_dir = sys_get_temp_dir() . '/wcs-tests-plugins';
+if ( ! is_dir( $otsw_tests_plugin_dir ) ) {
+	mkdir( $otsw_tests_plugin_dir, 0777, true );
 }
 // sys_get_temp_dir() is shared by every process on the machine, including
-// the sibling Pro/Free repos' own test runs (both ship a plugin literally
-// named "turbo-search-for-woocommerce"). A stale symlink left pointing at
-// the other repo's WCS_PLUGIN_DIR causes duplicate-class fatals when that
+// the sibling Pro/Free repos' own test runs. A stale symlink left pointing at
+// the other repo's OTSW_PLUGIN_DIR causes duplicate-class fatals when that
 // repo's files get require'd into this run. Always point it at the current
 // run's own directory rather than only creating it once.
-$wcs_tests_symlink = $wcs_tests_plugin_dir . '/turbo-search-for-woocommerce';
-if ( is_link( $wcs_tests_symlink ) && readlink( $wcs_tests_symlink ) !== rtrim( WCS_PLUGIN_DIR, '/' ) ) {
-	unlink( $wcs_tests_symlink );
+$otsw_tests_symlink = $otsw_tests_plugin_dir . '/ozulabs-turbo-search-for-woocommerce';
+if ( is_link( $otsw_tests_symlink ) && readlink( $otsw_tests_symlink ) !== rtrim( OTSW_PLUGIN_DIR, '/' ) ) {
+	unlink( $otsw_tests_symlink );
 }
-if ( ! file_exists( $wcs_tests_symlink ) ) {
-	symlink( rtrim( WCS_PLUGIN_DIR, '/' ), $wcs_tests_symlink );
+if ( ! file_exists( $otsw_tests_symlink ) ) {
+	symlink( rtrim( OTSW_PLUGIN_DIR, '/' ), $otsw_tests_symlink );
 }
-define( 'WP_PLUGIN_DIR', $wcs_tests_plugin_dir );
+define( 'WP_PLUGIN_DIR', $otsw_tests_plugin_dir );
 
 // ── Test-state stores ──────────────────────────────────────────────────────
-function wcs_tests_reset(): void {
-	$GLOBALS['wcs_test_blog_id']       = 1;
-	$GLOBALS['wcs_test_options']       = array();
-	$GLOBALS['wcs_test_transients']    = array();
-	$GLOBALS['wcs_test_filters']       = array();
-	$GLOBALS['wcs_test_as_calls']      = array();
-	$GLOBALS['wcs_test_logs']          = array();
-	$GLOBALS['wcs_test_nonce_valid']   = true;
-	$GLOBALS['wcs_test_enqueued']      = array();
-	$GLOBALS['wcs_test_inline_js']     = array();
-	$GLOBALS['wcs_test_products']      = array();
-	$GLOBALS['wcs_test_posts']         = array();
-	$GLOBALS['wcs_test_thumbs']        = array();
-	$GLOBALS['wcs_test_terms']         = array();
-	$GLOBALS['wcs_test_taxonomies']    = array( 'product_cat', 'product_tag' );
-	$GLOBALS['wcs_test_user_meta']     = array();
-	$GLOBALS['wcs_test_can']           = true;
-	$GLOBALS['wcs_test_referer_ok']    = true;
-	$GLOBALS['wcs_test_screen_id']     = 'toplevel_page_wcs-fast-search';
-	$GLOBALS['wcs_test_publish_count'] = 10;
-	$GLOBALS['wcs_test_ext_cache']     = false;
-	$GLOBALS['wcs_test_cache_add']     = true;
-	$GLOBALS['wcs_test_search_excluded_ids'] = array();
-	$GLOBALS['wcs_test_marked_failed'] = array();
-	$GLOBALS['wcs_test_as_due_actions']         = array();
-	$GLOBALS['wcs_test_stake_claim_calls']      = array();
-	$GLOBALS['wcs_test_release_claim_calls']    = array();
-	$GLOBALS['wcs_test_queuerunner_run_calls']  = array();
-	$GLOBALS['wcs_test_as_processed_actions']   = array();
-	$GLOBALS['wcs_test_as_process_action_throws'] = false;
-	$GLOBALS['wcs_test_shortcode_atts_tags']      = array();
-	$GLOBALS['wcs_test_script_done']   = false;
-	$GLOBALS['wcs_test_cron']          = array();
-	$GLOBALS['wcs_test_cron_array']    = array();
-	$GLOBALS['wcs_test_single_events'] = array();
-	$GLOBALS['wcs_test_as_enqueue_fails'] = false;
-	$GLOBALS['wcs_test_as_schedule_fails'] = false;
-	$GLOBALS['wcs_test_as_has_scheduled'] = false;
-	$GLOBALS['wcs_test_cron_schedule_fails'] = false;
-	$GLOBALS['wcs_test_active_plugins']       = array();
-	$GLOBALS['wcs_test_active_plugins_by_site'] = array();
-	$GLOBALS['wcs_test_deactivated_plugins']  = array();
-	$GLOBALS['wcs_test_primed']        = array();
-	$GLOBALS['wcs_test_on_sale_ids']   = array();
-	$GLOBALS['wcs_test_transient_read_hook'] = null;
-	$GLOBALS['wcs_test_rest_routes']         = array();
-	$GLOBALS['wcs_test_as_actions']          = array();
-	$GLOBALS['wcs_test_mark_failure_throws'] = false;
-	$GLOBALS['wcs_test_is_admin']            = false;
-	$GLOBALS['wcs_test_dbdelta']             = array();
-	$GLOBALS['wcs_test_registered_settings'] = array();
-	$GLOBALS['wcs_test_objects_in_term']     = array();
-	$GLOBALS['wcs_test_usleeps']             = array();
-	$GLOBALS['wcs_test_http_response']       = null;
-	$GLOBALS['wcs_test_cache_flush_calls']   = 0;
-	$GLOBALS['wcs_test_is_multisite']        = false;
-	$GLOBALS['wcs_test_site_options']        = array();
-	$GLOBALS['wcs_test_all_site_ids']        = array();
-	$GLOBALS['wcs_test_switched_blogs']      = array();
-	$GLOBALS['wcs_test_current_blog_stack']  = array();
-	$GLOBALS['wcs_test_restored_blogs_count'] = 0;
+function otsw_tests_reset(): void {
+	$GLOBALS['otsw_test_blog_id']       = 1;
+	$GLOBALS['otsw_test_options']       = array();
+	$GLOBALS['otsw_test_transients']    = array();
+	$GLOBALS['otsw_test_filters']       = array();
+	$GLOBALS['otsw_test_as_calls']      = array();
+	$GLOBALS['otsw_test_logs']          = array();
+	$GLOBALS['otsw_test_nonce_valid']   = true;
+	$GLOBALS['otsw_test_enqueued']      = array();
+	$GLOBALS['otsw_test_inline_js']     = array();
+	$GLOBALS['otsw_test_products']      = array();
+	$GLOBALS['otsw_test_posts']         = array();
+	$GLOBALS['otsw_test_thumbs']        = array();
+	$GLOBALS['otsw_test_terms']         = array();
+	$GLOBALS['otsw_test_taxonomies']    = array( 'product_cat', 'product_tag' );
+	$GLOBALS['otsw_test_user_meta']     = array();
+	$GLOBALS['otsw_test_can']           = true;
+	$GLOBALS['otsw_test_referer_ok']    = true;
+	$GLOBALS['otsw_test_screen_id']     = 'toplevel_page_otsw-fast-search';
+	$GLOBALS['otsw_test_publish_count'] = 10;
+	$GLOBALS['otsw_test_ext_cache']     = false;
+	$GLOBALS['otsw_test_cache_add']     = true;
+	$GLOBALS['otsw_test_search_excluded_ids'] = array();
+	$GLOBALS['otsw_test_marked_failed'] = array();
+	$GLOBALS['otsw_test_as_due_actions']         = array();
+	$GLOBALS['otsw_test_stake_claim_calls']      = array();
+	$GLOBALS['otsw_test_release_claim_calls']    = array();
+	$GLOBALS['otsw_test_queuerunner_run_calls']  = array();
+	$GLOBALS['otsw_test_as_processed_actions']   = array();
+	$GLOBALS['otsw_test_as_process_action_throws'] = false;
+	$GLOBALS['otsw_test_shortcode_atts_tags']      = array();
+	$GLOBALS['otsw_test_script_done']   = false;
+	$GLOBALS['otsw_test_cron']          = array();
+	$GLOBALS['otsw_test_cron_array']    = array();
+	$GLOBALS['otsw_test_single_events'] = array();
+	$GLOBALS['otsw_test_as_enqueue_fails'] = false;
+	$GLOBALS['otsw_test_as_schedule_fails'] = false;
+	$GLOBALS['otsw_test_as_has_scheduled'] = false;
+	$GLOBALS['otsw_test_cron_schedule_fails'] = false;
+	$GLOBALS['otsw_test_active_plugins']       = array();
+	$GLOBALS['otsw_test_active_plugins_by_site'] = array();
+	$GLOBALS['otsw_test_deactivated_plugins']  = array();
+	$GLOBALS['otsw_test_primed']        = array();
+	$GLOBALS['otsw_test_on_sale_ids']   = array();
+	$GLOBALS['otsw_test_transient_read_hook'] = null;
+	$GLOBALS['otsw_test_rest_routes']         = array();
+	$GLOBALS['otsw_test_as_actions']          = array();
+	$GLOBALS['otsw_test_mark_failure_throws'] = false;
+	$GLOBALS['otsw_test_is_admin']            = false;
+	$GLOBALS['otsw_test_dbdelta']             = array();
+	$GLOBALS['otsw_test_registered_settings'] = array();
+	$GLOBALS['otsw_test_objects_in_term']     = array();
+	$GLOBALS['otsw_test_usleeps']             = array();
+	$GLOBALS['otsw_test_http_response']       = null;
+	$GLOBALS['otsw_test_cache_flush_calls']   = 0;
+	$GLOBALS['otsw_test_is_multisite']        = false;
+	$GLOBALS['otsw_test_site_options']        = array();
+	$GLOBALS['otsw_test_all_site_ids']        = array();
+	$GLOBALS['otsw_test_switched_blogs']      = array();
+	$GLOBALS['otsw_test_current_blog_stack']  = array();
+	$GLOBALS['otsw_test_restored_blogs_count'] = 0;
 	// Unset (not merely reset) so dynamic_batch_size() falls through to the
 	// real system functions by default; tests opt in explicitly.
-	unset( $GLOBALS['wcs_test_loadavg'], $GLOBALS['wcs_test_memory_usage'], $GLOBALS['wcs_test_memory_limit'] );
-	// Stateful simulation of the wcs_rate_limits table (rl_key => [window_start,
+	unset( $GLOBALS['otsw_test_loadavg'], $GLOBALS['otsw_test_memory_usage'], $GLOBALS['otsw_test_memory_limit'] );
+	// Stateful simulation of the otsw_rate_limits table (rl_key => [window_start,
 	// hits]) — Rate_Limiter's DB fallback runs by default in tests (no APCu in
 	// the test CLI), so without this every unrelated test touching a rate
 	// limiter would see an unscripted, stateless get_var() and rely entirely
 	// on the fail-open branch. This makes the fake behave like real MySQL well
 	// enough for RateLimiterTest to assert real allow/deny sequences.
-	$GLOBALS['wcs_test_rate_limits'] = array();
+	$GLOBALS['otsw_test_rate_limits'] = array();
 
-	if ( class_exists( \WCS\Search\Search_Handler::class, false ) ) {
-		\WCS\Search\Search_Handler::flush_runtime_cache();
+	if ( class_exists( \OTSW\Search\Search_Handler::class, false ) ) {
+		\OTSW\Search\Search_Handler::flush_runtime_cache();
 	}
 
-	if ( class_exists( \WCS\Search\Query_Normalizer::class, false ) ) {
-		\WCS\Search\Query_Normalizer::flush_synonym_cache();
-	}
 	// Reset the Indexer's per-request static dedup flags.
-	if ( class_exists( \WCS\Search\Indexer::class, false ) ) {
-		$ref = new ReflectionClass( \WCS\Search\Indexer::class );
+	if ( class_exists( \OTSW\Search\Indexer::class, false ) ) {
+		$ref = new ReflectionClass( \OTSW\Search\Indexer::class );
 		foreach ( array( 'queued_ids' => array(), 'bust_queued' => false, 'rebuild_queued' => false ) as $prop => $value ) {
 			$p = $ref->getProperty( $prop );
 			$p->setValue( null, $value );
 		}
 	}
 }
-wcs_tests_reset();
+otsw_tests_reset();
 
 // ── Options / transients ───────────────────────────────────────────────────
 function get_option( string $name, $default = false ) {
-	// 'active_plugins' is backed by the same $GLOBALS['wcs_test_active_plugins']
+	// 'active_plugins' is backed by the same $GLOBALS['otsw_test_active_plugins']
 	// the is_plugin_active() stub below reads, so any code path that reads the
 	// option directly (e.g. the MU plugin, which avoids loading
 	// wp-admin/includes/plugin.php) agrees with is_plugin_active() on what's
 	// active in a given test.
 	if ( 'active_plugins' === $name ) {
-		return $GLOBALS['wcs_test_active_plugins'] ?? array();
+		return $GLOBALS['otsw_test_active_plugins'] ?? array();
 	}
-	return array_key_exists( $name, $GLOBALS['wcs_test_options'] ) ? $GLOBALS['wcs_test_options'][ $name ] : $default;
+	return array_key_exists( $name, $GLOBALS['otsw_test_options'] ) ? $GLOBALS['otsw_test_options'][ $name ] : $default;
 }
 function update_option( string $name, $value, $autoload = null ): bool {
-	$GLOBALS['wcs_test_options'][ $name ] = $value;
+	$GLOBALS['otsw_test_options'][ $name ] = $value;
 	return true;
 }
 function add_option( string $name, $value = '', $deprecated = '', $autoload = null ): bool {
-	if ( array_key_exists( $name, $GLOBALS['wcs_test_options'] ) ) {
+	if ( array_key_exists( $name, $GLOBALS['otsw_test_options'] ) ) {
 		return false;
 	}
-	$GLOBALS['wcs_test_options'][ $name ] = $value;
+	$GLOBALS['otsw_test_options'][ $name ] = $value;
 	return true;
 }
 function delete_option( string $name ): bool {
-	unset( $GLOBALS['wcs_test_options'][ $name ] );
+	unset( $GLOBALS['otsw_test_options'][ $name ] );
 	return true;
 }
 function get_transient( string $key ) {
-	$GLOBALS['wcs_test_transients']['reads'][] = $key;
+	$GLOBALS['otsw_test_transients']['reads'][] = $key;
 	// Optional per-test hook — lets a test inject a value mid-flow (e.g. a
 	// "builder" filling the cache while the stampede poller waits).
-	if ( ! empty( $GLOBALS['wcs_test_transient_read_hook'] ) ) {
-		( $GLOBALS['wcs_test_transient_read_hook'] )( $key );
+	if ( ! empty( $GLOBALS['otsw_test_transient_read_hook'] ) ) {
+		( $GLOBALS['otsw_test_transient_read_hook'] )( $key );
 	}
-	return $GLOBALS['wcs_test_transients']['data'][ $key ] ?? false;
+	return $GLOBALS['otsw_test_transients']['data'][ $key ] ?? false;
 }
 function set_transient( string $key, $value, int $expiration = 0 ): bool {
-	$GLOBALS['wcs_test_transients']['data'][ $key ]    = $value;
-	$GLOBALS['wcs_test_transients']['expiry'][ $key ]  = $expiration;
+	$GLOBALS['otsw_test_transients']['data'][ $key ]    = $value;
+	$GLOBALS['otsw_test_transients']['expiry'][ $key ]  = $expiration;
 	return true;
 }
 function delete_transient( string $key ): bool {
-	unset( $GLOBALS['wcs_test_transients']['data'][ $key ] );
+	unset( $GLOBALS['otsw_test_transients']['data'][ $key ] );
 	return true;
 }
 
 // ── Hooks ──────────────────────────────────────────────────────────────────
 function add_filter( string $tag, callable $cb, int $priority = 10, int $accepted_args = 1 ): bool {
-	$GLOBALS['wcs_test_filters'][ $tag ][] = array( 'cb' => $cb, 'priority' => $priority, 'args' => $accepted_args );
-	usort( $GLOBALS['wcs_test_filters'][ $tag ], static fn( $a, $b ) => $a['priority'] <=> $b['priority'] );
+	$GLOBALS['otsw_test_filters'][ $tag ][] = array( 'cb' => $cb, 'priority' => $priority, 'args' => $accepted_args );
+	usort( $GLOBALS['otsw_test_filters'][ $tag ], static fn( $a, $b ) => $a['priority'] <=> $b['priority'] );
 	return true;
 }
 function apply_filters( string $tag, $value, ...$args ) {
-	foreach ( $GLOBALS['wcs_test_filters'][ $tag ] ?? array() as $entry ) {
+	foreach ( $GLOBALS['otsw_test_filters'][ $tag ] ?? array() as $entry ) {
 		$call_args = array_slice( array_merge( array( $value ), $args ), 0, max( 1, $entry['args'] ) );
 		$value     = call_user_func_array( $entry['cb'], $call_args );
 	}
 	return $value;
 }
 function remove_filter( string $tag, callable $cb, int $priority = 10 ): bool {
-	foreach ( $GLOBALS['wcs_test_filters'][ $tag ] ?? array() as $i => $entry ) {
+	foreach ( $GLOBALS['otsw_test_filters'][ $tag ] ?? array() as $i => $entry ) {
 		if ( $entry['cb'] === $cb ) {
-			unset( $GLOBALS['wcs_test_filters'][ $tag ][ $i ] );
+			unset( $GLOBALS['otsw_test_filters'][ $tag ][ $i ] );
 		}
 	}
 	return true;
@@ -258,7 +254,7 @@ function add_action( string $tag, callable $cb, int $priority = 10, int $accepte
 	return add_filter( $tag, $cb, $priority, $accepted_args );
 }
 function do_action( string $tag, ...$args ): void {
-	foreach ( $GLOBALS['wcs_test_filters'][ $tag ] ?? array() as $entry ) {
+	foreach ( $GLOBALS['otsw_test_filters'][ $tag ] ?? array() as $entry ) {
 		call_user_func_array( $entry['cb'], array_slice( $args, 0, max( 0, $entry['args'] ) ) );
 	}
 }
@@ -271,32 +267,32 @@ function do_action( string $tag, ...$args ): void {
 // unique=false/priority=1 (functionally fine, if not the intended priority
 // 10), but under this wrong-order stub the test suite was never actually
 // exercising the real unique/priority semantics at all.
-// Scriptable via $GLOBALS['wcs_test_as_enqueue_fails'] (bool or a callable
+// Scriptable via $GLOBALS['otsw_test_as_enqueue_fails'] (bool or a callable
 // receiving $hook) — simulates Action Scheduler's own real behavior of
 // returning 0 (not throwing) when it can't enqueue, e.g. its data store not
 // being initialized yet under some bootstrap orderings. The call is still
 // recorded so a test can assert an attempt was made even though it failed.
 function as_enqueue_async_action( string $hook, array $args = array(), string $group = '', bool $unique = false, int $priority = 10 ): int {
-	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'enqueue_async', 'hook' => $hook, 'args' => $args, 'group' => $group, 'unique' => $unique );
-	$fails = $GLOBALS['wcs_test_as_enqueue_fails'] ?? false;
+	$GLOBALS['otsw_test_as_calls'][] = array( 'fn' => 'enqueue_async', 'hook' => $hook, 'args' => $args, 'group' => $group, 'unique' => $unique );
+	$fails = $GLOBALS['otsw_test_as_enqueue_fails'] ?? false;
 	if ( is_callable( $fails ) ? $fails( $hook ) : $fails ) {
 		return 0;
 	}
-	return count( $GLOBALS['wcs_test_as_calls'] );
+	return count( $GLOBALS['otsw_test_as_calls'] );
 }
 function as_schedule_single_action( int $timestamp, string $hook, array $args = array(), string $group = '' ): int {
-	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'schedule_single', 'hook' => $hook, 'args' => $args, 'group' => $group );
-	$fails = $GLOBALS['wcs_test_as_schedule_fails'] ?? false;
+	$GLOBALS['otsw_test_as_calls'][] = array( 'fn' => 'schedule_single', 'hook' => $hook, 'args' => $args, 'group' => $group );
+	$fails = $GLOBALS['otsw_test_as_schedule_fails'] ?? false;
 	if ( is_callable( $fails ) ? $fails( $hook ) : $fails ) {
 		return 0;
 	}
-	return count( $GLOBALS['wcs_test_as_calls'] );
+	return count( $GLOBALS['otsw_test_as_calls'] );
 }
 function as_has_scheduled_action( string $hook, $args = null, string $group = '' ): bool {
-	return ! empty( $GLOBALS['wcs_test_as_has_scheduled'] );
+	return ! empty( $GLOBALS['otsw_test_as_has_scheduled'] );
 }
 function as_unschedule_all_actions( $hook = null, array $args = array(), string $group = '' ): void {
-	$GLOBALS['wcs_test_as_calls'][] = array( 'fn' => 'unschedule_all', 'hook' => $hook, 'group' => $group );
+	$GLOBALS['otsw_test_as_calls'][] = array( 'fn' => 'unschedule_all', 'hook' => $hook, 'group' => $group );
 }
 
 // ── Sanitizers / escaping / i18n (deliberately simplified approximations) ──
@@ -366,58 +362,58 @@ function current_time( string $type ) {
 	// offset to time() — it is NOT a true Unix timestamp. A stub that always
 	// returned plain time() would make any test asserting on this distinction
 	// pass even when production code wrongly compares the two directly (the
-	// exact bug this simulates: wcs_last_indexed stored via
+	// exact bug this simulates: otsw_last_indexed stored via
 	// current_time('timestamp') but read back via human_time_diff(), whose
 	// default comparison point is real time()).
 	$offset_hours = (float) get_option( 'gmt_offset', 0 );
 	return time() + (int) round( $offset_hours * HOUR_IN_SECONDS );
 }
 function wp_verify_nonce( $nonce, $action = -1 ) {
-	return ! empty( $GLOBALS['wcs_test_nonce_valid'] );
+	return ! empty( $GLOBALS['otsw_test_nonce_valid'] );
 }
 function wp_using_ext_object_cache(): bool {
-	return ! empty( $GLOBALS['wcs_test_ext_cache'] );
+	return ! empty( $GLOBALS['otsw_test_ext_cache'] );
 }
-// Per-site override: $GLOBALS['wcs_test_active_plugins_by_site'][site_id]
-// takes priority over the flat wcs_test_active_plugins global when set, so
+// Per-site override: $GLOBALS['otsw_test_active_plugins_by_site'][site_id]
+// takes priority over the flat otsw_test_active_plugins global when set, so
 // a test can simulate "Pro is active on site 2 but not the current site" —
 // something a single flat list can't express. Falls back to the flat list
 // (as every existing test already expects) whenever no per-site override
 // exists for the site currently switched to.
 function is_plugin_active( string $plugin ): bool {
-	$stack        = $GLOBALS['wcs_test_current_blog_stack'] ?? array();
+	$stack        = $GLOBALS['otsw_test_current_blog_stack'] ?? array();
 	$current_site = empty( $stack ) ? null : end( $stack );
-	$by_site      = $GLOBALS['wcs_test_active_plugins_by_site'] ?? array();
+	$by_site      = $GLOBALS['otsw_test_active_plugins_by_site'] ?? array();
 	if ( null !== $current_site && array_key_exists( $current_site, $by_site ) ) {
 		return in_array( $plugin, $by_site[ $current_site ], true );
 	}
-	return in_array( $plugin, $GLOBALS['wcs_test_active_plugins'] ?? array(), true );
+	return in_array( $plugin, $GLOBALS['otsw_test_active_plugins'] ?? array(), true );
 }
 // Simplified stand-in for WP core's plugin_basename(): real WordPress strips
 // the plugins-directory prefix; this fake just needs to be internally
 // consistent (folder-name/file.php) so a test can compute the same string
-// it puts into wcs_test_active_plugins to simulate "Free is active".
+// it puts into otsw_test_active_plugins to simulate "Free is active".
 function plugin_basename( string $file ): string {
 	return basename( dirname( $file ) ) . '/' . basename( $file );
 }
 function deactivate_plugins( $plugins ): void {
-	$GLOBALS['wcs_test_deactivated_plugins'] = array_merge(
-		$GLOBALS['wcs_test_deactivated_plugins'] ?? array(),
+	$GLOBALS['otsw_test_deactivated_plugins'] = array_merge(
+		$GLOBALS['otsw_test_deactivated_plugins'] ?? array(),
 		(array) $plugins
 	);
-	$GLOBALS['wcs_test_active_plugins'] = array_values( array_diff(
-		$GLOBALS['wcs_test_active_plugins'] ?? array(),
+	$GLOBALS['otsw_test_active_plugins'] = array_values( array_diff(
+		$GLOBALS['otsw_test_active_plugins'] ?? array(),
 		(array) $plugins
 	) );
 }
 function wp_cache_add( $key, $data, $group = '', $expire = 0 ): bool {
-	return (bool) $GLOBALS['wcs_test_cache_add'];
+	return (bool) $GLOBALS['otsw_test_cache_add'];
 }
 function wp_cache_delete( $key, $group = '' ): bool {
 	return true;
 }
 function wp_cache_flush(): bool {
-	$GLOBALS['wcs_test_cache_flush_calls'] = ( $GLOBALS['wcs_test_cache_flush_calls'] ?? 0 ) + 1;
+	$GLOBALS['otsw_test_cache_flush_calls'] = ( $GLOBALS['otsw_test_cache_flush_calls'] ?? 0 ) + 1;
 	return true;
 }
 function rest_ensure_response( $response ) {
@@ -429,7 +425,7 @@ class WP_REST_Server {
 	public const READABLE = 'GET';
 }
 function register_rest_route( string $ns, string $route, array $args = array() ): bool {
-	$GLOBALS['wcs_test_rest_routes'][ $ns . $route ] = $args;
+	$GLOBALS['otsw_test_rest_routes'][ $ns . $route ] = $args;
 	return true;
 }
 class WP_Post {
@@ -456,7 +452,7 @@ class WP_REST_Request {
 }
 
 // ── AJAX seams: wp_send_json_* throw instead of exit ───────────────────────
-class WCS_Test_JSON_Response extends Exception {
+class OTSW_Test_JSON_Response extends Exception {
 	public function __construct(
 		public bool $success,
 		public $payload = null,
@@ -466,55 +462,55 @@ class WCS_Test_JSON_Response extends Exception {
 	}
 }
 function wp_send_json_success( $data = null, ?int $status_code = null ): void {
-	throw new WCS_Test_JSON_Response( true, $data, $status_code ?? 200 );
+	throw new OTSW_Test_JSON_Response( true, $data, $status_code ?? 200 );
 }
 function wp_send_json_error( $data = null, ?int $status_code = null ): void {
-	throw new WCS_Test_JSON_Response( false, $data, $status_code ?? 200 );
+	throw new OTSW_Test_JSON_Response( false, $data, $status_code ?? 200 );
 }
 function check_ajax_referer( $action = -1, $query_arg = false, bool $stop = true ) {
-	if ( empty( $GLOBALS['wcs_test_referer_ok'] ) ) {
-		throw new WCS_Test_JSON_Response( false, 'bad-nonce', 403 );
+	if ( empty( $GLOBALS['otsw_test_referer_ok'] ) ) {
+		throw new OTSW_Test_JSON_Response( false, 'bad-nonce', 403 );
 	}
 	return 1;
 }
 function current_user_can( string $capability ): bool {
-	return (bool) $GLOBALS['wcs_test_can'];
+	return (bool) $GLOBALS['otsw_test_can'];
 }
 function get_current_user_id(): int {
 	return 1;
 }
 function update_user_meta( int $user_id, string $key, $value ): bool {
-	$GLOBALS['wcs_test_user_meta'][ $user_id ][ $key ] = $value;
+	$GLOBALS['otsw_test_user_meta'][ $user_id ][ $key ] = $value;
 	return true;
 }
 function get_user_meta( int $user_id, string $key, bool $single = false ) {
-	return $GLOBALS['wcs_test_user_meta'][ $user_id ][ $key ] ?? '';
+	return $GLOBALS['otsw_test_user_meta'][ $user_id ][ $key ] ?? '';
 }
 
 // ── Assets / frontend ──────────────────────────────────────────────────────
 function wp_enqueue_style( string $handle, string $src = '', array $deps = array(), $ver = false ): void {
-	$GLOBALS['wcs_test_enqueued']['style'][] = $handle;
+	$GLOBALS['otsw_test_enqueued']['style'][] = $handle;
 }
 function wp_enqueue_script( string $handle, string $src = '', array $deps = array(), $ver = false, $in_footer = false ): void {
-	$GLOBALS['wcs_test_enqueued']['script'][] = $handle;
+	$GLOBALS['otsw_test_enqueued']['script'][] = $handle;
 }
 function wp_add_inline_script( string $handle, string $js, string $position = 'after' ): void {
-	$GLOBALS['wcs_test_inline_js'][ $handle ][] = $js;
+	$GLOBALS['otsw_test_inline_js'][ $handle ][] = $js;
 }
 function wp_script_is( string $handle, string $status = 'enqueued' ): bool {
 	if ( 'enqueued' === $status ) {
-		return in_array( $handle, $GLOBALS['wcs_test_enqueued']['script'] ?? array(), true );
+		return in_array( $handle, $GLOBALS['otsw_test_enqueued']['script'] ?? array(), true );
 	}
-	return (bool) $GLOBALS['wcs_test_script_done'];
+	return (bool) $GLOBALS['otsw_test_script_done'];
 }
 function add_shortcode( string $tag, callable $cb ): void {
-	$GLOBALS['wcs_test_shortcodes'][ $tag ] = $cb;
+	$GLOBALS['otsw_test_shortcodes'][ $tag ] = $cb;
 }
 function shortcode_exists( string $tag ): bool {
-	return isset( $GLOBALS['wcs_test_shortcodes'][ $tag ] );
+	return isset( $GLOBALS['otsw_test_shortcodes'][ $tag ] );
 }
 function shortcode_atts( array $defaults, $atts, string $shortcode = '' ): array {
-	$GLOBALS['wcs_test_shortcode_atts_tags'][] = $shortcode;
+	$GLOBALS['otsw_test_shortcode_atts_tags'][] = $shortcode;
 	$atts = is_array( $atts ) ? $atts : array();
 	return array_merge( $defaults, array_intersect_key( $atts, $defaults ) );
 }
@@ -528,7 +524,7 @@ function home_url( string $path = '' ): string {
 	return 'https://example.test' . $path;
 }
 function get_current_blog_id(): int {
-	return (int) ( $GLOBALS['wcs_test_blog_id'] ?? 1 );
+	return (int) ( $GLOBALS['otsw_test_blog_id'] ?? 1 );
 }
 function site_url( string $path = '' ): string {
 	return 'https://example.test' . $path;
@@ -595,20 +591,20 @@ function human_time_diff( int $from, int $to = 0 ): string {
 	return '5 mins';
 }
 function get_current_screen(): ?object {
-	return $GLOBALS['wcs_test_screen_id'] ? (object) array( 'id' => $GLOBALS['wcs_test_screen_id'] ) : null;
+	return $GLOBALS['otsw_test_screen_id'] ? (object) array( 'id' => $GLOBALS['otsw_test_screen_id'] ) : null;
 }
 function wp_count_posts( string $type = 'post' ): object {
-	return (object) array( 'publish' => $GLOBALS['wcs_test_publish_count'] );
+	return (object) array( 'publish' => $GLOBALS['otsw_test_publish_count'] );
 }
 function register_setting( string $group, string $name, array $args = array() ): void {
-	$GLOBALS['wcs_test_registered_settings'][ $name ] = $args;
+	$GLOBALS['otsw_test_registered_settings'][ $name ] = $args;
 }
 function add_options_page( ...$args ): void {}
 function add_menu_page( ...$args ): void {}
 
 // ── Posts / products / terms ───────────────────────────────────────────────
 function get_post( int $id ): ?object {
-	return $GLOBALS['wcs_test_posts'][ $id ] ?? null;
+	return $GLOBALS['otsw_test_posts'][ $id ] ?? null;
 }
 function get_post_type( int $id ): string|false {
 	$post = get_post( $id );
@@ -619,21 +615,21 @@ function wp_get_post_parent_id( int $id ): int {
 	return (int) ( $post->post_parent ?? 0 );
 }
 function _prime_post_caches( array $ids, bool $terms = true, bool $meta = true ): void {
-	$GLOBALS['wcs_test_primed'][] = $ids;
+	$GLOBALS['otsw_test_primed'][] = $ids;
 }
 function get_post_thumbnail_id( int $id ): int {
-	return (int) ( $GLOBALS['wcs_test_thumbs'][ $id ] ?? 0 );
+	return (int) ( $GLOBALS['otsw_test_thumbs'][ $id ] ?? 0 );
 }
 function wp_get_attachment_image_url( int $attachment_id, $size = 'thumbnail' ) {
 	return $attachment_id ? "https://example.test/img/{$attachment_id}.jpg" : false;
 }
 function get_the_terms( int $id, string $taxonomy ) {
-	return $GLOBALS['wcs_test_terms'][ $id ][ $taxonomy ] ?? false;
+	return $GLOBALS['otsw_test_terms'][ $id ][ $taxonomy ] ?? false;
 }
 function has_term( $term, string $taxonomy = '', $post = 0 ): bool {
 	$post_id = is_object( $post ) ? $post->ID : (int) $post;
 	if ( 'product_visibility' === $taxonomy && 'exclude-from-search' === $term ) {
-		return in_array( $post_id, $GLOBALS['wcs_test_search_excluded_ids'] ?? array(), true );
+		return in_array( $post_id, $GLOBALS['otsw_test_search_excluded_ids'] ?? array(), true );
 	}
 	return false;
 }
@@ -654,19 +650,19 @@ function get_permalink( $post ): string {
 	return "https://example.test/?p={$id}";
 }
 function taxonomy_exists( string $taxonomy ): bool {
-	return in_array( $taxonomy, $GLOBALS['wcs_test_taxonomies'], true );
+	return in_array( $taxonomy, $GLOBALS['otsw_test_taxonomies'], true );
 }
 function wc_get_attribute_taxonomy_names(): array {
-	return array_values( array_filter( $GLOBALS['wcs_test_taxonomies'], static fn( $t ) => str_starts_with( $t, 'pa_' ) ) );
+	return array_values( array_filter( $GLOBALS['otsw_test_taxonomies'], static fn( $t ) => str_starts_with( $t, 'pa_' ) ) );
 }
 function wc_get_product( int $id ) {
-	return $GLOBALS['wcs_test_products'][ $id ] ?? false;
+	return $GLOBALS['otsw_test_products'][ $id ] ?? false;
 }
 function wc_get_product_ids_on_sale(): array {
-	return $GLOBALS['wcs_test_on_sale_ids'];
+	return $GLOBALS['otsw_test_on_sale_ids'];
 }
 function get_objects_in_term( int $term_id, string $taxonomy ) {
-	return $GLOBALS['wcs_test_objects_in_term'] ?? array();
+	return $GLOBALS['otsw_test_objects_in_term'] ?? array();
 }
 function get_term_link( $term, string $taxonomy = '' ) {
 	return 'https://example.test/tax/' . $taxonomy . '/' . ( is_object( $term ) ? $term->term_id : $term );
@@ -675,13 +671,13 @@ function is_wp_error( $thing ): bool {
 	return $thing instanceof WP_Error;
 }
 /**
- * Scripted HTTP layer for tests: set $GLOBALS['wcs_test_http_response'] to
+ * Scripted HTTP layer for tests: set $GLOBALS['otsw_test_http_response'] to
  * either a WP_Error or an array like ['response' => ['code' => 200], 'body' => '...'],
  * or a callable(string $url): mixed for per-URL responses. Defaults to a
  * generic network-error WP_Error so untouched tests fail closed, not open.
  */
 function wp_remote_get( string $url, array $args = array() ) {
-	$scripted = $GLOBALS['wcs_test_http_response'] ?? null;
+	$scripted = $GLOBALS['otsw_test_http_response'] ?? null;
 	if ( is_callable( $scripted ) ) {
 		return $scripted( $url );
 	}
@@ -747,14 +743,14 @@ class Fake_Product {
 
 // ── Cron / scheduling / admin context ──────────────────────────────────────
 function wp_next_scheduled( string $hook ) {
-	return $GLOBALS['wcs_test_cron'][ $hook ] ?? false;
+	return $GLOBALS['otsw_test_cron'][ $hook ] ?? false;
 }
 function wp_schedule_single_event( int $timestamp, string $hook, array $args = array() ): bool {
-	if ( ! empty( $GLOBALS['wcs_test_cron_schedule_fails'] ) ) {
+	if ( ! empty( $GLOBALS['otsw_test_cron_schedule_fails'] ) ) {
 		return false; // simulates WP-Cron itself refusing to store the event
 	}
-	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
-	$GLOBALS['wcs_test_single_events'][] = array( 'hook' => $hook, 'timestamp' => $timestamp, 'args' => $args );
+	$GLOBALS['otsw_test_cron'][ $hook ] = $timestamp;
+	$GLOBALS['otsw_test_single_events'][] = array( 'hook' => $hook, 'timestamp' => $timestamp, 'args' => $args );
 	// Mirrors WordPress's real cron array shape (timestamp => hook =>
 	// arg-hash => ['args' => ...]) so _get_cron_array() below can support
 	// multiple simultaneous pending instances of the SAME hook with
@@ -763,65 +759,65 @@ function wp_schedule_single_event( int $timestamp, string $hook, array $args = a
 	// wp_next_scheduled() nor wp_unschedule_event() alone can target
 	// without already knowing each instance's exact args.
 	$key = md5( serialize( $args ) );
-	$GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ][ $key ] = array( 'args' => $args );
+	$GLOBALS['otsw_test_cron_array'][ $timestamp ][ $hook ][ $key ] = array( 'args' => $args );
 	return true;
 }
 function wp_schedule_event( int $timestamp, string $recurrence, string $hook ): bool {
-	$GLOBALS['wcs_test_cron'][ $hook ] = $timestamp;
+	$GLOBALS['otsw_test_cron'][ $hook ] = $timestamp;
 	return true;
 }
 function wp_unschedule_event( int $timestamp, string $hook, array $args = array() ): bool {
-	unset( $GLOBALS['wcs_test_cron'][ $hook ] );
+	unset( $GLOBALS['otsw_test_cron'][ $hook ] );
 	$key = md5( serialize( $args ) );
-	unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ][ $key ] );
-	if ( empty( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ] ) ) {
-		unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ][ $hook ] );
+	unset( $GLOBALS['otsw_test_cron_array'][ $timestamp ][ $hook ][ $key ] );
+	if ( empty( $GLOBALS['otsw_test_cron_array'][ $timestamp ][ $hook ] ) ) {
+		unset( $GLOBALS['otsw_test_cron_array'][ $timestamp ][ $hook ] );
 	}
-	if ( empty( $GLOBALS['wcs_test_cron_array'][ $timestamp ] ) ) {
-		unset( $GLOBALS['wcs_test_cron_array'][ $timestamp ] );
+	if ( empty( $GLOBALS['otsw_test_cron_array'][ $timestamp ] ) ) {
+		unset( $GLOBALS['otsw_test_cron_array'][ $timestamp ] );
 	}
 	return true;
 }
 function _get_cron_array() {
-	return $GLOBALS['wcs_test_cron_array'] ?? array();
+	return $GLOBALS['otsw_test_cron_array'] ?? array();
 }
 function is_admin(): bool {
-	return ! empty( $GLOBALS['wcs_test_is_admin'] );
+	return ! empty( $GLOBALS['otsw_test_is_admin'] );
 }
 function is_multisite(): bool {
-	return ! empty( $GLOBALS['wcs_test_is_multisite'] );
+	return ! empty( $GLOBALS['otsw_test_is_multisite'] );
 }
 function get_site_option( string $name, $default = false ) {
-	return array_key_exists( $name, $GLOBALS['wcs_test_site_options'] ?? array() ) ? $GLOBALS['wcs_test_site_options'][ $name ] : $default;
+	return array_key_exists( $name, $GLOBALS['otsw_test_site_options'] ?? array() ) ? $GLOBALS['otsw_test_site_options'][ $name ] : $default;
 }
 /**
  * Minimal get_sites( ['fields' => 'ids', 'number' => ..., 'offset' => ...] )
- * stand-in — pages through $GLOBALS['wcs_test_all_site_ids'] the same way
+ * stand-in — pages through $GLOBALS['otsw_test_all_site_ids'] the same way
  * WordPress core's own get_sites() pages through wp_blogs, so
  * Activator::each_network_site()'s pagination loop can be tested without a
  * real multisite install.
  */
 function get_sites( array $args = array() ): array {
-	$all    = $GLOBALS['wcs_test_all_site_ids'] ?? array();
+	$all    = $GLOBALS['otsw_test_all_site_ids'] ?? array();
 	$number = $args['number'] ?? count( $all );
 	$offset = $args['offset'] ?? 0;
 	return array_slice( $all, $offset, $number );
 }
 function switch_to_blog( int $site_id ): bool {
-	$GLOBALS['wcs_test_current_blog_stack'][] = $site_id;
-	$GLOBALS['wcs_test_switched_blogs'][]     = $site_id;
+	$GLOBALS['otsw_test_current_blog_stack'][] = $site_id;
+	$GLOBALS['otsw_test_switched_blogs'][]     = $site_id;
 	return true;
 }
 function restore_current_blog(): bool {
-	if ( ! isset( $GLOBALS['wcs_test_current_blog_stack'] ) ) {
-		$GLOBALS['wcs_test_current_blog_stack'] = array();
+	if ( ! isset( $GLOBALS['otsw_test_current_blog_stack'] ) ) {
+		$GLOBALS['otsw_test_current_blog_stack'] = array();
 	}
-	array_pop( $GLOBALS['wcs_test_current_blog_stack'] );
-	$GLOBALS['wcs_test_restored_blogs_count'] = ( $GLOBALS['wcs_test_restored_blogs_count'] ?? 0 ) + 1;
+	array_pop( $GLOBALS['otsw_test_current_blog_stack'] );
+	$GLOBALS['otsw_test_restored_blogs_count'] = ( $GLOBALS['otsw_test_restored_blogs_count'] ?? 0 ) + 1;
 	return true;
 }
 function dbDelta( $queries ): array {
-	$GLOBALS['wcs_test_dbdelta'][] = $queries;
+	$GLOBALS['otsw_test_dbdelta'][] = $queries;
 	return array();
 }
 function wp_mkdir_p( string $dir ): bool {
@@ -858,29 +854,29 @@ class ActionScheduler {
 	public static function store(): object {
 		return new class() {
 			public function mark_failure( int $action_id ): void {
-				if ( ! empty( $GLOBALS['wcs_test_mark_failure_throws'] ) ) {
+				if ( ! empty( $GLOBALS['otsw_test_mark_failure_throws'] ) ) {
 					throw new RuntimeException( 'claim conflict' );
 				}
-				$GLOBALS['wcs_test_marked_failed'][] = $action_id;
+				$GLOBALS['otsw_test_marked_failed'][] = $action_id;
 			}
 			public function fetch_action( int $action_id ): ?ActionScheduler_Action {
-				return $GLOBALS['wcs_test_as_actions'][ $action_id ] ?? null;
+				return $GLOBALS['otsw_test_as_actions'][ $action_id ] ?? null;
 			}
-			// Scriptable via $GLOBALS['wcs_test_as_due_actions'] (array of action IDs
+			// Scriptable via $GLOBALS['otsw_test_as_due_actions'] (array of action IDs
 			// considered due). Records every call for drive_one_rebuild_batch()'s
 			// assertions — in particular that it claims exactly ONE action, scoped
 			// to its own hook, not the unbounded run() this replaced.
 			public function stake_claim( $max_actions = 10, $before_date = null, $hooks = array(), $group = '' ): ActionScheduler_ActionClaim {
-				$GLOBALS['wcs_test_stake_claim_calls'][] = array(
+				$GLOBALS['otsw_test_stake_claim_calls'][] = array(
 					'max_actions' => $max_actions,
 					'hooks'       => $hooks,
 					'group'       => $group,
 				);
-				$due = $GLOBALS['wcs_test_as_due_actions'] ?? array();
+				$due = $GLOBALS['otsw_test_as_due_actions'] ?? array();
 				return new ActionScheduler_ActionClaim( array_slice( $due, 0, $max_actions ) );
 			}
 			public function release_claim( ActionScheduler_ActionClaim $claim ): void {
-				$GLOBALS['wcs_test_release_claim_calls'][] = $claim->get_actions();
+				$GLOBALS['otsw_test_release_claim_calls'][] = $claim->get_actions();
 			}
 		};
 	}
@@ -894,14 +890,14 @@ class ActionScheduler_QueueRunner {
 	// drive_one_rebuild_batch() never falls back to the unbounded loop this
 	// replaced (see its docblock in class-admin-settings.php).
 	public function run( string $context = '' ): int {
-		$GLOBALS['wcs_test_queuerunner_run_calls'][] = $context;
+		$GLOBALS['otsw_test_queuerunner_run_calls'][] = $context;
 		return 0;
 	}
 	public function process_action( $action_id, string $context = '' ): void {
-		if ( ! empty( $GLOBALS['wcs_test_as_process_action_throws'] ) ) {
+		if ( ! empty( $GLOBALS['otsw_test_as_process_action_throws'] ) ) {
 			throw new RuntimeException( 'processing failed' );
 		}
-		$GLOBALS['wcs_test_as_processed_actions'][] = array( 'id' => $action_id, 'context' => $context );
+		$GLOBALS['otsw_test_as_processed_actions'][] = array( 'id' => $action_id, 'context' => $context );
 	}
 }
 
@@ -909,7 +905,7 @@ class ActionScheduler_QueueRunner {
 function wc_get_logger(): object {
 	return new class() {
 		public function log( string $level, string $message, array $context = array() ): void {
-			$GLOBALS['wcs_test_logs'][] = array( 'level' => $level, 'message' => $message );
+			$GLOBALS['otsw_test_logs'][] = array( 'level' => $level, 'message' => $message );
 		}
 	};
 }
@@ -1002,22 +998,22 @@ class Fake_WPDB {
 	 * @return mixed
 	 */
 	public static function defaultRun( string $sql, string $type ) {
-		// Stateful simulation of Rate_Limiter's atomic wcs_rate_limits UPSERT +
-		// SELECT — see wcs_test_rate_limits in wcs_tests_reset() for why this
+		// Stateful simulation of Rate_Limiter's atomic otsw_rate_limits UPSERT +
+		// SELECT — see otsw_test_rate_limits in otsw_tests_reset() for why this
 		// exists (the DB fallback runs by default in tests, with no APCu in
 		// the test CLI).
-		if ( 'query' === $type && 1 === preg_match( "/INSERT INTO `[^`]*wcs_rate_limits` \(rl_key, window_start, hits\) VALUES \('((?:[^'\\\\]|\\\\.)*)', (\d+), 1\)/", $sql, $m ) ) {
+		if ( 'query' === $type && 1 === preg_match( "/INSERT INTO `[^`]*otsw_rate_limits` \(rl_key, window_start, hits\) VALUES \('((?:[^'\\\\]|\\\\.)*)', (\d+), 1\)/", $sql, $m ) ) {
 			$key          = stripslashes( $m[1] );
 			$window_start = (int) $m[2];
-			$row          = $GLOBALS['wcs_test_rate_limits'][ $key ] ?? null;
-			$GLOBALS['wcs_test_rate_limits'][ $key ] = ( $row && $row['window_start'] === $window_start )
+			$row          = $GLOBALS['otsw_test_rate_limits'][ $key ] ?? null;
+			$GLOBALS['otsw_test_rate_limits'][ $key ] = ( $row && $row['window_start'] === $window_start )
 				? array( 'window_start' => $window_start, 'hits' => $row['hits'] + 1 )
 				: array( 'window_start' => $window_start, 'hits' => 1 );
 			return 1;
 		}
-		if ( 'var' === $type && 1 === preg_match( "/SELECT hits FROM `[^`]*wcs_rate_limits` WHERE rl_key = '((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
+		if ( 'var' === $type && 1 === preg_match( "/SELECT hits FROM `[^`]*otsw_rate_limits` WHERE rl_key = '((?:[^'\\\\]|\\\\.)*)'/", $sql, $m ) ) {
 			$key = stripslashes( $m[1] );
-			return $GLOBALS['wcs_test_rate_limits'][ $key ]['hits'] ?? null;
+			return $GLOBALS['otsw_test_rate_limits'][ $key ]['hits'] ?? null;
 		}
 		return match ( $type ) {
 			'results' => array(),
@@ -1074,12 +1070,12 @@ $GLOBALS['wpdb'] = new Fake_WPDB();
 
 // ── Plugin class autoloader (mirrors the one in the main plugin file) ─────
 spl_autoload_register( static function ( string $class ): void {
-	$prefix = 'WCS\\Search\\';
+	$prefix = 'OTSW\\Search\\';
 	if ( 0 !== strncmp( $prefix, $class, strlen( $prefix ) ) ) {
 		return;
 	}
 	$relative = substr( $class, strlen( $prefix ) );
-	$file     = WCS_PLUGIN_DIR . 'includes/class-' . strtolower( str_replace( '_', '-', $relative ) ) . '.php';
+	$file     = OTSW_PLUGIN_DIR . 'includes/class-' . strtolower( str_replace( '_', '-', $relative ) ) . '.php';
 	if ( file_exists( $file ) ) {
 		require_once $file;
 	}

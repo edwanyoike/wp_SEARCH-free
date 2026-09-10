@@ -7,7 +7,7 @@ declare(strict_types=1);
  * @package WP_Fast_Search
  */
 
-namespace WCS\Search;
+namespace OTSW\Search;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -22,11 +22,11 @@ class Logger {
 	 * @param string $level   Log level (e.g., 'info', 'error', 'warning').
 	 */
 	public static function log( string $message, string $level = 'info' ): void {
-		$prefix = '[v' . WCS_VERSION . '] ';
+		$prefix = '[v' . OTSW_VERSION . '] ';
 
 		if ( function_exists( 'wc_get_logger' ) ) {
 			$logger  = wc_get_logger();
-			$context = array( 'source' => 'turbo-search-for-woocommerce' );
+			$context = array( 'source' => 'ozulabs-turbo-search-for-woocommerce' );
 			$logger->log( $level, $prefix . $message, $context );
 		} else {
 			error_log( 'Turbo Search for WooCommerce ' . $prefix . strtoupper( $level ) . ': ' . $message ); // phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
