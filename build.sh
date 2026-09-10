@@ -82,7 +82,7 @@ sed -i "s/^Stable tag:\s*${OLD_VERSION}/Stable tag:        ${VERSION}/" \
 # generically, not against $OLD_VERSION, since this comment can drift stale
 # across more than one release between edits.
 sed -i "s/^\( \* Version:\s*\)[0-9][0-9.]*/\1${VERSION}/" \
-    "$REPO_DIR/mu-plugin/wcs-cache-bypass.php"
+    "$REPO_DIR/mu-plugin/otsw-cache-bypass.php"
 
 ZIP_NAME="${PLUGIN_SLUG}-${VERSION}.zip"
 

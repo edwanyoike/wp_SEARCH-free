@@ -38,6 +38,17 @@
 	display: none;
 	flex-direction: column;
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+	/* Mobile Chrome/Safari's "font boosting" auto-sizer inflates the
+	   rendered font size of short single-word text sitting in an otherwise
+	   mostly-empty full-width block — exactly the shape of a recent-search
+	   button ("dog", "aish") or a one-word tax/brand suggestion row. Row
+	   height here is driven by content height, so a boosted font balloons
+	   the whole row well past its real 14px/44px sizing. Disabling the
+	   heuristic is the standard fix — it only stops auto-inflation, so
+	   every size in this file renders exactly as specified on every
+	   device. See wp_search (Pro)'s search.css for the same fix. */
+	-webkit-text-size-adjust: 100%;
+	text-size-adjust: 100%;
 }
 
 .wcs-dropdown.is-active {
