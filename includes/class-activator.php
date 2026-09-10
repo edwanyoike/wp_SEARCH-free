@@ -351,10 +351,24 @@ class Activator {
 	 * real prior version instead of "never set") repopulates the new table
 	 * from WooCommerce directly, so the old table's row data is never read.
 	 *
-	 * Old-prefix scheduled jobs (WP-Cron and Action Scheduler) are not
-	 * explicitly cleared: neither system errors on firing a hook nothing is
-	 * listening for any more, and each is a single-shot or self-rescheduling
-	 * action, not one this plugin needs to actively cancel.
+	 * Dynamically-argumented legacy jobs (`wcs_retry_*`, one-shot Action
+	 * Scheduler batches/product jobs) are not explicitly cleared: each is
+	 * scheduled via `wp_schedule_single_event()`/Action Scheduler's one-shot
+	 * API, so WordPress removes that specific instance from the schedule the
+	 * moment it fires, regardless of whether anything is still listening —
+	 * there is nothing left to orphan once it has run once, and enumerating
+	 * pending ones would need their exact original arguments anyway.
+	 *
+	 * `wcs_daily_transient_gc`, in contrast, was registered with
+	 * `wp_schedule_event(..., 'daily', ...)` — a *recurring* event that
+	 * reschedules itself indefinitely regardless of whether a callback is
+	 * still hooked to it. Left alone, it would fire forever, forever a
+	 * no-op, permanently cluttering the site's cron schedule. This method
+	 * clears it explicitly.
+	 *
+	 * Per-user notice-dismissal preferences are migrated too — otherwise an
+	 * admin who already dismissed a notice sees it reappear after updating,
+	 * which reads as a bug even though no data was actually lost.
 	 *
 	 * @return bool True when a legacy install was actually migrated — the
 	 *              caller must then treat the search-index table as
@@ -382,6 +396,16 @@ class Activator {
 		global $wpdb;
 		foreach ( array( 'wcs_search_index', 'wcs_search_index_stage', 'wcs_rate_limits' ) as $legacy_table ) {
 			$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $wpdb->prefix . $legacy_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		}
+
+		wp_clear_scheduled_hook( 'wcs_daily_transient_gc' );
+
+		foreach ( array( 'notice_mu_bypass_dismissed', 'notice_no_cache_dismissed' ) as $legacy_meta_suffix ) {
+			$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+				"UPDATE {$wpdb->usermeta} SET meta_key = %s WHERE meta_key = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $wpdb->usermeta is a fixed core table name, not user input
+				'otsw_' . $legacy_meta_suffix,
+				'wcs_' . $legacy_meta_suffix
+			) );
 		}
 
 		return true;

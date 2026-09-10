@@ -134,6 +134,10 @@ final class ActivatorTest extends TestCase {
 		update_option( 'wcs_db_version', '1.10.0' );
 		update_option( 'wcs_result_count', 12 ); // admin had customized this away from the default of 6
 		update_option( 'wcs_mu_version', OTSW_VERSION );
+		// A recurring event — registered with wp_schedule_event(), unlike the
+		// single-shot retry jobs, so it reschedules itself forever unless
+		// explicitly cleared.
+		$GLOBALS['otsw_test_cron']['wcs_daily_transient_gc'] = time();
 		$this->healthyTables();
 
 		Activator::init();
@@ -144,11 +148,15 @@ final class ActivatorTest extends TestCase {
 		// Old options are gone, not left behind as permanent orphans.
 		$this->assertFalse( get_option( 'wcs_result_count' ) );
 		$this->assertFalse( get_option( 'wcs_db_version' ) );
+		// The orphaned recurring cron event is cleared, not left firing
+		// forever with nothing listening.
+		$this->assertArrayNotHasKey( 'wcs_daily_transient_gc', $GLOBALS['otsw_test_cron'] );
 		// The rebuild actually fires — this is the bug: it used to be skipped.
 		$batches = array_filter( $GLOBALS['otsw_test_as_calls'], static fn( $c ) => 'otsw_rebuild_index_batch' === $c['hook'] && 'enqueue_async' === $c['fn'] );
 		$this->assertCount( 1, $batches, 'an upgrading site must get its index rebuilt, not silently end up empty' );
 		// Old tables are dropped rather than left as orphaned dead weight.
 		$queries = implode( "\n", $this->wpdb->queries );
+		$this->assertStringContainsString( 'UPDATE wp_usermeta SET meta_key = \'otsw_notice_mu_bypass_dismissed\' WHERE meta_key = \'wcs_notice_mu_bypass_dismissed\'', $queries, 'a dismissed notice must not reappear after updating' );
 		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index`', $queries );
 		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_search_index_stage`', $queries );
 		$this->assertStringContainsString( 'DROP TABLE IF EXISTS `wp_wcs_rate_limits`', $queries );

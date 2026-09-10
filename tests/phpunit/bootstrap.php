@@ -766,6 +766,11 @@ function wp_schedule_event( int $timestamp, string $recurrence, string $hook ): 
 	$GLOBALS['otsw_test_cron'][ $hook ] = $timestamp;
 	return true;
 }
+function wp_clear_scheduled_hook( string $hook, array $args = array() ): int|false {
+	$existed = isset( $GLOBALS['otsw_test_cron'][ $hook ] );
+	unset( $GLOBALS['otsw_test_cron'][ $hook ] );
+	return $existed ? 1 : 0;
+}
 function wp_unschedule_event( int $timestamp, string $hook, array $args = array() ): bool {
 	unset( $GLOBALS['otsw_test_cron'][ $hook ] );
 	$key = md5( serialize( $args ) );
