@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Admin settings and dashboard.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;
@@ -99,7 +99,7 @@ class Admin_Settings {
 		}
 
 		// ── Notice 1: MU plugin not installed ────────────────────────────────
-		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
+		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php';
 		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'otsw_notice_mu_bypass_dismissed', true ) ) {
 			?>
 			<div class="notice notice-warning is-dismissible" data-wcs-notice="otsw_notice_mu_bypass">

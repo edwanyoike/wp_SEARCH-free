@@ -19,7 +19,7 @@ declare(strict_types=1);
  * exactly, the same guarantee APCu gives, on any host — no extension and no
  * external cache required.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;

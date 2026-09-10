@@ -7,7 +7,7 @@ use OTSW\Search\Query_Normalizer;
 /**
  * REST ↔ MU-plugin cache-key parity.
  *
- * Executes the real MU intercept (mu-plugin/wcs-cache-bypass.php) with
+ * Executes the real MU intercept (mu-plugin/otsw-cache-bypass.php) with
  * fabricated request state and captures the transient key it looks up. That
  * key must equal the one the REST handler would write for the same input —
  * a drift here silently disables the fast path on every request (this
@@ -17,7 +17,7 @@ final class CacheKeyParityTest extends TestCase {
 
 	protected function setUp(): void {
 		otsw_tests_reset();
-		require_once OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
+		require_once OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
 
 		// The MU fast path now resolves the active edition from WordPress's own
 		// active-plugin state rather than directory existence — these tests

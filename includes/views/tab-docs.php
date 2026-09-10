@@ -5,7 +5,7 @@
  *
  * Included from settings-page.php.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

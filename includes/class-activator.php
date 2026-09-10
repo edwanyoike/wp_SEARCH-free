@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Plugin activation and schema creation logic.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;
@@ -302,7 +302,7 @@ class Activator {
 		// can delete the shared file out from under a different site that
 		// still needs it, while that other site's otsw_mu_version option never
 		// changed. A version-only check would then never notice or repair it.
-		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php' );
+		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php' );
 		if ( is_admin() && ( get_option( 'otsw_mu_version' ) !== OTSW_VERSION || $mu_file_missing ) ) {
 			self::install_mu_plugin();
 		}
@@ -406,6 +406,23 @@ class Activator {
 				'otsw_' . $legacy_meta_suffix,
 				'wcs_' . $legacy_meta_suffix
 			) );
+		}
+
+		// wp-content/mu-plugins/ loads every file it contains unconditionally,
+		// on every request. This MUST run before install_mu_plugin() (called
+		// later in the same init() pass) ever writes the new otsw-cache-bypass.php
+		// name — the old and new files are otherwise byte-identical (both
+		// already declare the same otsw_-prefixed functions), so having both
+		// present at once fatals the entire site with "Cannot redeclare
+		// otsw_mu_is_plugin_active()". Deleting first leaves a brief window
+		// with neither file present, which only degrades a concurrent request
+		// to the normal REST route — never a fatal.
+		$legacy_mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
+		if ( file_exists( $legacy_mu_file ) || is_link( $legacy_mu_file ) ) {
+			$wp_filesystem = self::get_direct_filesystem( dirname( $legacy_mu_file ) );
+			if ( null !== $wp_filesystem ) {
+				$wp_filesystem->delete( $legacy_mu_file );
+			}
 		}
 
 		return true;
@@ -707,7 +724,7 @@ class Activator {
 	 * Copy the cache-bypass MU plugin into wp-content/mu-plugins/.
 	 *
 	 * Called on plugin activation. The source file ships inside the plugin
-	 * package at mu-plugin/wcs-cache-bypass.php, so the customer never has
+	 * package at mu-plugin/otsw-cache-bypass.php, so the customer never has
 	 * to touch the mu-plugins directory manually.
 	 *
 	 * Silently skips if the mu-plugins directory is not writable (managed
@@ -715,9 +732,9 @@ class Activator {
 	 * REST route with no errors).
 	 */
 	private static function install_mu_plugin(): void {
-		$source      = OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
+		$source      = OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
 		$mu_dir      = trailingslashit( WPMU_PLUGIN_DIR );
-		$destination = $mu_dir . 'wcs-cache-bypass.php';
+		$destination = $mu_dir . 'otsw-cache-bypass.php';
 
 		// Record the attempt for this plugin version so the init() update check
 		// runs at most once per version, not on every admin page load. autoload
@@ -798,7 +815,7 @@ class Activator {
 	private static function remove_mu_plugin(): void {
 		// wp-content/mu-plugins/ is a single, network-wide directory — not
 		// per-site — and Free/Pro both install and use the exact same
-		// wcs-cache-bypass.php file. Deactivating (or uninstalling) Free
+		// otsw-cache-bypass.php file. Deactivating (or uninstalling) Free
 		// while Pro is still active — a supported, expected migration path
 		// this plugin's own mutual-exclusion guard treats as first-class —
 		// must not delete the companion file the still-active Pro edition
@@ -816,7 +833,7 @@ class Activator {
 			return;
 		}
 
-		$destination = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
+		$destination = trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php';
 
 		if ( file_exists( $destination ) || is_link( $destination ) ) {
 			$wp_filesystem = self::get_direct_filesystem( dirname( $destination ) );

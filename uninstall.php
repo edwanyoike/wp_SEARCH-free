@@ -2,7 +2,7 @@
 /**
  * Fired when the plugin is uninstalled.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 declare(strict_types=1);
@@ -182,15 +182,24 @@ if ( true === $otsw_delete_data ) {
 // 5. Remove the MU plugin file — but not out from under a still-active Pro
 // (or, on Multisite, Free) install anywhere in the network: mu-plugins/ is
 // a single, network-wide directory (not per-site), and Free/Pro both
-// install and use the exact same wcs-cache-bypass.php. Uninstalling Free
+// install and use the exact same otsw-cache-bypass.php. Uninstalling Free
 // after migrating to Pro is a supported, expected path. Unlike
 // remove_mu_plugin()'s deactivation-time check (deliberately same-site-only
 // — see its docblock), uninstall is a one-time, hard-to-reverse action, so
 // the whole-network scan in is_shared_network_resource_still_needed() is
 // justified here.
+//
+// Both filenames are checked: a site that never went through an active
+// admin request under 1.11.10+ (migrate_legacy_wcs_prefix() runs on
+// plugins_loaded, so this is only theoretical, but uninstall is one-time
+// and hard to reverse) could still be carrying the pre-rename
+// wcs-cache-bypass.php name.
 if ( defined( 'WPMU_PLUGIN_DIR' ) && ! \OTSW\Search\Activator::is_shared_network_resource_still_needed() ) {
-	$otsw_mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . 'wcs-cache-bypass.php';
-	if ( file_exists( $otsw_mu_file ) || is_link( $otsw_mu_file ) ) {
+	foreach ( array( 'otsw-cache-bypass.php', 'wcs-cache-bypass.php' ) as $otsw_mu_filename ) {
+		$otsw_mu_file = trailingslashit( WPMU_PLUGIN_DIR ) . $otsw_mu_filename;
+		if ( ! file_exists( $otsw_mu_file ) && ! is_link( $otsw_mu_file ) ) {
+			continue;
+		}
 		if ( ! function_exists( 'get_filesystem_method' ) || ! function_exists( 'WP_Filesystem' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/file.php';
 		}

@@ -10,7 +10,7 @@
  * @var int    $total              Published product count.
  * @var int    $processed          Products processed in the current/last rebuild.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

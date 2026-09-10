@@ -21,7 +21,7 @@ final class CleanupCoverageTest extends TestCase {
 	private function sourceFiles(): array {
 		$files   = glob( OTSW_PLUGIN_DIR . 'includes/*.php' ) ?: array();
 		$files[] = OTSW_PLUGIN_DIR . 'turbo-search-for-woocommerce.php';
-		$files[] = OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
+		$files[] = OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
 		return $files;
 	}
 

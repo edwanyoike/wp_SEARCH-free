@@ -7,7 +7,7 @@ declare(strict_types=1);
  * This is the single source of truth for how a raw search string becomes a
  * normalized query and a cache key. Both the REST handler
  * (Search_Handler::handle_request) and the MU cache-bypass plugin
- * (wcs-cache-bypass.php) call these methods, so the two paths can never
+ * (otsw-cache-bypass.php) call these methods, so the two paths can never
  * drift and compute different cache keys for the same search — a drift here
  * silently disables the MU fast path.
  *
@@ -16,7 +16,7 @@ declare(strict_types=1);
  * Synonym methods use get_option()/apply_filters(), which are always loaded
  * by that stage too.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;

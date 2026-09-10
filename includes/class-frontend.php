@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * Frontend script/style loading and component injection.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;

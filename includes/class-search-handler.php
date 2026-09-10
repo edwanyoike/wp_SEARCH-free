@@ -4,7 +4,7 @@ declare(strict_types=1);
 /**
  * REST API Endpoint and Query logic.
  *
- * @package WP_Fast_Search
+ * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
 
 namespace OTSW\Search;

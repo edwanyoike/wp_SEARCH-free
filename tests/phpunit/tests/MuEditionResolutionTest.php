@@ -24,7 +24,7 @@ final class MuEditionResolutionTest extends TestCase {
 
 	protected function setUp(): void {
 		otsw_tests_reset();
-		require_once OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php';
+		require_once OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
 	}
 
 	public function test_free_active_only_resolves_to_the_free_directory(): void {

@@ -14,9 +14,11 @@ final class ActivatorTest extends TestCase {
 		$GLOBALS['wpdb'] = $this->wpdb;
 
 		// Remove any MU file a previous test copied.
-		$mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
-		if ( file_exists( $mu ) ) {
-			unlink( $mu );
+		foreach ( array( 'otsw-cache-bypass.php', 'wcs-cache-bypass.php' ) as $mu_filename ) {
+			$mu = WPMU_PLUGIN_DIR . '/' . $mu_filename;
+			if ( file_exists( $mu ) ) {
+				unlink( $mu );
+			}
 		}
 	}
 
@@ -138,9 +140,17 @@ final class ActivatorTest extends TestCase {
 		// single-shot retry jobs, so it reschedules itself forever unless
 		// explicitly cleared.
 		$GLOBALS['otsw_test_cron']['wcs_daily_transient_gc'] = time();
+		// The pre-rename MU file, still sitting under its old name from
+		// before the upgrade — must be gone before the new otsw-cache-bypass.php
+		// is ever written, or WordPress loads both and fatals on the
+		// duplicate otsw_-prefixed function declarations they share.
+		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $legacy_mu, '<?php // placeholder' );
 		$this->healthyTables();
 
 		Activator::init();
+
+		$this->assertFileDoesNotExist( $legacy_mu, 'the pre-rename MU file must be removed during migration, not left alongside the new one' );
 
 		// The admin's actual setting survives the rename instead of silently
 		// reverting to the otsw_ default.
@@ -284,9 +294,9 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init();
 
-		$this->assertFileExists( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
 		$this->assertSame( OTSW_VERSION, get_option( 'otsw_mu_version' ) );
-		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php', WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
 	}
 
 	/**
@@ -309,7 +319,7 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init();
 
-		$this->assertFileExists( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php', 'a missing file must be repaired even when the stored version already matches' );
+		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'a missing file must be repaired even when the stored version already matches' );
 	}
 
 	public function test_current_mu_version_and_present_file_leaves_it_untouched(): void {
@@ -322,7 +332,7 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init(); // steady state: version current, file already present
 
-		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/wcs-cache-bypass.php', WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
 	}
 
 	public function test_frontend_requests_do_not_repair_a_missing_mu_file(): void {
@@ -333,7 +343,7 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init();
 
-		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php', 'the file-existence probe is admin-only, same as the version check it augments' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'the file-existence probe is admin-only, same as the version check it augments' );
 	}
 
 	public function test_frontend_requests_never_touch_the_mu_file(): void {
@@ -344,7 +354,7 @@ final class ActivatorTest extends TestCase {
 
 		Activator::init();
 
-		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
 	}
 
 	// ── Cron bootstrap ───────────────────────────────────────────────────────
@@ -423,14 +433,14 @@ final class ActivatorTest extends TestCase {
 	/**
 	 * Regression: wp-content/mu-plugins/ is a single, network-wide directory
 	 * — not per-site — and Free/Pro both install and use the exact same
-	 * wcs-cache-bypass.php file. deactivate() used to remove it
+	 * otsw-cache-bypass.php file. deactivate() used to remove it
 	 * unconditionally, so migrating from Free to Pro on the same site (a
 	 * supported, expected path — Free's own activation guard refuses to run
 	 * alongside Pro) silently broke Pro's fast-path cache-bypass the moment
 	 * an admin deactivated the now-redundant Free copy.
 	 */
 	public function test_deactivate_does_not_remove_the_shared_mu_file_when_pro_is_still_active(): void {
-		$mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		$mu = WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php';
 		file_put_contents( $mu, '<?php // placeholder' );
 		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
@@ -440,7 +450,7 @@ final class ActivatorTest extends TestCase {
 	}
 
 	public function test_deactivate_removes_the_mu_file_when_pro_is_not_active(): void {
-		$mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		$mu = WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php';
 		file_put_contents( $mu, '<?php // placeholder' );
 
 		Activator::deactivate();
