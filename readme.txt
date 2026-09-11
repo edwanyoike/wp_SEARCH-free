@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.23
+Stable tag:        1.11.24
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -76,15 +76,15 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Screenshots ==
 
-1. Live search dropdown showing instant results as a customer types, on a real store selling in KES.
-2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
+1. Live search dropdown showing instant results as a customer types, with product images, prices, and matching text highlighted.
+2. Recent Searches: the dropdown suggests a shopper's own last few searches when they focus the search box again.
 
 == Changelog ==
 
+= 1.11.24 =
+* Housekeeping: refreshed both WordPress.org listing screenshots — the previous pair was taken on two different stores in two different currencies; both are now the same live store, showing the live search dropdown with real results and the Recent Searches feature.
+
 = 1.11.23 =
 * Housekeeping: corrected a changelog entry misattributed to the wrong version heading in this file, introduced by the previous release. No functional change.
-
-= 1.11.22 =
-* Fix: the "Last successful index: X ago" line on the Turbo Search settings page never updated after a rebuild finished — it only ever reflected whatever it said on the last full page load, so it could sit at "23 seconds ago" indefinitely until the admin manually refreshed. The rebuild-progress check (which already polls every couple of seconds while a rebuild runs) now refreshes this line the moment the rebuild completes.
 
 See changelog.txt for older releases.
