@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.11
+Stable tag:        1.11.12
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,6 +80,14 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
 == Changelog ==
+
+= 1.11.12 =
+* Housekeeping: removed the remaining backend plumbing for typo-corrected search queries — a Pro-only feature this edition never actually produced results for. The always-empty property, the cache wrapper it used, and the response header it triggered are gone; 1.11.10's changelog entry described the frontend half of this removal, this finishes the backend half.
+* Housekeeping: renamed the remaining internal HTML/CSS/JavaScript identifiers (previously a 3-letter prefix) to the plugin's distinctive prefix, for compliance with WordPress.org's plugin identifier guidelines. This is an internal rename with no effect on how the plugin looks or behaves; a custom theme/CSS snippet that specifically targeted the plugin's old class names would need updating to the new ones.
+* Added: [otsw_search] is now the primary search-form shortcode. The existing [turbo_search] shortcode keeps working exactly as before.
+
+= 1.11.11 =
+* Fix: on some mobile browsers, the search dropdown's recent-searches and suggestion rows could render with a much larger font than specified, making those rows look oversized. Caused by the browser's automatic text-size boosting, which is now explicitly disabled for the dropdown so its sizing always renders as designed.
 
 = 1.11.10 =
 * Renamed: this plugin is now "OzuLabs Turbo Search for WooCommerce" (slug: ozulabs-turbo-search-for-woocommerce). If you're updating from an earlier version, existing settings and your search index carry over automatically.

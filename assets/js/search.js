@@ -10,14 +10,14 @@
 	// (e.g. cache-served) query already rendered, overwriting fresh results.
 	let searchSeq = 0;
 	let renderedQuery = '';
-	const portal = document.getElementById('wcs-dropdown-portal');
+	const portal = document.getElementById('otsw-dropdown-portal');
 
 	if (!portal) return;
 
 	// Create dropdown element
 	const dropdown = document.createElement('div');
-	dropdown.className = 'wcs-dropdown';
-	dropdown.id = 'wcs-listbox';
+	dropdown.className = 'otsw-dropdown';
+	dropdown.id = 'otsw-listbox';
 	dropdown.setAttribute('role', 'listbox');
 	dropdown.setAttribute('aria-label', otsw_config.i18n.results_label || 'Product search results');
 	portal.appendChild(dropdown);
@@ -29,14 +29,14 @@
 	let activeIndex = -1;
 
 	function attachSearchInput(input) {
-		if (input.dataset.wcsAttached === '1') return;
+		if (input.dataset.otswAttached === '1') return;
 		// Only attach to WooCommerce product search forms.
 		const form = input.closest('form');
 		if (!form) return;
 
 		const postType = form.querySelector('input[name="post_type"]');
 		if (!postType || postType.value !== 'product') return;
-		input.dataset.wcsAttached = '1';
+		input.dataset.otswAttached = '1';
 
 		// Woodmart (and similar themes) have their own AJAX search attached to the
 		// "woodmart-ajax-search" class. Remove it so both dropdowns don't fire at
@@ -50,7 +50,7 @@
 		input.setAttribute('role', 'combobox');
 		input.setAttribute('aria-expanded', 'false');
 		input.setAttribute('aria-autocomplete', 'list');
-		input.setAttribute('aria-controls', 'wcs-listbox');
+		input.setAttribute('aria-controls', 'otsw-listbox');
 
 		input.addEventListener('input', debounce((e) => {
 			activeInput = input;
@@ -95,7 +95,7 @@
 				return;
 			}
 
-			const items = dropdown.querySelectorAll('.wcs-result-item');
+			const items = dropdown.querySelectorAll('.otsw-result-item');
 			if (items.length === 0) return;
 
 			if (e.key === 'ArrowDown') {
@@ -209,7 +209,7 @@
 
 	function showDropdown() {
 		dropdown.classList.add('is-active');
-		document.documentElement.classList.add('wcs-search-active');
+		document.documentElement.classList.add('otsw-search-active');
 		if (activeInput) {
 			activeInput.setAttribute('aria-expanded', 'true');
 		}
@@ -217,7 +217,7 @@
 
 	function hideDropdown() {
 		dropdown.classList.remove('is-active');
-		document.documentElement.classList.remove('wcs-search-active');
+		document.documentElement.classList.remove('otsw-search-active');
 		activeIndex = -1;
 		if (activeInput) {
 			activeInput.setAttribute('aria-expanded', 'false');
@@ -228,14 +228,14 @@
 	function highlightItem(items) {
 		items.forEach((item, index) => {
 			if (index === activeIndex) {
-				item.classList.add('wcs-highlighted');
+				item.classList.add('otsw-highlighted');
 				item.setAttribute('aria-selected', 'true');
 				item.scrollIntoView({ block: 'nearest' });
 				if (activeInput) {
 					activeInput.setAttribute('aria-activedescendant', item.id);
 				}
 			} else {
-				item.classList.remove('wcs-highlighted');
+				item.classList.remove('otsw-highlighted');
 				item.setAttribute('aria-selected', 'false');
 			}
 		});
@@ -390,11 +390,11 @@
 		renderedQuery = '';
 		dropdown.innerHTML = '';
 		const status = document.createElement('div');
-		status.className = 'wcs-loading';
+		status.className = 'otsw-loading';
 		status.setAttribute('role', 'status');
 		status.setAttribute('aria-live', 'polite');
 		const spinner = document.createElement('span');
-		spinner.className = 'wcs-loading-spinner';
+		spinner.className = 'otsw-loading-spinner';
 		spinner.setAttribute('aria-hidden', 'true');
 		status.appendChild(spinner);
 		status.appendChild(document.createTextNode(otsw_config.i18n.searching || 'Searching products…'));
@@ -407,7 +407,7 @@
 		renderedQuery = input.value.trim();
 		dropdown.innerHTML = '';
 		const status = document.createElement('div');
-		status.className = 'wcs-no-results wcs-search-error';
+		status.className = 'otsw-no-results otsw-search-error';
 		status.setAttribute('role', 'alert');
 		const message = document.createElement('strong');
 		message.textContent = otsw_config.i18n.search_error || 'Search is temporarily unavailable.';
@@ -447,12 +447,12 @@
 		dropdown.innerHTML = '';
 		renderedQuery = '';
 		const heading = document.createElement('div');
-		heading.className = 'wcs-section-heading wcs-recent-heading';
+		heading.className = 'otsw-section-heading otsw-recent-heading';
 		const label = document.createElement('span');
 		label.textContent = otsw_config.i18n.recent_searches || 'Recent searches';
 		const clear = document.createElement('button');
 		clear.type = 'button';
-		clear.className = 'wcs-clear-recent';
+		clear.className = 'otsw-clear-recent';
 		clear.textContent = otsw_config.i18n.clear_recent || 'Clear';
 		clear.addEventListener('click', () => {
 			try { window.localStorage.removeItem('otsw_recent_searches'); } catch (_) {}
@@ -464,8 +464,8 @@
 		recent.forEach((query, index) => {
 			const button = document.createElement('button');
 			button.type = 'button';
-			button.className = 'wcs-result-item wcs-recent-item';
-			button.id = 'wcs-option-recent-' + index;
+			button.className = 'otsw-result-item otsw-recent-item';
+			button.id = 'otsw-option-recent-' + index;
 			button.setAttribute('role', 'option');
 			button.setAttribute('aria-selected', 'false');
 			button.textContent = query;
@@ -575,7 +575,7 @@
 				el.appendChild(document.createTextNode(text.slice(lastIndex, match.index)));
 			}
 			const mark = document.createElement('mark');
-			mark.className = 'wcs-highlight';
+			mark.className = 'otsw-highlight';
 			mark.textContent = match[0];
 			el.appendChild(mark);
 			lastIndex = match.index + match[0].length;
@@ -599,7 +599,7 @@
 
 			if (results.length === 0) {
 				const noResultsDiv = document.createElement('div');
-				noResultsDiv.className = 'wcs-no-results';
+				noResultsDiv.className = 'otsw-no-results';
 				noResultsDiv.setAttribute('role', 'status');
 				const message = document.createElement('strong');
 				message.textContent = results.__indexing
@@ -615,8 +615,8 @@
 			} else {
 				results.forEach((item, index) => {
 					const a = document.createElement('a');
-					a.className = 'wcs-result-item';
-					a.id = 'wcs-option-' + index;
+					a.className = 'otsw-result-item';
+					a.id = 'otsw-option-' + index;
 					a.setAttribute('role', 'option');
 					a.setAttribute('aria-selected', 'false');
 
@@ -631,7 +631,7 @@
 					a.href = safeUrl;
 
 					const img = document.createElement('img');
-					img.className = 'wcs-result-img';
+					img.className = 'otsw-result-img';
 					img.alt = '';
 					img.loading = 'lazy';
 					img.decoding = 'async';
@@ -650,17 +650,17 @@
 					);
 
 					const info = document.createElement('div');
-					info.className = 'wcs-result-info';
+					info.className = 'otsw-result-info';
 
 					const title = document.createElement('span');
-					title.className = 'wcs-result-title';
+					title.className = 'otsw-result-title';
 					appendHighlighted(title, item.title, queryWords);
 
 					const meta = document.createElement('div');
-					meta.className = 'wcs-result-meta';
+					meta.className = 'otsw-result-meta';
 
 					const price = document.createElement('span');
-					price.className = 'wcs-result-price';
+					price.className = 'otsw-result-price';
 
 					let priceStr = '';
 					const pMin = parseFloat(item.price_min);
@@ -677,7 +677,7 @@
 
 					if (item.stock_status !== 'instock') {
 						const oosBadge = document.createElement('span');
-						oosBadge.className = 'wcs-badge-oos';
+						oosBadge.className = 'otsw-badge-oos';
 						oosBadge.textContent = otsw_config.i18n.out_of_stock;
 						meta.appendChild(oosBadge);
 					}
@@ -687,7 +687,7 @@
 
 					if (item.excerpt) {
 						const excerpt = document.createElement('span');
-						excerpt.className = 'wcs-result-excerpt';
+						excerpt.className = 'otsw-result-excerpt';
 						appendHighlighted(excerpt, item.excerpt, queryWords);
 						info.appendChild(excerpt);
 					}
@@ -704,8 +704,8 @@
 				// check above), so it always has a query worth linking to.
 				const viewAllQuery = query;
 				const viewAll = document.createElement('a');
-				viewAll.className = 'wcs-result-item wcs-view-all';
-				viewAll.id = 'wcs-option-' + results.length;
+				viewAll.className = 'otsw-result-item otsw-view-all';
+				viewAll.id = 'otsw-option-' + results.length;
 				viewAll.setAttribute('role', 'option');
 				viewAll.setAttribute('aria-selected', 'false');
 				const url = new URL(window.location.origin + '/');

@@ -19,7 +19,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 ?>
 <div class="card" style="max-width: 600px; margin-top: 20px;">
 	<h2><?php esc_html_e( 'Index Status', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
-	<p id="wcs-status-wrapper">
+	<p id="otsw-status-wrapper">
 		<?php if ( $is_indexing ) : ?>
 			<span style="color: #d63638; font-weight: bold;">
 			<?php
@@ -37,13 +37,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<span style="color: #00a32a; font-weight: bold;"><?php esc_html_e( 'Status: Idle / Complete', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 		<?php endif; ?>
 	</p>
-	<p id="wcs-progress-wrapper">
+	<p id="otsw-progress-wrapper">
 		<?php
 		/* translators: 1: number of processed products, 2: total number of published products */
 		echo esc_html( sprintf( __( 'Processed %1$d of %2$d published products.', 'ozulabs-turbo-search-for-woocommerce' ), $processed, $total ) );
 		?>
 	</p>
-	<p id="wcs-last-indexed">
+	<p id="otsw-last-indexed">
 		<?php if ( $last_indexed > 0 ) : ?>
 			<?php
 			/* translators: %s: human-readable time ago string */
@@ -53,7 +53,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<?php esc_html_e( 'Last successful index: never', 'ozulabs-turbo-search-for-woocommerce' ); ?>
 		<?php endif; ?>
 	</p>
-	<p id="wcs-rebuild-error" style="<?php echo $last_rebuild_error ? '' : 'display:none;'; ?> color:#d63638;">
+	<p id="otsw-rebuild-error" style="<?php echo $last_rebuild_error ? '' : 'display:none;'; ?> color:#d63638;">
 		<?php if ( $last_rebuild_error ) : ?>
 			<?php
 			// Unrecognized codes still render (as the raw code) rather than
@@ -63,10 +63,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		<?php endif; ?>
 	</p>
-	<button id="wcs-rebuild-btn" class="button button-secondary" <?php disabled( $is_indexing ); ?>>
+	<button id="otsw-rebuild-btn" class="button button-secondary" <?php disabled( $is_indexing ); ?>>
 		<?php esc_html_e( 'Rebuild Index', 'ozulabs-turbo-search-for-woocommerce' ); ?>
 	</button>
-	<span id="wcs-rebuild-spinner" class="spinner <?php echo $is_indexing ? 'is-active' : ''; ?>"></span>
+	<span id="otsw-rebuild-spinner" class="spinner <?php echo $is_indexing ? 'is-active' : ''; ?>"></span>
 </div>
 
 <div style="margin-top: 20px; padding: 12px 16px; background: #f0f6fc; border-left: 4px solid #2563eb; border-radius: 0 4px 4px 0; font-size: 13px; line-height: 1.6;">
@@ -83,9 +83,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<label for="otsw_result_count"><?php esc_html_e( 'Results Count', 'ozulabs-turbo-search-for-woocommerce' ); ?></label>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'The maximum number of matches shown to users in the live dropdown panel.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'The maximum number of matches shown to users in the live dropdown panel.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
@@ -96,9 +96,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<label for="otsw_min_chars"><?php esc_html_e( 'Minimum Characters', 'ozulabs-turbo-search-for-woocommerce' ); ?></label>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'The minimum number of characters typed in the search field before triggering auto-complete search.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'The minimum number of characters typed in the search field before triggering auto-complete search.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
@@ -109,9 +109,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Rate Limiting', 'ozulabs-turbo-search-for-woocommerce' ); ?>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'Caps how many searches a single visitor can make. The stricter limit applies only to searches that find nothing and fall through every fallback the plugin tries — the most expensive kind of request, and the shape a scripted flood would use to run up load. A normal shopper never notices either limit.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'Caps how many searches a single visitor can make. The stricter limit applies only to searches that find nothing and fall through every fallback the plugin tries — the most expensive kind of request, and the shape a scripted flood would use to run up load. A normal shopper never notices either limit.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
@@ -135,9 +135,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Recent Searches', 'ozulabs-turbo-search-for-woocommerce' ); ?>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'Remembers each shopper\'s own past searches in their browser (not shared between shoppers, and not sent to your server) and offers them again when the search box is focused empty.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'Remembers each shopper\'s own past searches in their browser (not shared between shoppers, and not sent to your server) and offers them again when the search box is focused empty.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
@@ -156,9 +156,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Out of Stock Products', 'ozulabs-turbo-search-for-woocommerce' ); ?>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'Toggle to show or hide products that are currently out of stock from search results.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'Toggle to show or hide products that are currently out of stock from search results.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>
@@ -173,9 +173,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<tr>
 			<th scope="row">
 				<?php esc_html_e( 'Search Fields Weighting', 'ozulabs-turbo-search-for-woocommerce' ); ?>
-				<div class="wcs-tooltip">
-					<span class="wcs-tooltip-icon">?</span>
-					<span class="wcs-tooltip-text"><?php esc_html_e( 'Select which fields are compiled into the search index. Unchecking unused fields optimizes match quality and speed. Note: You must rebuild the index after modifying these.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
+				<div class="otsw-tooltip">
+					<span class="otsw-tooltip-icon">?</span>
+					<span class="otsw-tooltip-text"><?php esc_html_e( 'Select which fields are compiled into the search index. Unchecking unused fields optimizes match quality and speed. Note: You must rebuild the index after modifying these.', 'ozulabs-turbo-search-for-woocommerce' ); ?></span>
 				</div>
 			</th>
 			<td>

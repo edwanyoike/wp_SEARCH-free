@@ -102,7 +102,7 @@ class Admin_Settings {
 		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php';
 		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'otsw_notice_mu_bypass_dismissed', true ) ) {
 			?>
-			<div class="notice notice-warning is-dismissible" data-wcs-notice="otsw_notice_mu_bypass">
+			<div class="notice notice-warning is-dismissible" data-otsw-notice="otsw_notice_mu_bypass">
 				<p>
 					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Cache Bypass Not Active', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>
@@ -122,7 +122,7 @@ class Admin_Settings {
 		// ── Notice 2: No persistent object cache ─────────────────────────────
 		if ( ! wp_using_ext_object_cache() && ! get_user_meta( $user_id, 'otsw_notice_no_cache_dismissed', true ) ) {
 			?>
-			<div class="notice notice-info is-dismissible" data-wcs-notice="otsw_notice_no_cache">
+			<div class="notice notice-info is-dismissible" data-otsw-notice="otsw_notice_no_cache">
 				<p>
 					<strong><?php esc_html_e( 'Turbo Search for WooCommerce — Tip: Enable a Persistent Object Cache', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 				</p>

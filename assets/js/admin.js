@@ -10,12 +10,12 @@
 	document.addEventListener('click', function (e) {
 		const btn = e.target.closest('.notice-dismiss');
 		if (!btn) return;
-		const notice = btn.closest('[data-wcs-notice]');
+		const notice = btn.closest('[data-otsw-notice]');
 		if (!notice) return;
 
 		const body = new URLSearchParams();
 		body.append('action', 'otsw_dismiss_notice');
-		body.append('notice_id', notice.getAttribute('data-wcs-notice'));
+		body.append('notice_id', notice.getAttribute('data-otsw-notice'));
 		body.append('_wpnonce', otswAdmin.nonces.dismiss);
 		fetch(ajaxurl, { method: 'POST', body: body });
 	});
@@ -23,8 +23,8 @@
 	// App Data tab — independent of the Settings tab's statusWrapper guard
 	// below, since the two live on different tabs and are never both present.
 	function initAppDataTab() {
-		const deleteBtn     = document.getElementById('wcs-delete-data-btn');
-		const deleteSpinner = document.getElementById('wcs-delete-spinner');
+		const deleteBtn     = document.getElementById('otsw-delete-data-btn');
+		const deleteSpinner = document.getElementById('otsw-delete-spinner');
 		if (!deleteBtn) return;
 
 		const i18n = otswAdmin.i18n;
@@ -62,11 +62,11 @@
 	function init() {
 		initAppDataTab();
 
-		const btn             = document.getElementById('wcs-rebuild-btn');
-		const spinner         = document.getElementById('wcs-rebuild-spinner');
-		const statusWrapper   = document.getElementById('wcs-status-wrapper');
-		const progressWrapper = document.getElementById('wcs-progress-wrapper');
-		const errorWrapper    = document.getElementById('wcs-rebuild-error');
+		const btn             = document.getElementById('otsw-rebuild-btn');
+		const spinner         = document.getElementById('otsw-rebuild-spinner');
+		const statusWrapper   = document.getElementById('otsw-status-wrapper');
+		const progressWrapper = document.getElementById('otsw-progress-wrapper');
+		const errorWrapper    = document.getElementById('otsw-rebuild-error');
 		if (!statusWrapper) return; // App Data/Docs tab — nothing else to control.
 
 		const i18n = otswAdmin.i18n;

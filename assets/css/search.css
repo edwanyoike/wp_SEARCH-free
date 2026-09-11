@@ -1,28 +1,28 @@
 /* assets/css/search.css */
 :root {
-	--wcs-bg: #ffffff;
-	--wcs-text: #333333;
-	--wcs-border: #e2e8f0;
-	--wcs-separator: #cbd5e1;
-	--wcs-hover: #f8fafc;
-	--wcs-primary: #2563eb;
-	--wcs-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-	--wcs-radius: 8px;
+	--otsw-bg: #ffffff;
+	--otsw-text: #333333;
+	--otsw-border: #e2e8f0;
+	--otsw-separator: #cbd5e1;
+	--otsw-hover: #f8fafc;
+	--otsw-primary: #2563eb;
+	--otsw-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+	--otsw-radius: 8px;
 }
 
-#wcs-dropdown-portal {
+#otsw-dropdown-portal {
 	position: absolute;
 	top: 0;
 	left: 0;
 	width: 100%;
 }
 
-.wcs-dropdown {
+.otsw-dropdown {
 	position: absolute;
-	background: var(--wcs-bg);
-	border: 1px solid var(--wcs-border);
-	border-radius: var(--wcs-radius);
-	box-shadow: var(--wcs-shadow);
+	background: var(--otsw-bg);
+	border: 1px solid var(--otsw-border);
+	border-radius: var(--otsw-radius);
+	box-shadow: var(--otsw-shadow);
 	z-index: 999999;
 	max-height: 400px;
 	overflow-y: auto;
@@ -51,16 +51,16 @@
 	text-size-adjust: 100%;
 }
 
-.wcs-dropdown.is-active {
+.otsw-dropdown.is-active {
 	display: flex;
 }
 
-.wcs-result-item {
+.otsw-result-item {
 	display: flex;
 	align-items: flex-start; /* rows vary in height once an excerpt is present */
-	/* .wcs-dropdown is itself flex-direction:column, which makes every row a
+	/* .otsw-dropdown is itself flex-direction:column, which makes every row a
 	   flex item with the initial flex-shrink:1 — so once the result list is
-	   taller than .wcs-dropdown's max-height, the browser compresses each
+	   taller than .otsw-dropdown's max-height, the browser compresses each
 	   row's box shorter than its own title+price+excerpt content needs
 	   (their nested overflow:hidden gives them an effective min-content
 	   height of 0, so there's nothing stopping the shrink). This row has no
@@ -73,21 +73,21 @@
 	flex-shrink: 0;
 	padding: 12px 16px;
 	text-decoration: none;
-	color: var(--wcs-text);
-	border-bottom: 1px solid var(--wcs-separator);
+	color: var(--otsw-text);
+	border-bottom: 1px solid var(--otsw-separator);
 	transition: background-color 0.15s ease;
 }
 
-.wcs-result-item:last-child {
+.otsw-result-item:last-child {
 	border-bottom: none;
 }
 
-.wcs-result-item:hover, .wcs-result-item:focus, .wcs-result-item.wcs-highlighted {
-	background-color: var(--wcs-hover);
+.otsw-result-item:hover, .otsw-result-item:focus, .otsw-result-item.otsw-highlighted {
+	background-color: var(--otsw-hover);
 	outline: none;
 }
 
-.wcs-result-img {
+.otsw-result-img {
 	width: 56px;
 	height: 56px;
 	object-fit: cover;
@@ -96,14 +96,14 @@
 	background: #f1f5f9;
 }
 
-.wcs-result-info {
+.otsw-result-info {
 	display: flex;
 	flex-direction: column;
 	flex-grow: 1;
 	overflow: hidden;
 }
 
-.wcs-result-title {
+.otsw-result-title {
 	font-weight: 600;
 	font-size: 14px;
 	line-height: 1.3;
@@ -117,7 +117,7 @@
 	-webkit-box-orient: vertical;
 }
 
-.wcs-result-meta {
+.otsw-result-meta {
 	display: flex;
 	align-items: center;
 	margin-top: 4px;
@@ -125,12 +125,12 @@
 	color: #64748b;
 }
 
-.wcs-result-price {
+.otsw-result-price {
 	font-weight: 500;
-	color: var(--wcs-primary);
+	color: var(--otsw-primary);
 }
 
-.wcs-badge-oos {
+.otsw-badge-oos {
 	background: #fee2e2;
 	color: #ef4444;
 	font-size: 10px;
@@ -141,7 +141,7 @@
 	font-weight: 700;
 }
 
-.wcs-result-excerpt {
+.otsw-result-excerpt {
 	margin-top: 3px;
 	font-size: 12px;
 	line-height: 1.4;
@@ -152,43 +152,43 @@
 	overflow: hidden;
 }
 
-mark.wcs-highlight {
+mark.otsw-highlight {
 	background: rgba(37, 99, 235, 0.15);
 	color: inherit;
 	padding: 0 1px;
 	border-radius: 2px;
 }
 
-.wcs-view-all {
+.otsw-view-all {
 	justify-content: center;
 	font-weight: 600;
 	font-size: 13px;
-	color: var(--wcs-primary);
+	color: var(--otsw-primary);
 }
 
-.wcs-no-results {
+.otsw-no-results {
 	padding: 24px 16px;
 	text-align: center;
 	color: #64748b;
 	font-size: 14px;
 }
 
-.wcs-no-results strong,
-.wcs-no-results span {
+.otsw-no-results strong,
+.otsw-no-results span {
 	display: block;
 }
 
-.wcs-no-results strong {
-	color: var(--wcs-text);
+.otsw-no-results strong {
+	color: var(--otsw-text);
 	font-size: 15px;
 }
 
-.wcs-no-results span {
+.otsw-no-results span {
 	margin-top: 5px;
 	font-size: 12px;
 }
 
-.wcs-loading {
+.otsw-loading {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -198,30 +198,30 @@ mark.wcs-highlight {
 	font-size: 14px;
 }
 
-.wcs-loading-spinner {
+.otsw-loading-spinner {
 	width: 16px;
 	height: 16px;
-	border: 2px solid var(--wcs-border);
-	border-top-color: var(--wcs-primary);
+	border: 2px solid var(--otsw-border);
+	border-top-color: var(--otsw-primary);
 	border-radius: 50%;
-	animation: wcs-spin 0.7s linear infinite;
+	animation: otsw-spin 0.7s linear infinite;
 }
 
-@keyframes wcs-spin {
+@keyframes otsw-spin {
 	to { transform: rotate(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-	.wcs-loading-spinner {
+	.otsw-loading-spinner {
 		animation-duration: 1.5s;
 	}
-	.wcs-result-item {
+	.otsw-result-item {
 		transition: none;
 	}
 }
 
 /* ── [turbo_search] shortcode form ─────────────────────────────────────────── */
-form.wcs-form-wrap {
+form.otsw-form-wrap {
 	display: flex !important;
 	align-items: stretch !important;
 	border: 1.5px solid #d1d5db !important;
@@ -237,12 +237,12 @@ form.wcs-form-wrap {
 	transition: border-color 0.15s ease, box-shadow 0.15s ease !important;
 }
 
-form.wcs-form-wrap:focus-within {
-	border-color: var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--wcs-primary))))) !important;
-	box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--wcs-primary))))), transparent 80%) !important;
+form.otsw-form-wrap:focus-within {
+	border-color: var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--otsw-primary))))) !important;
+	box-shadow: 0 0 0 3px color-mix(in srgb, var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--otsw-primary))))), transparent 80%) !important;
 }
 
-form.wcs-form-wrap .wcs-form-input {
+form.otsw-form-wrap .otsw-form-input {
 	flex: 1 1 auto !important;
 	border: none !important;
 	outline: none !important;
@@ -257,11 +257,11 @@ form.wcs-form-wrap .wcs-form-input {
 	border-radius: 0 !important;
 }
 
-form.wcs-form-wrap .wcs-form-input::placeholder {
+form.otsw-form-wrap .otsw-form-input::placeholder {
 	color: #9ca3af !important;
 }
 
-form.wcs-form-wrap .wcs-form-btn {
+form.otsw-form-wrap .otsw-form-btn {
 	flex-shrink: 0 !important;
 	display: flex !important;
 	align-items: center !important;
@@ -272,18 +272,18 @@ form.wcs-form-wrap .wcs-form-btn {
 	border: none !important;
 	border-radius: 0 9999px 9999px 0 !important;
 	/* Use the active theme's primary/accent colour; fall back to plugin blue */
-	background: var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--wcs-primary))))) !important;
+	background: var(--theme-color, var(--primary-color, var(--color-primary, var(--wp--preset--color--primary, var(--otsw-primary))))) !important;
 	color: #fff !important;
 	cursor: pointer !important;
 	transition: background-color 0.15s ease, opacity 0.15s ease !important;
 	margin: 0 !important;
 }
 
-form.wcs-form-wrap .wcs-form-btn:hover {
+form.otsw-form-wrap .otsw-form-btn:hover {
 	opacity: 0.85 !important;
 }
 
-form.wcs-form-wrap .wcs-form-btn svg {
+form.otsw-form-wrap .otsw-form-btn svg {
 	display: block !important;
 	width: 18px !important;
 	height: 18px !important;
@@ -298,17 +298,17 @@ form.wcs-form-wrap .wcs-form-btn svg {
  * !important is required because the plugin's own JS toggles a
  * non-!important inline display:block on these nodes; the stylesheet
  * rule still wins over that inline style. */
-.wcs-search-active .live-search-results,
-.wcs-search-active .autocomplete-suggestions,
-.wcs-search-active .aws-search-result,
-.wcs-search-active .dgwt-wcas-suggestions-wrapper {
+.otsw-search-active .live-search-results,
+.otsw-search-active .autocomplete-suggestions,
+.otsw-search-active .aws-search-result,
+.otsw-search-active .dgwt-wcas-suggestions-wrapper {
 	display: none !important;
 }
 
-.wcs-section-heading {
+.otsw-section-heading {
 	padding: 7px 16px;
-	border-bottom: 1px solid var(--wcs-border);
-	background: var(--wcs-hover);
+	border-bottom: 1px solid var(--otsw-border);
+	background: var(--otsw-hover);
 	color: #64748b;
 	font-size: 11px;
 	font-weight: 700;
@@ -316,47 +316,47 @@ form.wcs-form-wrap .wcs-form-btn svg {
 	text-transform: uppercase;
 }
 
-.wcs-recent-heading {
+.otsw-recent-heading {
 	display: flex;
 	align-items: center;
 	justify-content: space-between;
 }
 
-.wcs-clear-recent {
+.otsw-clear-recent {
 	padding: 2px 4px;
 	border: 0;
 	background: transparent;
-	color: var(--wcs-primary);
+	color: var(--otsw-primary);
 	font: inherit;
 	font-weight: 600;
 	text-transform: none;
 	cursor: pointer;
 }
 
-.wcs-recent-item {
+.otsw-recent-item {
 	width: 100%;
 	min-height: 44px;
 	border: 0;
-	border-bottom: 1px solid var(--wcs-separator);
-	background: var(--wcs-bg);
+	border-bottom: 1px solid var(--otsw-separator);
+	background: var(--otsw-bg);
 	font: inherit;
 	font-size: 14px;
 	text-align: left;
 	cursor: pointer;
 }
 
-.wcs-recent-item::before {
+.otsw-recent-item::before {
 	content: '\21B7';
 	margin-right: 10px;
 	color: #94a3b8;
 }
 
 @media (max-width: 480px) {
-	.wcs-dropdown {
+	.otsw-dropdown {
 		max-height: min(65vh, 520px);
 		border-radius: 10px;
 	}
-	.wcs-result-item {
+	.otsw-result-item {
 		min-height: 72px;
 		padding: 10px 12px;
 	}

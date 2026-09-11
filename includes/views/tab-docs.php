@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 ?>
-<div class="wcs-doc-section">
+<div class="otsw-doc-section">
 	<h2><?php esc_html_e( 'Getting Started', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<ol style="line-height: 2.2;">
 		<li><?php esc_html_e( 'Go to the Settings tab and click Rebuild Index. This runs once in the background and indexes all your products.', 'ozulabs-turbo-search-for-woocommerce' ); ?></li>
@@ -21,13 +21,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</ol>
 </div>
 
-<div class="wcs-doc-section" id="search-form-setup" style="margin-top: 20px;">
+<div class="otsw-doc-section" id="search-form-setup" style="margin-top: 20px;">
 	<h2><?php esc_html_e( 'Search Form Setup', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<p><?php esc_html_e( 'The plugin automatically attaches to any existing WooCommerce product search form on your site. If your theme uses a custom search widget or does not have a standard product search bar, use the shortcode below to place a Turbo Search form anywhere.', 'ozulabs-turbo-search-for-woocommerce' ); ?></p>
 
 	<h3 style="margin-bottom: 6px;"><?php esc_html_e( 'Shortcode', 'ozulabs-turbo-search-for-woocommerce' ); ?></h3>
 	<p><?php esc_html_e( 'Paste this into any page, widget, or Elementor/WPBakery text block:', 'ozulabs-turbo-search-for-woocommerce' ); ?></p>
-	<pre style="font-size:13px;">[turbo_search]</pre>
+	<pre style="font-size:13px;">[otsw_search]</pre>
+	<p><?php esc_html_e( '[turbo_search] still works too, for pages that already use it — both render the exact same form.', 'ozulabs-turbo-search-for-woocommerce' ); ?></p>
 
 	<h3 style="margin-bottom:6px; margin-top:16px;"><?php esc_html_e( 'Optional attributes', 'ozulabs-turbo-search-for-woocommerce' ); ?></h3>
 	<table class="widefat striped" style="max-width: 640px;">
@@ -62,7 +63,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</p>
 </div>
 
-<div class="wcs-doc-section" style="margin-top: 20px;">
+<div class="otsw-doc-section" style="margin-top: 20px;">
 	<h2><?php esc_html_e( 'What Triggers a Re-index?', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<table class="widefat striped" style="max-width: 640px;">
 		<thead>
@@ -104,7 +105,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	</table>
 </div>
 
-<div class="wcs-doc-section" style="margin-top: 20px;">
+<div class="otsw-doc-section" style="margin-top: 20px;">
 	<h2><?php esc_html_e( 'Adaptive Batch Sizing', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<p><?php esc_html_e( 'During a full rebuild the indexer does not use a fixed batch size. At the start of every batch it samples the server\'s current CPU load and PHP memory usage and adjusts how many products it processes at once — automatically throttling on busy servers and speeding up on idle ones.', 'ozulabs-turbo-search-for-woocommerce' ); ?></p>
 	<h3 style="margin-bottom: 6px;"><?php esc_html_e( 'CPU Load Tiers', 'ozulabs-turbo-search-for-woocommerce' ); ?></h3>
@@ -139,7 +140,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 } );</pre>
 </div>
 
-<div class="wcs-doc-section" style="margin-top: 20px;">
+<div class="otsw-doc-section" style="margin-top: 20px;">
 	<h2><?php esc_html_e( 'Developer Hooks', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<p><?php esc_html_e( 'These hooks let you customise indexing and ranking without modifying plugin files:', 'ozulabs-turbo-search-for-woocommerce' ); ?></p>
 
@@ -179,7 +180,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 } );</pre>
 </div>
 
-<div class="wcs-doc-section" style="margin-top: 20px;">
+<div class="otsw-doc-section" style="margin-top: 20px;">
 	<h2><?php esc_html_e( 'Uninstalling', 'ozulabs-turbo-search-for-woocommerce' ); ?></h2>
 	<ul style="list-style: disc; padding-left: 20px; line-height: 2;">
 		<li><?php esc_html_e( 'Deactivating the plugin keeps all your data and settings intact.', 'ozulabs-turbo-search-for-woocommerce' ); ?></li>

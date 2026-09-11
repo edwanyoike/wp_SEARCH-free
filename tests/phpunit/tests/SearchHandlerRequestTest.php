@@ -181,7 +181,7 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->assertSame( '100.00', $response->data[0]['price_min'] );
 		// Cached under the store-default (USD) key, not an EUR-specific one.
 		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
-		$this->assertSame( '100.00', $GLOBALS['otsw_test_transients']['data'][ $key ]['results'][0]['price_min'] );
+		$this->assertSame( '100.00', $GLOBALS['otsw_test_transients']['data'][ $key ][0]['price_min'] );
 	}
 
 	public function test_unknown_currency_falls_back_to_store_default(): void {
@@ -376,9 +376,11 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->assertSame( array(), array_filter( $this->wpdb->queries, static fn( $q ) => str_contains( $q, 'otsw_search_log' ) ) );
 	}
 
-	// ── Corrected-query header (typo correction is a Pro feature) ───────────
+	// ── No corrected-query response channel (typo correction is a Pro-only ──
+	// feature; this edition never had a way to populate one, and no longer
+	// carries the plumbing that used to exist purely to support it).
 
-	public function test_no_corrected_query_header_when_nothing_was_corrected(): void {
+	public function test_no_corrected_query_header_ever(): void {
 		$this->scriptRows( array( $this->row( 1 ) ) );
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
@@ -394,15 +396,38 @@ final class SearchHandlerRequestTest extends TestCase {
 	}
 
 	public function test_pre_upgrade_plain_array_cache_entries_still_read_correctly(): void {
-		// Simulates a transient written by a plugin version before the
-		// {results, corrected} cache wrapper existed (still valid for up to
-		// 24h of TTL after an upgrade) — a bare array of result rows.
+		// Simulates a transient written by a plugin version before the old
+		// {results, corrected} cache wrapper ever existed — a bare array of
+		// result rows.
 		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
 		set_transient( $key, array( $this->row( 5 ) ), DAY_IN_SECONDS );
 
 		$response = $this->request( array( 'q' => 'lamp' ) );
 
 		$this->assertSame( 5, $response->data[0]['product_id'] );
+		$this->assertArrayNotHasKey( 'X-OTSW-Corrected-Query', $response->headers );
+	}
+
+	public function test_pre_1_11_12_wrapped_cache_entries_still_read_but_corrected_value_is_ignored(): void {
+		// Simulates a transient written by a pre-1.11.12 version, back when
+		// this edition still carried the (always-inert) Pro corrected-query
+		// cache wrapper — still valid for up to 24h of TTL right after an
+		// upgrade. The rows must still come back; the leftover 'corrected'
+		// value must NOT resurrect a response header for it.
+		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
+		set_transient(
+			$key,
+			array(
+				'__otsw_payload' => true,
+				'results'        => array( $this->row( 7 ) ),
+				'corrected'      => 'lamp',
+			),
+			DAY_IN_SECONDS
+		);
+
+		$response = $this->request( array( 'q' => 'lamp' ) );
+
+		$this->assertSame( 7, $response->data[0]['product_id'] );
 		$this->assertArrayNotHasKey( 'X-OTSW-Corrected-Query', $response->headers );
 	}
 }

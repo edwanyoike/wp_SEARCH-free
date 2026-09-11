@@ -125,8 +125,7 @@ class Search_Handler {
 		if ( function_exists( 'apcu_fetch' ) ) {
 			$apcu_result = apcu_fetch( $cache_key, $apcu_hit );
 			if ( true === $apcu_hit ) {
-				[$cached_rows, $cached_corrected] = self::unwrap_cached( $apcu_result );
-				return self::build_response( $cached_rows, $cached_corrected );
+				return rest_ensure_response( self::cached_rows( $apcu_result ) );
 			}
 		}
 
@@ -137,8 +136,7 @@ class Search_Handler {
 			if ( function_exists( 'apcu_store' ) ) {
 				apcu_store( $cache_key, $cached, 300 );
 			}
-			[$cached_rows, $cached_corrected] = self::unwrap_cached( $cached );
-			return self::build_response( $cached_rows, $cached_corrected );
+			return rest_ensure_response( self::cached_rows( $cached ) );
 		}
 
 		// ── 3. Mutex: prevent cache stampedes under a persistent object cache ──
@@ -162,8 +160,7 @@ class Search_Handler {
 					usleep( 150000 ); // 150 ms
 					$cached = get_transient( $cache_key );
 					if ( false !== $cached ) {
-						[$cached_rows, $cached_corrected] = self::unwrap_cached( $cached );
-						return self::build_response( $cached_rows, $cached_corrected );
+						return rest_ensure_response( self::cached_rows( $cached ) );
 					}
 				}
 				// Builder timed out or failed — fall through and query DB directly.
@@ -171,11 +168,9 @@ class Search_Handler {
 		}
 
 		// ── 4. DB: run the search query ──────────────────────────────────────
-		self::$last_corrected_query = null;
 		self::$last_query_had_error = false;
 		self::$last_query_degraded  = false;
 		$results                    = self::query_database( $query );
-		$corrected_query            = self::$last_corrected_query;
 
 		// A DB error and a genuine zero-row result both come back from
 		// get_rows() as an empty array — $wpdb itself doesn't distinguish
@@ -204,7 +199,7 @@ class Search_Handler {
 			if ( $lock_key ) {
 				wp_cache_delete( $lock_key, $lock_group );
 			}
-			$response = self::build_response( $results, $corrected_query );
+			$response = rest_ensure_response( $results );
 			$response->header( 'X-OTSW-Query-Error', '1' );
 			return $response;
 		}
@@ -238,14 +233,11 @@ class Search_Handler {
 		}
 
 		// Cache for 24 hours. GC handles orphaned transients on version bump.
-		// Wrapped with the corrected query (if typo correction fired) so cache
-		// hits also get the X-OTSW-Corrected-Query header, not just this request.
-		$payload = self::wrap_for_cache( $results, $corrected_query );
-		set_transient( $cache_key, $payload, DAY_IN_SECONDS );
+		set_transient( $cache_key, $results, DAY_IN_SECONDS );
 
 		// Warm APCu so subsequent requests on this server are served from RAM.
 		if ( function_exists( 'apcu_store' ) ) {
-			apcu_store( $cache_key, $payload, 300 );
+			apcu_store( $cache_key, $results, 300 );
 		}
 
 		// Release the mutex so pollers that still haven't given up can proceed.
@@ -253,68 +245,30 @@ class Search_Handler {
 			wp_cache_delete( $lock_key, $lock_group );
 		}
 
-		return self::build_response( $results, $corrected_query );
+		return rest_ensure_response( $results );
 	}
 
 	/**
-	 * Marker key on cached payloads, distinguishing the wrapped
-	 * {results, corrected} shape from a plain array of result rows. Needed so
-	 * that transients/APCu entries written by a pre-upgrade version of this
-	 * plugin (plain result arrays, no wrapper) are still read correctly during
-	 * their remaining TTL after an upgrade — see unwrap_cached().
-	 */
-	private const CACHE_PAYLOAD_MARKER = '__otsw_payload';
-
-	/**
-	 * Wrap results plus the (optional) typo-corrected query into the shape
-	 * stored in the transient/APCu cache.
+	 * Extract result rows from a cache entry that may predate this version.
 	 *
-	 * @param array       $results   Result rows (already through the
-	 *                                otsw_search_results filter).
-	 * @param string|null $corrected The corrected query, if correction fired.
-	 * @return array
-	 */
-	private static function wrap_for_cache( array $results, ?string $corrected ): array {
-		return array(
-			self::CACHE_PAYLOAD_MARKER => true,
-			'results'                  => $results,
-			'corrected'                => $corrected,
-		);
-	}
-
-	/**
-	 * Unwrap a cache read back into [rows, corrected_query_or_null].
-	 *
-	 * Falls back to treating the whole value as a plain rows array when the
-	 * marker key is absent — the shape written by any plugin version prior to
-	 * this one, still valid for up to 24h of transient TTL after an upgrade.
+	 * Versions before 1.11.12 wrapped cached rows as
+	 * ['__otsw_payload' => true, 'results' => [...], 'corrected' => ...] so a
+	 * typo-corrected query (a Pro-only feature this edition never actually
+	 * produced) could survive a cache hit. This edition no longer writes that
+	 * shape, or reads/emits the 'corrected' value at all — but a transient or
+	 * APCu entry written by the previous version can still be live for up to
+	 * its remaining 24h TTL right after an upgrade, so a bare cache miss would
+	 * needlessly re-run the DB query for every such entry. This just pulls the
+	 * rows back out; nothing reads 'corrected' anymore.
 	 *
 	 * @param mixed $cached Value read from get_transient()/apcu_fetch().
-	 * @return array{0: array, 1: string|null}
+	 * @return array Result rows.
 	 */
-	private static function unwrap_cached( $cached ): array {
-		if ( is_array( $cached ) && ! empty( $cached[ self::CACHE_PAYLOAD_MARKER ] ) ) {
-			return array( (array) ( $cached['results'] ?? array() ), $cached['corrected'] ?? null );
+	private static function cached_rows( $cached ): array {
+		if ( is_array( $cached ) && ! empty( $cached['__otsw_payload'] ) ) {
+			return (array) ( $cached['results'] ?? array() );
 		}
-		return array( is_array( $cached ) ? $cached : array(), null );
-	}
-
-	/**
-	 * Build the REST response from result rows, attaching the
-	 * X-OTSW-Corrected-Query header when typo correction changed the query —
-	 * lets the frontend highlight the terms actually matched instead of the
-	 * shopper's original (misspelled) input.
-	 *
-	 * @param array       $results   Result rows.
-	 * @param string|null $corrected The corrected query, if any.
-	 * @return \WP_REST_Response
-	 */
-	private static function build_response( array $results, ?string $corrected ): \WP_REST_Response {
-		$response = rest_ensure_response( $results );
-		if ( ! empty( $corrected ) ) {
-			$response->header( 'X-OTSW-Corrected-Query', $corrected );
-		}
-		return $response;
+		return is_array( $cached ) ? $cached : array();
 	}
 
 	/**
@@ -1019,15 +973,6 @@ class Search_Handler {
 	}
 
 	/**
-	 * Set by query_database() when typo correction changed the query. Typo
-	 * correction is a Pro feature — this edition never sets it — but the
-	 * property stays so wrap_for_cache()/handle_request()'s cache-payload
-	 * shape (which always carries a "corrected" slot) doesn't need its own
-	 * Free-only branch.
-	 */
-	private static ?string $last_corrected_query = null;
-
-	/**
 	 * Set by get_rows() when any query this request ran hit a real database
 	 * error (as opposed to a genuine zero-row match) — see that method's
 	 * docblock. Reset per-request by handle_request() before it calls
@@ -1048,7 +993,6 @@ class Search_Handler {
 	 * Reset per-request memoization (used by the test suite).
 	 */
 	public static function flush_runtime_cache(): void {
-		self::$last_corrected_query = null;
 		self::$last_query_had_error = false;
 		self::$last_query_degraded  = false;
 	}

@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: OzuLabs Turbo Search for WooCommerce 1.11.11\n"
+"Project-Id-Version: OzuLabs Turbo Search for WooCommerce 1.11.12\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/ozulabs-turbo-search-for-woocommerce\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-10T18:16:03+00:00\n"
+"POT-Creation-Date: 2026-09-11T05:25:55+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: ozulabs-turbo-search-for-woocommerce\n"
@@ -206,65 +206,65 @@ msgstr ""
 msgid "Action Scheduler is not available. Please ensure WooCommerce is active."
 msgstr ""
 
-#: includes/class-frontend.php:68
+#: includes/class-frontend.php:71
 msgid "No products found."
 msgstr ""
 
-#: includes/class-frontend.php:69
+#: includes/class-frontend.php:72
 msgid "Searching products…"
 msgstr ""
 
-#: includes/class-frontend.php:70
+#: includes/class-frontend.php:73
 msgid "Try another spelling or a shorter search."
 msgstr ""
 
-#: includes/class-frontend.php:71
-#: includes/class-frontend.php:78
+#: includes/class-frontend.php:74
+#: includes/class-frontend.php:81
 msgid "Search is temporarily unavailable."
 msgstr ""
 
-#: includes/class-frontend.php:72
+#: includes/class-frontend.php:75
 msgid "Please try again."
 msgstr ""
 
-#: includes/class-frontend.php:73
+#: includes/class-frontend.php:76
 msgid "Products"
 msgstr ""
 
-#: includes/class-frontend.php:74
+#: includes/class-frontend.php:77
 msgid "Product search results"
 msgstr ""
 
-#: includes/class-frontend.php:75
+#: includes/class-frontend.php:78
 msgid "Recent searches"
 msgstr ""
 
-#: includes/class-frontend.php:76
+#: includes/class-frontend.php:79
 msgid "Clear"
 msgstr ""
 
-#: includes/class-frontend.php:77
+#: includes/class-frontend.php:80
 msgid "Out of Stock"
 msgstr ""
 
 #. translators: %s: the search query
-#: includes/class-frontend.php:80
+#: includes/class-frontend.php:83
 #, php-format
 msgid "View all results for \"%s\""
 msgstr ""
 
-#: includes/class-frontend.php:142
-#: includes/views/tab-docs.php:44
+#: includes/class-frontend.php:146
+#: includes/views/tab-docs.php:45
 msgid "Search products…"
 msgstr ""
 
-#: includes/class-frontend.php:143
-#: includes/class-frontend.php:177
-#: includes/views/tab-docs.php:49
+#: includes/class-frontend.php:147
+#: includes/class-frontend.php:181
+#: includes/views/tab-docs.php:50
 msgid "Search"
 msgstr ""
 
-#: includes/class-frontend.php:176
+#: includes/class-frontend.php:180
 msgid "Search products"
 msgstr ""
 
@@ -346,214 +346,218 @@ msgstr ""
 msgid "Paste this into any page, widget, or Elementor/WPBakery text block:"
 msgstr ""
 
-#: includes/views/tab-docs.php:32
+#: includes/views/tab-docs.php:31
+msgid "[turbo_search] still works too, for pages that already use it — both render the exact same form."
+msgstr ""
+
+#: includes/views/tab-docs.php:33
 msgid "Optional attributes"
 msgstr ""
 
-#: includes/views/tab-docs.php:36
+#: includes/views/tab-docs.php:37
 msgid "Attribute"
 msgstr ""
 
-#: includes/views/tab-docs.php:37
+#: includes/views/tab-docs.php:38
 msgid "Default"
 msgstr ""
 
-#: includes/views/tab-docs.php:38
+#: includes/views/tab-docs.php:39
 msgid "Example"
 msgstr ""
 
-#: includes/views/tab-docs.php:61
+#: includes/views/tab-docs.php:62
 msgid "Tip: if your theme has its own AJAX search that appears at the same time as Turbo Search, disable the theme's built-in AJAX search in the theme settings, then use the shortcode to replace it."
 msgstr ""
 
-#: includes/views/tab-docs.php:66
+#: includes/views/tab-docs.php:67
 msgid "What Triggers a Re-index?"
 msgstr ""
 
-#: includes/views/tab-docs.php:70
+#: includes/views/tab-docs.php:71
 msgid "Action"
 msgstr ""
 
-#: includes/views/tab-docs.php:71
+#: includes/views/tab-docs.php:72
 msgid "What happens"
 msgstr ""
 
-#: includes/views/tab-docs.php:76
+#: includes/views/tab-docs.php:77
 msgid "Save or update a product"
 msgstr ""
 
-#: includes/views/tab-docs.php:77
+#: includes/views/tab-docs.php:78
 msgid "That product is re-indexed in the background within seconds."
 msgstr ""
 
-#: includes/views/tab-docs.php:80
+#: includes/views/tab-docs.php:81
 msgid "Change stock status"
 msgstr ""
 
-#: includes/views/tab-docs.php:81
+#: includes/views/tab-docs.php:82
 msgid "The product's stock status in the index is updated immediately."
 msgstr ""
 
-#: includes/views/tab-docs.php:84
+#: includes/views/tab-docs.php:85
 msgid "Trash or delete a product"
 msgstr ""
 
-#: includes/views/tab-docs.php:85
+#: includes/views/tab-docs.php:86
 msgid "The product is removed from the index automatically."
 msgstr ""
 
-#: includes/views/tab-docs.php:88
+#: includes/views/tab-docs.php:89
 msgid "Import products via CSV"
 msgstr ""
 
-#: includes/views/tab-docs.php:89
+#: includes/views/tab-docs.php:90
 msgid "Each imported product is queued for indexing as it is created."
 msgstr ""
 
-#: includes/views/tab-docs.php:92
+#: includes/views/tab-docs.php:93
 msgid "Rename a category, tag, brand, or attribute term"
 msgstr ""
 
-#: includes/views/tab-docs.php:93
+#: includes/views/tab-docs.php:94
 msgid "Affected products are re-indexed; if the term has many products, a full rebuild is queued automatically."
 msgstr ""
 
-#: includes/views/tab-docs.php:96
+#: includes/views/tab-docs.php:97
 msgid "Change search field settings"
 msgstr ""
 
-#: includes/views/tab-docs.php:97
+#: includes/views/tab-docs.php:98
 msgid "Toggling which fields are indexed (title, SKU, etc.) triggers a full rebuild."
 msgstr ""
 
-#: includes/views/tab-docs.php:100
+#: includes/views/tab-docs.php:101
 msgid "Click \"Rebuild Index\""
 msgstr ""
 
-#: includes/views/tab-docs.php:101
+#: includes/views/tab-docs.php:102
 msgid "Forces a full re-index of all published products. Runs in the background — shoppers are not affected."
 msgstr ""
 
-#: includes/views/tab-docs.php:108
+#: includes/views/tab-docs.php:109
 msgid "Adaptive Batch Sizing"
 msgstr ""
 
-#: includes/views/tab-docs.php:109
+#: includes/views/tab-docs.php:110
 msgid "During a full rebuild the indexer does not use a fixed batch size. At the start of every batch it samples the server's current CPU load and PHP memory usage and adjusts how many products it processes at once — automatically throttling on busy servers and speeding up on idle ones."
 msgstr ""
 
-#: includes/views/tab-docs.php:110
+#: includes/views/tab-docs.php:111
 msgid "CPU Load Tiers"
 msgstr ""
 
-#: includes/views/tab-docs.php:111
+#: includes/views/tab-docs.php:112
 msgid "Load ratio = 1-minute load average ÷ number of logical CPUs."
 msgstr ""
 
-#: includes/views/tab-docs.php:115
+#: includes/views/tab-docs.php:116
 msgid "Load ratio"
 msgstr ""
 
-#: includes/views/tab-docs.php:116
+#: includes/views/tab-docs.php:117
 msgid "Server state"
 msgstr ""
 
-#: includes/views/tab-docs.php:117
+#: includes/views/tab-docs.php:118
 msgid "Products per batch"
 msgstr ""
 
-#: includes/views/tab-docs.php:121
+#: includes/views/tab-docs.php:122
 msgid "Idle"
 msgstr ""
 
-#: includes/views/tab-docs.php:122
+#: includes/views/tab-docs.php:123
 msgid "Normal"
 msgstr ""
 
-#: includes/views/tab-docs.php:123
+#: includes/views/tab-docs.php:124
 msgid "Busy"
 msgstr ""
 
-#: includes/views/tab-docs.php:124
+#: includes/views/tab-docs.php:125
 msgid "Heavy load"
 msgstr ""
 
-#: includes/views/tab-docs.php:127
+#: includes/views/tab-docs.php:128
 msgid "On Windows hosts where sys_getloadavg() is unavailable, the indexer falls back to a fixed batch size of 50."
 msgstr ""
 
-#: includes/views/tab-docs.php:128
+#: includes/views/tab-docs.php:129
 msgid "Memory Pressure Cap"
 msgstr ""
 
-#: includes/views/tab-docs.php:129
+#: includes/views/tab-docs.php:130
 msgid "Two independent memory checks can cap the batch size down regardless of CPU load:"
 msgstr ""
 
-#: includes/views/tab-docs.php:131
+#: includes/views/tab-docs.php:132
 msgid "Relative — current PHP memory usage vs. this worker's own limit: above 70% caps at 25, above 50% caps at 50."
 msgstr ""
 
-#: includes/views/tab-docs.php:132
+#: includes/views/tab-docs.php:133
 msgid "Absolute — the worker's total memory_limit itself, regardless of current usage: 128MB or below caps at 25, 192MB or below caps at 50, 256MB or below caps at 100."
 msgstr ""
 
-#: includes/views/tab-docs.php:134
+#: includes/views/tab-docs.php:135
 msgid "The final size is kept between 10 (minimum) and 200 (maximum) before the filter below runs."
 msgstr ""
 
-#: includes/views/tab-docs.php:135
-#: includes/views/tab-docs.php:146
-#: includes/views/tab-docs.php:158
-#: includes/views/tab-docs.php:168
+#: includes/views/tab-docs.php:136
+#: includes/views/tab-docs.php:147
+#: includes/views/tab-docs.php:159
+#: includes/views/tab-docs.php:169
 msgid "(filter)"
 msgstr ""
 
-#: includes/views/tab-docs.php:136
+#: includes/views/tab-docs.php:137
 msgid "Hard-cap the batch size directly — useful on managed hosting with a memory_limit that WordPress cannot override (WP_MEMORY_LIMIT has no effect when the host enforces memory_limit as a php_admin_value):"
 msgstr ""
 
-#: includes/views/tab-docs.php:143
+#: includes/views/tab-docs.php:144
 msgid "Developer Hooks"
 msgstr ""
 
-#: includes/views/tab-docs.php:144
+#: includes/views/tab-docs.php:145
 msgid "These hooks let you customise indexing and ranking without modifying plugin files:"
 msgstr ""
 
-#: includes/views/tab-docs.php:147
+#: includes/views/tab-docs.php:148
 msgid "Runs just before each product row is written to the index. Use it to add, remove, or transform the data that gets stored."
 msgstr ""
 
-#: includes/views/tab-docs.php:156
+#: includes/views/tab-docs.php:157
 msgid "Available keys: product_id, title, sku, content, excerpt, price_min, price_max, stock_status, total_sales, image_url, permalink, updated_at. Custom keys are ignored — only the listed columns exist in the index table."
 msgstr ""
 
-#: includes/views/tab-docs.php:159
+#: includes/views/tab-docs.php:160
 msgid "Tune how results are ranked. Title matches count 5× a description match by default; exact SKU matches always rank first; in-stock and best-selling products get a boost."
 msgstr ""
 
-#: includes/views/tab-docs.php:169
+#: includes/views/tab-docs.php:170
 msgid "Control which taxonomy term names are searchable. Defaults: categories, tags, brands, and all global attributes (color, material, …)."
 msgstr ""
 
-#: includes/views/tab-docs.php:174
+#: includes/views/tab-docs.php:175
 msgid "(action)"
 msgstr ""
 
-#: includes/views/tab-docs.php:175
+#: includes/views/tab-docs.php:176
 msgid "Fires once after a full rebuild finishes and the new index table is live. Use it to bust a CDN cache, send a notification, or trigger a downstream job."
 msgstr ""
 
-#: includes/views/tab-docs.php:183
+#: includes/views/tab-docs.php:184
 msgid "Uninstalling"
 msgstr ""
 
-#: includes/views/tab-docs.php:185
+#: includes/views/tab-docs.php:186
 msgid "Deactivating the plugin keeps all your data and settings intact."
 msgstr ""
 
-#: includes/views/tab-docs.php:186
+#: includes/views/tab-docs.php:187
 msgid "Deleting the plugin removes data only if \"Delete data on uninstall\" is enabled in Settings. By default, data is kept."
 msgstr ""
 

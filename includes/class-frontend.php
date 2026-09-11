@@ -23,11 +23,14 @@ class Frontend {
 		add_action( 'wp_footer', array( __CLASS__, 'inject_dropdown_container' ) );
 		add_action( 'wp_ajax_otsw_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
 		add_action( 'wp_ajax_nopriv_otsw_refresh_nonce', array( __CLASS__, 'ajax_refresh_nonce' ) );
-		// [turbo_search_button] is Pro's shortcode tag; registering it here
-		// too (as an alias rendering this edition's plain form) means a
-		// site's shortcode keeps working either way if it ever switches
-		// between Free and Pro — see the matching alias in wp_search's
-		// Frontend::init().
+		// otsw_search is the primary, owner-prefixed shortcode tag. The other
+		// two are kept as documented backward-compatibility aliases, not
+		// separate features: turbo_search for sites that added the shortcode
+		// before the otsw_search tag existed, and turbo_search_button
+		// (Pro's own tag) so a site's shortcode keeps working either way if
+		// it ever switches between Free and Pro — see the matching aliases
+		// in wp_search's Frontend::init().
+		add_shortcode( 'otsw_search', array( __CLASS__, 'render_shortcode' ) );
 		add_shortcode( 'turbo_search', array( __CLASS__, 'render_shortcode' ) );
 		add_shortcode( 'turbo_search_button', array( __CLASS__, 'render_shortcode' ) );
 	}
@@ -118,13 +121,15 @@ class Frontend {
 	/**
 	 * Render a standalone product search form.
 	 *
-	 * Usage: [turbo_search]
-	 *        [turbo_search placeholder="Find a product…" button="Go" class="my-wrap"]
+	 * Usage: [otsw_search]
+	 *        [otsw_search placeholder="Find a product…" button="Go" class="my-wrap"]
 	 *
-	 * [turbo_search_button] is also registered as an alias of this same
-	 * method (see Frontend::init()) so that a site's shortcode still renders
-	 * something — this plain form, without Pro's styling options — if it
-	 * switches from Pro down to this Free edition.
+	 * [turbo_search] and [turbo_search_button] are also registered as
+	 * aliases of this same method (see Frontend::init()): the former for
+	 * sites that added the shortcode before the otsw_search tag existed,
+	 * the latter so a site's shortcode still renders something — this plain
+	 * form, without Pro's styling options — if it switches from Pro down to
+	 * this Free edition.
 	 *
 	 * The form submits to the native WooCommerce search results page as a fallback
 	 * when JavaScript is disabled. When JS is active, the live dropdown intercepts
@@ -135,16 +140,15 @@ class Frontend {
 	 * @param string $tag     Shortcode tag used for this invocation.
 	 * @return string HTML output.
 	 */
-	public static function render_shortcode( $atts, $content = '', $tag = 'turbo_search' ): string {
-		$shortcode = 'turbo_search_button' === $tag ? $tag : 'turbo_search';
-		$atts      = shortcode_atts(
+	public static function render_shortcode( $atts, $content = '', $tag = 'otsw_search' ): string {
+		$atts = shortcode_atts(
 			array(
 				'placeholder' => esc_attr__( 'Search products…', 'ozulabs-turbo-search-for-woocommerce' ),
 				'button'      => esc_attr__( 'Search', 'ozulabs-turbo-search-for-woocommerce' ),
 				'class'       => '',
 			),
 			$atts,
-			$shortcode
+			$tag
 		);
 
 		// Ensure assets are on the page even if the shortcode is used on a page
@@ -154,7 +158,7 @@ class Frontend {
 			wp_enqueue_script( 'otsw-search-js' );
 		}
 
-		$wrapper_class = 'wcs-form-wrap';
+		$wrapper_class = 'otsw-form-wrap';
 		if ( $atts['class'] ) {
 			$wrapper_class .= ' ' . sanitize_html_class( $atts['class'] );
 		}
@@ -163,11 +167,11 @@ class Frontend {
 
 		return sprintf(
 			'<form role="search" method="get" class="%s" action="%s">
-				<input type="search" class="wcs-form-input" name="s"
+				<input type="search" class="otsw-form-input" name="s"
 					placeholder="%s" value="%s" autocomplete="off"
 					aria-label="%s" />
 				<input type="hidden" name="post_type" value="product" />
-				<button type="submit" class="wcs-form-btn" aria-label="%s">%s</button>
+				<button type="submit" class="otsw-form-btn" aria-label="%s">%s</button>
 			</form>',
 			esc_attr( $wrapper_class ),
 			esc_url( home_url( '/' ) ),
@@ -183,6 +187,6 @@ class Frontend {
 	 * Inject empty container at bottom of body to escape overflow/z-index issues.
 	 */
 	public static function inject_dropdown_container(): void {
-		echo '<div id="wcs-dropdown-portal"></div>';
+		echo '<div id="otsw-dropdown-portal"></div>';
 	}
 }

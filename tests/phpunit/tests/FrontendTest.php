@@ -98,14 +98,19 @@ final class FrontendTest extends TestCase {
 		}
 	}
 
-	// ── [turbo_search] shortcode ─────────────────────────────────────────────
+	// ── [otsw_search] shortcode ───────────────────────────────────────────────
 
-	public function test_turbo_search_button_is_registered_as_an_alias(): void {
+	public function test_legacy_tags_are_registered_as_aliases_of_the_primary_tag(): void {
 		Frontend::init();
+		$this->assertTrue( shortcode_exists( 'otsw_search' ) );
 		$this->assertTrue( shortcode_exists( 'turbo_search' ) );
 		$this->assertTrue( shortcode_exists( 'turbo_search_button' ) );
 		$this->assertSame(
-			$GLOBALS['otsw_test_shortcodes']['turbo_search'],
+			$GLOBALS['otsw_test_shortcodes']['otsw_search'],
+			$GLOBALS['otsw_test_shortcodes']['turbo_search']
+		);
+		$this->assertSame(
+			$GLOBALS['otsw_test_shortcodes']['otsw_search'],
 			$GLOBALS['otsw_test_shortcodes']['turbo_search_button']
 		);
 	}
@@ -116,10 +121,16 @@ final class FrontendTest extends TestCase {
 		$this->assertStringContainsString( 'role="search"', $html );
 		$this->assertStringContainsString( 'name="s"', $html );
 		$this->assertStringContainsString( 'name="post_type" value="product"', $html );
-		$this->assertStringContainsString( 'class="wcs-form-wrap"', $html );
+		$this->assertStringContainsString( 'class="otsw-form-wrap"', $html );
 	}
 
-	public function test_shortcode_alias_uses_its_own_attribute_filter_context(): void {
+	public function test_default_tag_is_the_owner_prefixed_primary_shortcode(): void {
+		Frontend::render_shortcode( array() );
+
+		$this->assertSame( array( 'otsw_search' ), $GLOBALS['otsw_test_shortcode_atts_tags'] );
+	}
+
+	public function test_each_alias_uses_its_own_attribute_filter_context(): void {
 		Frontend::render_shortcode( array(), '', 'turbo_search_button' );
 
 		$this->assertSame( array( 'turbo_search_button' ), $GLOBALS['otsw_test_shortcode_atts_tags'] );
@@ -133,7 +144,7 @@ final class FrontendTest extends TestCase {
 
 		$this->assertStringContainsString( 'placeholder="Find &quot;it&quot;…"', $html );
 		// sanitize_html_class strips spaces and markup from the extra class.
-		$this->assertStringContainsString( 'class="wcs-form-wrap mywrapscript"', $html );
+		$this->assertStringContainsString( 'class="otsw-form-wrap mywrapscript"', $html );
 	}
 
 	public function test_shortcode_enqueues_assets_when_missing(): void {
@@ -146,6 +157,6 @@ final class FrontendTest extends TestCase {
 	public function test_dropdown_portal_is_injected(): void {
 		ob_start();
 		Frontend::inject_dropdown_container();
-		$this->assertSame( '<div id="wcs-dropdown-portal"></div>', ob_get_clean() );
+		$this->assertSame( '<div id="otsw-dropdown-portal"></div>', ob_get_clean() );
 	}
 }

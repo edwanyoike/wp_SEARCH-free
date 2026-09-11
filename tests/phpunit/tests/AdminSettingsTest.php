@@ -434,8 +434,8 @@ final class AdminSettingsTest extends TestCase {
 		$html = ob_get_clean();
 		unset( $_GET['tab'] );
 
-		$this->assertStringContainsString( 'id="wcs-rebuild-btn"', $html );
-		$this->assertStringContainsString( 'id="wcs-status-wrapper"', $html );
+		$this->assertStringContainsString( 'id="otsw-rebuild-btn"', $html );
+		$this->assertStringContainsString( 'id="otsw-status-wrapper"', $html );
 		$this->assertStringContainsString( 'Status: Idle / Complete', $html );
 		$this->assertStringContainsString( '5 mins ago', $html );
 		$this->assertStringNotContainsString( 'name="otsw_synonyms"', $html );
@@ -485,7 +485,7 @@ final class AdminSettingsTest extends TestCase {
 
 		$this->assertStringContainsString( 'name="otsw_delete_data_on_uninstall"', $html );
 		$this->assertStringContainsString( 'settings_fields:otsw_data_settings_group', $html );
-		$this->assertStringContainsString( 'id="wcs-delete-data-btn"', $html );
+		$this->assertStringContainsString( 'id="otsw-delete-data-btn"', $html );
 	}
 
 	public function test_indexing_state_disables_the_rebuild_button(): void {
@@ -509,6 +509,7 @@ final class AdminSettingsTest extends TestCase {
 
 		$this->assertStringContainsString( 'otsw_indexed_product_data', $html );
 		$this->assertStringContainsString( 'otsw_ranking_weights', $html );
+		$this->assertStringContainsString( '[otsw_search]', $html );
 		$this->assertStringContainsString( '[turbo_search]', $html );
 	}
 
@@ -520,7 +521,7 @@ final class AdminSettingsTest extends TestCase {
 		$html = ob_get_clean();
 		unset( $_GET['tab'] );
 
-		$this->assertStringContainsString( 'id="wcs-rebuild-btn"', $html );
+		$this->assertStringContainsString( 'id="otsw-rebuild-btn"', $html );
 	}
 
 	public function test_render_is_blocked_for_non_admins(): void {

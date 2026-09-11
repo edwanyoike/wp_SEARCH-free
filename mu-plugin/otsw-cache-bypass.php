@@ -3,7 +3,7 @@
  * Turbo Search for WooCommerce Cache Bypass
  *
  * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
- * Version:     1.11.11
+ * Version:     1.11.12
  * Author:      Ozulabs
  * Author URI:  https://ozulabs.com
  * License:     GPLv2 or later
@@ -227,16 +227,19 @@ function otsw_cache_bypass_intercept(): void {
 	$cache_version = (int) get_option( 'otsw_cache_version', 1 );
 	$cache_key     = \OTSW\Search\Query_Normalizer::cache_key( $query, $currency, $cache_version );
 
-	// Cached values are wrapped as ['__otsw_payload' => true, 'results' => ...,
-	// 'corrected' => ...] by Search_Handler so the corrected query (when typo
-	// correction fired) survives a cache hit. A value without the marker key
-	// is a plain rows array written by a pre-1.3.30 version of the plugin —
-	// still valid for the remainder of its 24h TTL after an upgrade.
-	$unwrap = static function ( $cached ): array {
+	// Versions before 1.11.12 wrapped cached values as ['__otsw_payload' =>
+	// true, 'results' => ..., 'corrected' => ...] so a typo-corrected query
+	// (a Pro-only feature this edition never actually produced) could survive
+	// a cache hit. This edition no longer writes that shape or emits a
+	// corrected-query header at all, but a transient/APCu entry written by
+	// the previous version can still be live for up to its remaining 24h TTL
+	// right after an upgrade — this just pulls the rows back out of either
+	// shape so that entry isn't wastefully treated as a cache miss.
+	$unwrap_rows = static function ( $cached ): array {
 		if ( is_array( $cached ) && ! empty( $cached['__otsw_payload'] ) ) {
-			return array( (array) ( $cached['results'] ?? array() ), $cached['corrected'] ?? null );
+			return (array) ( $cached['results'] ?? array() );
 		}
-		return array( is_array( $cached ) ? $cached : array(), null );
+		return is_array( $cached ) ? $cached : array();
 	};
 
 	// ── 7. APCu L1 cache (shared server RAM, ~0.01 ms, no I/O) ──────────────
@@ -246,15 +249,11 @@ function otsw_cache_bypass_intercept(): void {
 	if ( function_exists( 'apcu_fetch' ) ) {
 		$apcu_result = apcu_fetch( $cache_key, $apcu_hit );
 		if ( true === $apcu_hit ) {
-			list( $rows, $corrected ) = $unwrap( $apcu_result );
 			header( 'Content-Type: application/json; charset=utf-8' );
 			header( 'Cache-Control: no-store' );
 			header( 'X-OTSW-Cache: APCU-HIT' );
-			if ( ! empty( $corrected ) ) {
-				header( 'X-OTSW-Corrected-Query: ' . $corrected );
-			}
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo wp_json_encode( $rows );
+			echo wp_json_encode( $unwrap_rows( $apcu_result ) );
 			exit;
 		}
 	}
@@ -271,19 +270,14 @@ function otsw_cache_bypass_intercept(): void {
 		apcu_store( $cache_key, $cached, 300 );
 	}
 
-	list( $rows, $corrected ) = $unwrap( $cached );
-
 	// ── 9. Short-circuit: send cached JSON and exit ───────────────────────────
 	// Emit only the bare-minimum headers needed by the JavaScript client.
 	header( 'Content-Type: application/json; charset=utf-8' );
 	header( 'Cache-Control: no-store' );   // Prevent intermediate proxy caching.
 	header( 'X-OTSW-Cache: HIT' );          // Useful for debugging / k6 checks.
-	if ( ! empty( $corrected ) ) {
-		header( 'X-OTSW-Corrected-Query: ' . $corrected );
-	}
 
 	// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-	echo wp_json_encode( $rows );
+	echo wp_json_encode( $unwrap_rows( $cached ) );
 	exit;
 }
 
