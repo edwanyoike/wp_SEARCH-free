@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.24
+Stable tag:        1.11.25
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,10 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.25 =
+* Housekeeping: removed dead query-expansion scaffolding (`Query_Normalizer::expand()` and everywhere it was called) that always returned only the typed word — a leftover from this edition being ported off the same codebase as the Pro edition's real synonym/variant matching. It never affected search results, but its presence looked like a disabled feature rather than one that was never built here. Search behavior is unchanged; the query-building code is simpler.
+
 = 1.11.24 =
 * Housekeeping: refreshed both WordPress.org listing screenshots — the previous pair was taken on two different stores in two different currencies; both are now the same live store, showing the live search dropdown with real results and the Recent Searches feature.
-
-= 1.11.23 =
-* Housekeeping: corrected a changelog entry misattributed to the wrong version heading in this file, introduced by the previous release. No functional change.
 
 See changelog.txt for older releases.

@@ -3,6 +3,9 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.11.23 =
+* Housekeeping: corrected a changelog entry misattributed to the wrong version heading in this file, introduced by the previous release. No functional change.
+
 = 1.11.22 =
 * Fix: the "Last successful index: X ago" line on the Turbo Search settings page never updated after a rebuild finished — it only ever reflected whatever it said on the last full page load, so it could sit at "23 seconds ago" indefinitely until the admin manually refreshed. The rebuild-progress check (which already polls every couple of seconds while a rebuild runs) now refreshes this line the moment the rebuild completes.
 

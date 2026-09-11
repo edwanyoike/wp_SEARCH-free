@@ -428,49 +428,22 @@ class Search_Handler {
 		$boolean_parts = array();
 
 		if ( ! empty( $ft_words ) ) {
-			// Each word expands to itself + configured synonyms. A word with
-			// synonyms becomes a required OR-group: "+(sofa* couch settee)" —
-			// at least one alternative must match. The prefix wildcard stays on
-			// the typed word only. Synonyms too short for this index's parser
-			// are dropped from the FULLTEXT group (the LIKE tiers still cover them).
+			// Synonym/variant expansion is a Pro feature — this edition matches
+			// only the exact typed word. The prefix wildcard stays on the word
+			// the user is still typing.
 			foreach ( $ft_words as $i => $word ) {
-				$use_wildcard = ( $i === $last_idx && 'ngram' !== $parser );
-				$alts         = array_values( array_filter(
-					Query_Normalizer::expand( $word ),
-					static fn( string $alt ): bool => mb_strlen( $alt ) >= $ft_gate
-				) );
-				if ( count( $alts ) <= 1 ) {
-					$boolean_parts[] = '+' . $word . ( $use_wildcard ? '*' : '' );
-					continue;
-				}
-				$terms = array();
-				foreach ( $alts as $j => $alt ) {
-					// Multi-word alternatives (digit-boundary splits like
-					// "iphone 14", multi-word synonyms) become quoted phrases —
-					// unquoted they would decay into independent OR words.
-					if ( str_contains( $alt, ' ' ) ) {
-						$terms[] = '"' . $alt . '"';
-					} else {
-						$terms[] = $alt . ( $use_wildcard && 0 === $j ? '*' : '' );
-					}
-				}
-				$boolean_parts[] = '+(' . implode( ' ', $terms ) . ')';
+				$use_wildcard    = ( $i === $last_idx && 'ngram' !== $parser );
+				$boolean_parts[] = '+' . $word . ( $use_wildcard ? '*' : '' );
 			}
 			$boolean_query = implode( ' ', $boolean_parts );
 
 			$short_sql    = '';
 			$short_params = array();
 			foreach ( $like_words as $word ) {
-				$conds = array();
-				foreach ( Query_Normalizer::expand( $word ) as $alt ) {
-					$escaped = $wpdb->esc_like( $alt );
-					$conds[] = 'title LIKE %s';
-					$conds[] = 'sku LIKE %s';
-					$conds[] = 'title LIKE %s';
-					$conds[] = 'sku LIKE %s';
-					array_push( $short_params, $escaped . '%', $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
-				}
+				$escaped    = $wpdb->esc_like( $word );
+				$conds      = array( 'title LIKE %s', 'sku LIKE %s', 'title LIKE %s', 'sku LIKE %s' );
 				$short_sql .= ' AND (' . implode( ' OR ', $conds ) . ')';
+				array_push( $short_params, $escaped . '%', $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
 			}
 
 			$results = self::get_rows( self::fulltext_sql(
@@ -526,14 +499,9 @@ class Search_Handler {
 			$groups = array();
 			$params = array();
 			foreach ( $words as $word ) {
-				$conds = array();
-				foreach ( Query_Normalizer::expand( $word ) as $alt ) {
-					$escaped = $wpdb->esc_like( $alt );
-					$conds[] = 'title LIKE %s';
-					$conds[] = 'sku LIKE %s';
-					array_push( $params, $escaped . '%', $escaped . '%' );
-				}
-				$groups[] = '(' . implode( ' OR ', $conds ) . ')';
+				$escaped  = $wpdb->esc_like( $word );
+				$groups[] = '(title LIKE %s OR sku LIKE %s)';
+				array_push( $params, $escaped . '%', $escaped . '%' );
 			}
 			$where_sql = '(' . implode( ' AND ', $groups ) . ') ' . $stock_clause; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
@@ -592,15 +560,9 @@ class Search_Handler {
 				$groups = array();
 				$params = array();
 				foreach ( $words as $word ) {
-					$conds = array();
-					foreach ( Query_Normalizer::expand( $word ) as $alt ) {
-						$escaped = $wpdb->esc_like( $alt );
-						$conds[] = 'title LIKE %s';
-						$conds[] = 'sku LIKE %s';
-						$conds[] = 'content LIKE %s';
-						array_push( $params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
-					}
-					$groups[] = '(' . implode( ' OR ', $conds ) . ')';
+					$escaped  = $wpdb->esc_like( $word );
+					$groups[] = '(title LIKE %s OR sku LIKE %s OR content LIKE %s)';
+					array_push( $params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
 				}
 				$where_sql = '(' . implode( ' AND ', $groups ) . ') ' . $stock_clause; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 
@@ -729,15 +691,9 @@ class Search_Handler {
 			$or_groups     = array();
 			$or_params     = array();
 			foreach ( $words as $word ) {
-				$conds = array();
-				foreach ( Query_Normalizer::expand( $word ) as $alt ) {
-					$escaped = $wpdb->esc_like( $alt );
-					$conds[] = 'title LIKE %s';
-					$conds[] = 'sku LIKE %s';
-					$conds[] = 'content LIKE %s';
-					array_push( $or_params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
-				}
-				$or_groups[] = '(' . implode( ' OR ', $conds ) . ')';
+				$escaped     = $wpdb->esc_like( $word );
+				$or_groups[] = '(title LIKE %s OR sku LIKE %s OR content LIKE %s)';
+				array_push( $or_params, '%' . $escaped . '%', '%' . $escaped . '%', '%' . $escaped . '%' );
 			}
 			$where_sql = '(' . implode( ' OR ', $or_groups ) . ') ' . $stock_clause; // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared,WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 

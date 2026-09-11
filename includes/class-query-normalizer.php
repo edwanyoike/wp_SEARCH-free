@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 /**
- * Shared query normalization, cache-key construction, and synonym expansion.
+ * Shared query normalization and cache-key construction.
  *
  * This is the single source of truth for how a raw search string becomes a
  * normalized query and a cache key. Both the REST handler
@@ -13,8 +13,6 @@ declare(strict_types=1);
  *
  * normalize(), tokenize(), and cache_key() are pure (mb_* / preg only) so the
  * MU plugin can use them at plugins_loaded -10 with no plugin bootstrapping.
- * Synonym methods use get_option()/apply_filters(), which are always loaded
- * by that stage too.
  *
  * @package OzuLabs_Turbo_Search_For_WooCommerce
  */
@@ -281,18 +279,6 @@ class Query_Normalizer {
 	 */
 	public static function site_scope(): string {
 		return get_current_blog_id() . '_' . md5( home_url() );
-	}
-
-	/**
-	 * Expand a query word into itself. Synonym configuration and automatic
-	 * morphological variants (plural/singular, letter-digit boundaries) are a
-	 * Pro feature — this edition matches only the exact typed word.
-	 *
-	 * @param string $word Normalized query word.
-	 * @return string[]
-	 */
-	public static function expand( string $word ): array {
-		return array( $word );
 	}
 
 	/**

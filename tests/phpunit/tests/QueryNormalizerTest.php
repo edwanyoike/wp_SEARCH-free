@@ -207,15 +207,6 @@ final class QueryNormalizerTest extends TestCase {
 		$this->assertNotSame( $site1, $site2 );
 	}
 
-	// ── Word expansion (synonyms/variants are a Pro feature — always the exact
-	// typed word only in this edition) ────────────────────────────────────────
-
-	public function test_expand_returns_only_the_typed_word(): void {
-		$this->assertSame( array( 'sofa' ), Query_Normalizer::expand( 'sofa' ) );
-		$this->assertSame( array( 'lamp' ), Query_Normalizer::expand( 'lamp' ) );
-		$this->assertSame( array( 'iphone14' ), Query_Normalizer::expand( 'iphone14' ) );
-	}
-
 	public function test_normalize_sku_collapses_punctuation_variants(): void {
 		$this->assertSame( 'abc123', Query_Normalizer::normalize_sku( 'ABC-123' ) );
 		$this->assertSame( 'abc123', Query_Normalizer::normalize_sku( 'abc 123' ) );
