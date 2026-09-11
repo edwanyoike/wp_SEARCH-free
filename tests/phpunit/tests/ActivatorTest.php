@@ -576,7 +576,7 @@ final class ActivatorTest extends TestCase {
 	}
 
 	public function test_pro_edition_detected_when_active(): void {
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		$this->assertTrue( Activator::is_pro_edition_active() );
 	}
@@ -599,7 +599,7 @@ final class ActivatorTest extends TestCase {
 	public function test_deactivate_does_not_remove_the_shared_mu_file_when_pro_is_still_active(): void {
 		$mu = WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php';
 		file_put_contents( $mu, '<?php // placeholder' );
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		Activator::deactivate();
 
@@ -658,7 +658,7 @@ final class ActivatorTest extends TestCase {
 
 	public function test_network_resource_check_falls_back_to_same_site_outside_multisite(): void {
 		$GLOBALS['otsw_test_is_multisite'] = false;
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		$this->assertTrue( Activator::is_shared_network_resource_still_needed() );
 
@@ -670,7 +670,7 @@ final class ActivatorTest extends TestCase {
 	public function test_network_resource_check_detects_pro_active_on_another_site(): void {
 		$GLOBALS['otsw_test_is_multisite']   = true;
 		$GLOBALS['otsw_test_all_site_ids']   = array( 1, 2, 3 );
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		$this->assertTrue( Activator::is_shared_network_resource_still_needed(), 'Pro active anywhere in the network must be detected, not just on the current site' );
 	}

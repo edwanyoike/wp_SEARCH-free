@@ -33,7 +33,7 @@ final class UninstallFullDispatchTest extends TestCase {
 
 		update_option( 'otsw_delete_data_on_uninstall', true );
 		$GLOBALS['otsw_test_is_multisite']   = false;
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 		define( 'WP_UNINSTALL_PLUGIN', true );
 
 		require OTSW_PLUGIN_DIR . 'uninstall.php';
@@ -72,7 +72,7 @@ final class UninstallFullDispatchTest extends TestCase {
 		$GLOBALS['otsw_test_all_site_ids']           = array( 1, 2 );
 		$GLOBALS['otsw_test_active_plugins']         = array(); // site 1 / initiating context: neither edition active
 		$GLOBALS['otsw_test_active_plugins_by_site'] = array(
-			2 => array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' ), // Pro active on site 2 only
+			2 => array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' ), // Pro active on site 2 only
 		);
 		define( 'WP_UNINSTALL_PLUGIN', true );
 

@@ -88,7 +88,7 @@ final class UninstallTest extends TestCase {
 	 */
 	public function test_otsw_uninstall_single_site_does_nothing_when_pro_is_active(): void {
 		update_option( 'otsw_delete_data_on_uninstall', true );
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		otsw_uninstall_single_site();
 
@@ -116,7 +116,7 @@ final class UninstallTest extends TestCase {
 	 * already-dismissed notices back to "not dismissed" for every admin.
 	 */
 	public function test_otsw_delete_notice_dismissals_does_nothing_when_pro_is_active(): void {
-		$GLOBALS['otsw_test_active_plugins'] = array( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 
 		otsw_delete_notice_dismissals();
 

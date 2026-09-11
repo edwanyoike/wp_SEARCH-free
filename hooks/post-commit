@@ -116,8 +116,8 @@ echo "[post-commit] Built dist/${ZIP_NAME}"
 if [ -d "$SHARED_DIST" ] || mkdir -p "$SHARED_DIST/archive" 2>/dev/null; then
   mkdir -p "$SHARED_DIST/archive"
   # [0-9]* (not a bare *) so this can't also match
-  # turbo-search-for-woocommerce-pro-*.zip — this plugin's slug is a prefix
-  # of the Pro plugin's slug.
+  # ozulabs-turbo-search-for-woocommerce-pro-*.zip — this plugin's slug is a
+  # prefix of the Pro plugin's slug.
   for old_zip in "$SHARED_DIST"/${PLUGIN_SLUG}-[0-9]*.zip; do
     [ -f "$old_zip" ] || continue
     [ "$old_zip" = "$SHARED_DIST/${ZIP_NAME}" ] && continue

@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.17
+Stable tag:        1.11.18
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,10 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.18 =
+* Housekeeping: updated this edition's internal references to the Pro edition (used to detect whether Pro is active, e.g. to avoid both editions running at once) to match the Pro edition's own upcoming rename to "OzuLabs Turbo Search for WooCommerce Pro". No effect on sites not running Pro.
+
 = 1.11.17 =
 * Housekeeping: simplified how this plugin keeps its MU companion file current. It previously tracked "is the file up to date" with a separate stored flag, checked once per version; three separate bugs across the last two releases came from that flag drifting out of sync with the actual file on disk. The plugin now just checks the real file directly on every admin page load instead — cheap, and impossible to drift. Also extended the existing "MU file needs attention" admin notice to cover a file that exists but is outdated, not just one that's missing entirely.
-
-= 1.11.16 =
-* Fix: if this plugin's MU companion file already existed but was outdated (an interrupted previous update, a permissions issue), and replacing it failed, that failure was recorded as a success — so nothing ever retried, and the site kept running the outdated copy indefinitely with no visible warning. A replacement is now only recorded as done once the file on disk is actually confirmed to match; otherwise the next admin visit tries again.
 
 See changelog.txt for older releases.

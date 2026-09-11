@@ -664,7 +664,7 @@ class Activator {
 	 * detection — the same limitation every "detect a sibling plugin" check
 	 * in WordPress has (there is no other stable cross-plugin identifier).
 	 */
-	private const PRO_EDITION_BASENAME = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
+	private const PRO_EDITION_BASENAME = 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
 
 	/**
 	 * Verify environment meets requirements.

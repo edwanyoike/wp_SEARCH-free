@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Plugin Name:          OzuLabs Turbo Search for WooCommerce
  * Plugin URI:           https://ozulabs.com/plugins/turbo-search/
  * Description:          A high-performance, zero-dependency WooCommerce search engine using native FULLTEXT indexing.
- * Version:              1.11.17
+ * Version:              1.11.18
  * Author:               Ozulabs
  * Author URI:           https://ozulabs.com
  * License:              GPLv2 or later
@@ -73,7 +73,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 if ( ! function_exists( 'is_plugin_active' ) ) {
 	require_once ABSPATH . 'wp-admin/includes/plugin.php';
 }
-$otsw_pro_edition_basename = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
+$otsw_pro_edition_basename = 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
 if ( is_plugin_active( $otsw_pro_edition_basename ) ) {
 	add_action( 'shutdown', static function () use ( $otsw_pro_edition_basename ): void {
 		if ( is_plugin_active( $otsw_pro_edition_basename ) ) {
@@ -102,7 +102,7 @@ if ( ! function_exists( 'otsw_deny_activation_if_pro_active' ) ) {
 		if ( ! function_exists( 'is_plugin_active' ) ) {
 			require_once ABSPATH . 'wp-admin/includes/plugin.php';
 		}
-		if ( ! is_plugin_active( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' ) ) {
+		if ( ! is_plugin_active( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' ) ) {
 			return;
 		}
 		deactivate_plugins( plugin_basename( __FILE__ ) );
@@ -115,7 +115,7 @@ if ( ! function_exists( 'otsw_deny_activation_if_pro_active' ) ) {
 }
 
 // Define core constants.
-define( 'OTSW_VERSION', '1.11.17' );
+define( 'OTSW_VERSION', '1.11.18' );
 define( 'OTSW_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'OTSW_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 define( 'OTSW_PLUGIN_BASENAME', plugin_basename( __FILE__ ) );

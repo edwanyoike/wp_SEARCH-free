@@ -20,7 +20,7 @@ use PHPUnit\Framework\TestCase;
 final class MuEditionResolutionTest extends TestCase {
 
 	private const FREE_BASENAME = 'ozulabs-turbo-search-for-woocommerce/turbo-search-for-woocommerce.php';
-	private const PRO_BASENAME  = 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
+	private const PRO_BASENAME  = 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php';
 
 	protected function setUp(): void {
 		otsw_tests_reset();
@@ -48,7 +48,7 @@ final class MuEditionResolutionTest extends TestCase {
 
 		$this->assertNotNull( $edition );
 		$this->assertTrue( $edition['is_pro'] );
-		$this->assertSame( WP_PLUGIN_DIR . '/turbo-search-for-woocommerce-pro', $edition['dir'] );
+		$this->assertSame( WP_PLUGIN_DIR . '/ozulabs-turbo-search-for-woocommerce-pro', $edition['dir'] );
 	}
 
 	public function test_both_editions_active_is_unresolved(): void {
@@ -125,7 +125,7 @@ final class MuEditionResolutionTest extends TestCase {
 		// — see otsw_cache_bypass_intercept()'s own comment on why it bails
 		// immediately whenever Pro is the active edition, rather than trying
 		// to require and serve Pro's files itself. No
-		// turbo-search-for-woocommerce-pro directory even exists in this
+		// ozulabs-turbo-search-for-woocommerce-pro directory even exists in this
 		// test environment (Pro is a separate sibling repo) — proving the
 		// bail-out happens before any Pro file is ever touched, not merely
 		// that a missing-file fatal is caught afterward.

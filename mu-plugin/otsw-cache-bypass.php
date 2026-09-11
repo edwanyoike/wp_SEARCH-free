@@ -3,7 +3,7 @@
  * Turbo Search for WooCommerce Cache Bypass
  *
  * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
- * Version:     1.11.17
+ * Version:     1.11.18
  * Author:      Ozulabs
  * Author URI:  https://ozulabs.com
  * License:     GPLv2 or later
@@ -53,12 +53,12 @@ function otsw_mu_is_plugin_active( string $basename ): bool {
  */
 function otsw_mu_resolve_active_edition(): ?array {
 	$free_active = otsw_mu_is_plugin_active( 'ozulabs-turbo-search-for-woocommerce/turbo-search-for-woocommerce.php' );
-	$pro_active  = otsw_mu_is_plugin_active( 'turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+	$pro_active  = otsw_mu_is_plugin_active( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
 	if ( $free_active === $pro_active ) {
 		return null;
 	}
 	return array(
-		'dir'    => WP_PLUGIN_DIR . '/' . ( $pro_active ? 'turbo-search-for-woocommerce-pro' : 'ozulabs-turbo-search-for-woocommerce' ),
+		'dir'    => WP_PLUGIN_DIR . '/' . ( $pro_active ? 'ozulabs-turbo-search-for-woocommerce-pro' : 'ozulabs-turbo-search-for-woocommerce' ),
 		'is_pro' => $pro_active,
 	);
 }
