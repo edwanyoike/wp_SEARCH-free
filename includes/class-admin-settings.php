@@ -162,6 +162,16 @@ class Admin_Settings {
 		$settings_url  = admin_url( 'admin.php?page=otsw-fast-search' );
 		$settings_link = '<a href="' . esc_url( $settings_url ) . '">' . esc_html__( 'Settings', 'ozulabs-turbo-search-for-woocommerce' ) . '</a>';
 		array_unshift( $links, $settings_link );
+
+		// Pro already covers everything Free does, so an upgrade prompt here
+		// would be redundant (and this site's Free listing is presumably
+		// inactive anyway — see the mutual-exclusion guard in the main file).
+		if ( ! Activator::is_pro_edition_active() ) {
+			$links[] = '<a href="https://ozulabs.com/plugins/turbo-search/" target="_blank" rel="noopener noreferrer" style="color:#008a20;font-weight:600;">'
+				. esc_html__( 'Upgrade to Pro', 'ozulabs-turbo-search-for-woocommerce' )
+				. '</a>';
+		}
+
 		return $links;
 	}
 

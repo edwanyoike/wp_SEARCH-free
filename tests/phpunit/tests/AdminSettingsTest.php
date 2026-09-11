@@ -578,4 +578,27 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( 'nonce-otsw_rebuild', $config['nonces']['rebuild'] );
 		$this->assertArrayHasKey( 'confirmDelete', $config['i18n'] );
 	}
+
+	// ── Plugin row action links ──────────────────────────────────────────────
+
+	public function test_plugin_row_gets_settings_and_upgrade_links_when_pro_is_not_active(): void {
+		$GLOBALS['otsw_test_active_plugins'] = array();
+
+		$links = Admin_Settings::add_plugin_action_links( array( 'Deactivate' ) );
+
+		$this->assertStringContainsString( 'admin.php?page=otsw-fast-search', $links[0] );
+		$this->assertSame( 'Deactivate', $links[1] );
+		$this->assertStringContainsString( 'Upgrade to Pro', $links[2] );
+		$this->assertStringContainsString( 'ozulabs.com/plugins/turbo-search', $links[2] );
+	}
+
+	public function test_plugin_row_omits_the_upgrade_link_when_pro_is_already_active(): void {
+		$GLOBALS['otsw_test_active_plugins'] = array( 'ozulabs-turbo-search-for-woocommerce-pro/turbo-search-for-woocommerce.php' );
+
+		$links = Admin_Settings::add_plugin_action_links( array( 'Deactivate' ) );
+
+		foreach ( $links as $link ) {
+			$this->assertStringNotContainsString( 'Upgrade to Pro', $link );
+		}
+	}
 }
