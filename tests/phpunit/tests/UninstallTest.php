@@ -122,4 +122,30 @@ final class UninstallTest extends TestCase {
 
 		$this->assertSame( array(), $this->wpdb->queries, 'must not touch shared notice-dismissal user meta while Pro is active' );
 	}
+
+	/**
+	 * Regression: WordPress's own "Bulk Actions → Delete" on the Plugins
+	 * screen can require BOTH editions' uninstall.php in the same PHP
+	 * request if both are selected together — reproduced for real in
+	 * production via wp-admin's Delete action on a leftover pre-rename
+	 * build (a class-redeclare fatal, "There has been a critical error on
+	 * this website"). \OTSW\Search\Activator and the two top-level
+	 * functions this file declares are unconditionally bound the moment
+	 * the file is parsed — a second plain `require` of this exact file
+	 * (setUp() above already required it once) would previously redeclare
+	 * both without the class_exists()/function_exists() guards this test
+	 * exists to prove are in place. A missing guard here would crash the
+	 * entire PHPUnit process with a compile-time fatal, not just fail this
+	 * assertion — that is the point: this test can only pass for real.
+	 */
+	public function test_requiring_uninstall_php_a_second_time_in_the_same_process_does_not_redeclare(): void {
+		update_option( 'otsw_delete_data_on_uninstall', false ); // keep the second require's own top-level dispatch a no-op
+		$GLOBALS['otsw_test_is_multisite'] = false;
+
+		require OTSW_PLUGIN_DIR . 'uninstall.php';
+
+		$this->assertTrue( function_exists( 'otsw_uninstall_single_site' ) );
+		$this->assertTrue( function_exists( 'otsw_delete_notice_dismissals' ) );
+		$this->assertTrue( class_exists( '\\OTSW\\Search\\Activator' ) );
+	}
 }

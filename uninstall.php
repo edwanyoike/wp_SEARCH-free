@@ -17,7 +17,24 @@ global $wpdb;
 
 // The plugin's autoloader is not registered during uninstall — load the
 // Activator directly for its canonical option / transient-prefix lists.
-require_once __DIR__ . '/includes/class-activator.php';
+//
+// Guarded: WordPress's own "Bulk Actions → Delete" on the Plugins screen can
+// run this file for BOTH editions in the same PHP request if both are
+// selected together — each is a real, separate plugin file, but they
+// declare the identical class \OTSW\Search\Activator (see the same
+// mutual-exclusion problem documented at length in the main plugin file's
+// own top-level comment; that fatal was reproduced for real in production
+// via wp-admin's Delete action on a leftover pre-rename build). Whichever
+// edition's uninstall.php happens to run first here "wins" — its own
+// Activator, and therefore its own PLUGIN_OPTIONS/TRANSIENT_PREFIXES list,
+// is what the functions below actually use, even inside the second
+// edition's own copy of this file. That can leave a few of the *other*
+// edition's own extra options behind uncleaned in this rare double-delete
+// case, which is a orphaned-row inconvenience, not a broken site — the
+// alternative (no guard at all) is the fatal this exists to prevent.
+if ( ! class_exists( '\\OTSW\\Search\\Activator' ) ) {
+	require_once __DIR__ . '/includes/class-activator.php';
+}
 
 // Check if data deletion on uninstall is enabled — for the top-level
 // single-site/network-wide dispatch below; each_network_site() re-checks
@@ -49,64 +66,71 @@ $otsw_delete_data = (bool) get_option( 'otsw_delete_data_on_uninstall', false );
  * from under a Pro install that migrated onto that exact same data. This
  * is the same principle the MU-file check below already applies to their
  * other shared resource, just for tables/options instead of a file.
+ *
+ * function_exists()-wrapped for the same reason as the class_exists() guard
+ * above: an ordinary top-level function declaration is bound by PHP when
+ * this file is parsed, before any runtime code (including a plain early
+ * return) executes — wrapping is what makes the declaration conditional.
  */
-function otsw_uninstall_single_site(): void {
-	global $wpdb;
+if ( ! function_exists( 'otsw_uninstall_single_site' ) ) {
+	function otsw_uninstall_single_site(): void {
+		global $wpdb;
 
-	if ( ! (bool) get_option( 'otsw_delete_data_on_uninstall', false ) ) {
-		return;
-	}
+		if ( ! (bool) get_option( 'otsw_delete_data_on_uninstall', false ) ) {
+			return;
+		}
 
-	if ( \OTSW\Search\Activator::is_pro_edition_active() ) {
-		return;
-	}
+		if ( \OTSW\Search\Activator::is_pro_edition_active() ) {
+			return;
+		}
 
-	// 1. Drop the custom search index tables (main + staging) and the
-	// rate-limit counters. Typo-correction vocabulary (otsw_search_terms*),
-	// search-analytics (otsw_search_log), and its defunct predecessor
-	// (otsw_zero_hits) are Pro-only/Pro-history tables this edition's
-	// Activator never creates — see PORTING.md — so there is nothing to drop
-	// for them here.
-	$main_table  = $wpdb->prefix . 'otsw_search_index';
-	$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
-	$rl_table    = $wpdb->prefix . 'otsw_rate_limits';
-	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $main_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
-	$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $rl_table ) );    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		// 1. Drop the custom search index tables (main + staging) and the
+		// rate-limit counters. Typo-correction vocabulary (otsw_search_terms*),
+		// search-analytics (otsw_search_log), and its defunct predecessor
+		// (otsw_zero_hits) are Pro-only/Pro-history tables this edition's
+		// Activator never creates — see PORTING.md — so there is nothing to drop
+		// for them here.
+		$main_table  = $wpdb->prefix . 'otsw_search_index';
+		$stage_table = $wpdb->prefix . 'otsw_search_index_stage';
+		$rl_table    = $wpdb->prefix . 'otsw_rate_limits';
+		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $main_table ) );  // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $stage_table ) ); // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$wpdb->query( $wpdb->prepare( 'DROP TABLE IF EXISTS %i', $rl_table ) );    // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching,WordPress.DB.DirectDatabaseQuery.SchemaChange
 
-	// 2. Delete the plugin's own options. Explicit list — a broad LIKE 'otsw_%'
-	// would also delete WooCommerce Subscriptions' options (shared prefix).
-	foreach ( \OTSW\Search\Activator::PLUGIN_OPTIONS as $option ) {
-		delete_option( $option );
-	}
+		// 2. Delete the plugin's own options. Explicit list — a broad LIKE 'otsw_%'
+		// would also delete WooCommerce Subscriptions' options (shared prefix).
+		foreach ( \OTSW\Search\Activator::PLUGIN_OPTIONS as $option ) {
+			delete_option( $option );
+		}
 
-	// 3. Clear the plugin's own transients by exact key shape — never
-	// '_transient_otsw_%', which matches WC Subscriptions' otsw_report_* transients.
-	foreach ( \OTSW\Search\Activator::TRANSIENT_PREFIXES as $prefix ) {
-		$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
+		// 3. Clear the plugin's own transients by exact key shape — never
+		// '_transient_otsw_%', which matches WC Subscriptions' otsw_report_* transients.
+		foreach ( \OTSW\Search\Activator::TRANSIENT_PREFIXES as $prefix ) {
+			$wpdb->query( $wpdb->prepare( // phpcs:ignore WordPress.DB.DirectDatabaseQuery
 			"DELETE FROM {$wpdb->options} WHERE option_name LIKE %s OR option_name LIKE %s",
 			$wpdb->esc_like( '_transient_' . $prefix ) . '%',
 			$wpdb->esc_like( '_transient_timeout_' . $prefix ) . '%'
-		) );
-	}
+			) );
+		}
 
-	// 4. Clear Action Scheduler jobs.
-	if ( function_exists( 'as_unschedule_all_actions' ) ) {
-		as_unschedule_all_actions( null, array(), 'ozulabs-turbo-search-for-woocommerce' );
-	}
+		// 4. Clear Action Scheduler jobs.
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( null, array(), 'ozulabs-turbo-search-for-woocommerce' );
+		}
 
-	// 5. Clear the WP-Cron daily GC job.
-	$timestamp = wp_next_scheduled( 'otsw_daily_transient_gc' );
-	if ( $timestamp ) {
-		wp_unschedule_event( $timestamp, 'otsw_daily_transient_gc' );
-	}
+		// 5. Clear the WP-Cron daily GC job.
+		$timestamp = wp_next_scheduled( 'otsw_daily_transient_gc' );
+		if ( $timestamp ) {
+			wp_unschedule_event( $timestamp, 'otsw_daily_transient_gc' );
+		}
 
-	// 5b. Clear any pending dynamically-argumented WP-Cron retries (a
-	// product-update/removal retry, or a rebuild-scheduling retry) — these
-	// are keyed by product ID or rebuild epoch, not a fixed argument list,
-	// so wp_next_scheduled()/wp_unschedule_event() alone can't target them;
-	// see Activator::clear_dynamic_cron_hooks()'s docblock.
-	\OTSW\Search\Activator::clear_dynamic_cron_hooks();
+		// 5b. Clear any pending dynamically-argumented WP-Cron retries (a
+		// product-update/removal retry, or a rebuild-scheduling retry) — these
+		// are keyed by product ID or rebuild epoch, not a fixed argument list,
+		// so wp_next_scheduled()/wp_unschedule_event() alone can't target them;
+		// see Activator::clear_dynamic_cron_hooks()'s docblock.
+		\OTSW\Search\Activator::clear_dynamic_cron_hooks();
+	}
 }
 
 /**
@@ -138,23 +162,28 @@ function otsw_uninstall_single_site(): void {
  * whole network on Multisite and falls back to the same-site check
  * everywhere else — see its own docblock for why this differs from the
  * intentionally same-site-only check at deactivation time.
+ *
+ * function_exists()-wrapped for the same reason as
+ * otsw_uninstall_single_site() above.
  */
-function otsw_delete_notice_dismissals(): void {
-	global $wpdb;
+if ( ! function_exists( 'otsw_delete_notice_dismissals' ) ) {
+	function otsw_delete_notice_dismissals(): void {
+		global $wpdb;
 
-	if ( \OTSW\Search\Activator::is_shared_network_resource_still_needed() ) {
-		return;
-	}
+		if ( \OTSW\Search\Activator::is_shared_network_resource_still_needed() ) {
+			return;
+		}
 
-	// 6. Delete all otsw_notice_*_dismissed user meta.
-	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
-	$wpdb->query(
+		// 6. Delete all otsw_notice_*_dismissed user meta.
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery,WordPress.DB.DirectDatabaseQuery.NoCaching
+		$wpdb->query(
 		$wpdb->prepare(
 			"DELETE FROM {$wpdb->usermeta} WHERE meta_key IN (%s, %s)",
 			'otsw_notice_mu_bypass_dismissed',
 			'otsw_notice_no_cache_dismissed'
 		)
-	);
+		);
+	}
 }
 
 // Perform cleanup across all sites in Multisite or the current single site.

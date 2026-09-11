@@ -3,6 +3,9 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.11.24 =
+* Housekeeping: refreshed both WordPress.org listing screenshots — the previous pair was taken on two different stores in two different currencies; both are now the same live store, showing the live search dropdown with real results and the Recent Searches feature.
+
 = 1.11.23 =
 * Housekeeping: corrected a changelog entry misattributed to the wrong version heading in this file, introduced by the previous release. No functional change.
 
