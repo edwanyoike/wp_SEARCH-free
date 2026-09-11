@@ -3,7 +3,7 @@
  * Turbo Search for WooCommerce Cache Bypass
  *
  * Description: Must-Use (MU) plugin companion for Turbo Search for WooCommerce. Intercepts search REST API queries early to bypass the standard WordPress boot process when a cache hit is available.
- * Version:     1.11.12
+ * Version:     1.11.13
  * Author:      Ozulabs
  * Author URI:  https://ozulabs.com
  * License:     GPLv2 or later
@@ -83,17 +83,28 @@ function otsw_cache_bypass_intercept(): void {
 		return;
 	}
 
-	// ── 3. Determine which edition is actually active. This one MU file is
-	// shared byte-for-byte between both editions (each
-	// Activator::install_mu_plugin() copies the same source) — see
+	// ── 3. Determine which edition is actually active. wp-content/mu-plugins/
+	// is a single, network-wide directory — either edition's own
+	// Activator::install_mu_plugin() can be the one that most recently wrote
+	// this file, so it cannot assume it's still the active edition just
+	// because it's the one physically installed (see
 	// otsw_mu_resolve_active_edition()'s own docblock for why this can't be
-	// inferred from directory/file existence.
+	// inferred from directory/file existence either). This (Free's) copy
+	// only knows how to correctly serve Free's own request — always the
+	// store's default currency, with no multi-currency-switcher awareness at
+	// all, since that price-conversion logic is a Pro-only feature. If Pro
+	// is the one actually active, this file must not try to serve the
+	// request itself: guessing at Pro's currency-aware cache key would be
+	// wrong and could poison the cache namespace both copies write into.
+	// Pro installs and uses its own capable copy of this file when it's
+	// active (see wp_search's own Activator::install_mu_plugin()) — bailing
+	// here just falls through to the normal REST route, which always uses
+	// whichever edition's PHP is actually loaded and is always correct.
 	$edition = otsw_mu_resolve_active_edition();
-	if ( null === $edition ) {
+	if ( null === $edition || $edition['is_pro'] ) {
 		return;
 	}
-	$is_pro_edition = $edition['is_pro'];
-	$edition_dir    = $edition['dir'];
+	$edition_dir = $edition['dir'];
 
 	// The active edition's own files must still exist — e.g. a race where a
 	// plugin was just deleted but the active_plugins option hasn't been
@@ -148,82 +159,13 @@ function otsw_cache_bypass_intercept(): void {
 	}
 
 	// ── 6. Build cache key (identical logic to Search_Handler) ───────────────
-	$default_currency = get_option( 'woocommerce_currency', 'USD' );
-
-	// Start from the store default so the variable is always defined, even
-	// when neither a GET param nor any switcher cookie is present.
-	$currency = $default_currency;
-
-	// Multi-currency price conversion is a Pro-only feature — Free's own
-	// Search_Handler::handle_request() ignores the `currency` REST param
-	// entirely and always serves prices in the store's default currency (see
-	// its own comment to that effect). This fast path must compute the exact
-	// same currency Free's REST route would, or the two paths silently drift
-	// onto different cache keys for any shopper using a currency switcher —
-	// the fast path storing under `otsw_v1_<CODE>_<hash>` while the REST route
-	// only ever writes `otsw_v1_<default>_<hash>`, so the fast path's cache
-	// entry is never read and the "skip WP's boot entirely" optimization this
-	// whole file exists for silently stops engaging for those shoppers.
-	if ( $is_pro_edition ) {
-		$requested_currency = isset( $_GET['currency'] ) ? wp_unslash( $_GET['currency'] ) : ''; // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- sanitized via sanitize_text_field() below
-
-		if ( '' !== $requested_currency ) {
-			$currency = sanitize_text_field( wp_unslash( $requested_currency ) );
-		} else {
-			// Common currency switcher cookies — checked in priority order.
-			$currency_cookies = array(
-				'wmc_current_currency',         // Villatheme / CURCY Multi Currency
-				'woocs_current_currency',       // WOOCS (WooCommerce Currency Switcher)
-				'woocommerce_current_currency', // Official WooCommerce Multi-Currency
-				'_wpml_active_currency',        // WPML / WooCommerce Multilingual
-			);
-
-			foreach ( $currency_cookies as $cookie_name ) {
-				if ( isset( $_COOKIE[ $cookie_name ] ) ) {
-					$currency = sanitize_text_field( wp_unslash( $_COOKIE[ $cookie_name ] ) );
-					break;
-				}
-			}
-		}
-
-		$currency = strtoupper( substr( preg_replace( '/[^A-Za-z]/', '', $currency ), 0, 3 ) );
-		if ( empty( $currency ) ) {
-			$currency = $default_currency;
-		}
-
-		// Validate any non-default currency — whether it came from the GET param or
-		// a switcher cookie — against the store's configured currency list. This
-		// mirrors Search_Handler::get_known_currencies() (including its filter) so
-		// both paths always compute the same cache key. Unknown codes fall back to
-		// the store default rather than fabricating per-code cache entries.
-		if ( $currency !== $default_currency ) {
-			$known_currencies = array();
-
-			$wmc = get_option( 'woo_multi_currency_params', array() );
-			if ( is_array( $wmc ) && ! empty( $wmc['currency'] ) && is_array( $wmc['currency'] ) ) {
-				$known_currencies = array_merge( $known_currencies, $wmc['currency'] );
-			}
-
-			$woocs = get_option( 'woocs_currencies', array() );
-			if ( is_array( $woocs ) ) {
-				$known_currencies = array_merge( $known_currencies, array_keys( $woocs ) );
-			}
-
-			$wcml = get_option( 'wcml_exchange_rates', array() );
-			if ( is_array( $wcml ) ) {
-				$known_currencies = array_merge( $known_currencies, array_keys( $wcml ) );
-			}
-
-			/** This filter is documented in includes/class-search-handler.php */
-			$known_currencies = (array) apply_filters( 'otsw_known_currencies', $known_currencies );
-			$known_currencies = array_map( 'strtoupper', array_filter( $known_currencies, 'is_string' ) );
-
-			if ( ! in_array( $currency, $known_currencies, true ) ) {
-				$currency = $default_currency;
-			}
-		}
-	}
-
+	// Free always serves prices in the store's default currency — see
+	// Search_Handler::handle_request()'s own comment to the same effect.
+	// Multi-currency price conversion is a Pro-only feature; this file
+	// never reads a currency param or any third-party switcher cookie at
+	// all (see the edition bail-out above for why that logic now lives only
+	// in Pro's own copy of this file, not here).
+	$currency      = get_option( 'woocommerce_currency', 'USD' );
 	$cache_version = (int) get_option( 'otsw_cache_version', 1 );
 	$cache_key     = \OTSW\Search\Query_Normalizer::cache_key( $query, $currency, $cache_version );
 

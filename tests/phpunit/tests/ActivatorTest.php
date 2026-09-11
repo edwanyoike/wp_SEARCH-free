@@ -146,6 +146,10 @@ final class ActivatorTest extends TestCase {
 		// duplicate otsw_-prefixed function declarations they share.
 		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
 		file_put_contents( $legacy_mu, '<?php // placeholder' );
+		// The legacy-file deletion (like install_mu_plugin() itself) only
+		// runs on admin requests — see delete_legacy_mu_file()'s call site
+		// in Activator::init().
+		$GLOBALS['otsw_test_is_admin'] = true;
 		$this->healthyTables();
 
 		Activator::init();
@@ -355,6 +359,76 @@ final class ActivatorTest extends TestCase {
 		Activator::init();
 
 		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+	}
+
+	/**
+	 * Regression: migrate_legacy_wcs_prefix() only attempts the legacy-file
+	 * deletion while wcs_db_version is still present — it returns early and
+	 * skips everything (including the deletion) the moment that option is
+	 * gone. A site can reach "wcs_db_version already gone, but
+	 * wcs-cache-bypass.php still physically present" without that migration
+	 * ever running again — an interim build whose prefix rename had landed
+	 * but whose MU filename rename hadn't yet (never actually distributed,
+	 * but exactly the shape a partial/interrupted update could also leave
+	 * behind), a restored backup, or a manually reintroduced file. Both
+	 * files declare the same otsw_-prefixed functions, so installing the
+	 * current file on top of that survivor fatals every request. This must
+	 * be caught and fixed independently of the wcs_db_version gate.
+	 */
+	public function test_legacy_mu_file_is_removed_even_without_a_pending_prefix_migration(): void {
+		$GLOBALS['otsw_test_is_admin'] = true;
+		// No wcs_db_version at all — migrate_legacy_wcs_prefix() returns
+		// early and does nothing, exactly as if this site had already fully
+		// migrated on some earlier request.
+		update_option( 'otsw_db_version', '99.0.0' );
+		update_option( 'otsw_mu_version', OTSW_VERSION );
+		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $legacy_mu, '<?php // placeholder' );
+		$this->healthyTables();
+
+		Activator::init();
+
+		$this->assertFileDoesNotExist( $legacy_mu, 'the legacy file must be removed even with no pending wcs_ -> otsw_ option/table migration' );
+		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+	}
+
+	/**
+	 * Regression: install_mu_plugin() used to have no awareness of the
+	 * legacy filename at all — it would write the current file regardless
+	 * of whether a conflicting old one still existed. If deletion fails
+	 * (no direct filesystem access, a locked-down host), that used to still
+	 * let the new file get installed right alongside the surviving old one
+	 * — the exact "both files loaded, fatal redeclare" state WPR-201
+	 * describes. Installation must be skipped, not attempted, whenever the
+	 * legacy file couldn't actually be removed.
+	 */
+	public function test_mu_install_is_skipped_when_the_legacy_file_cannot_be_deleted(): void {
+		$GLOBALS['otsw_test_is_admin'] = true;
+		update_option( 'otsw_db_version', '99.0.0' );
+		update_option( 'otsw_mu_version', OTSW_VERSION );
+		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $legacy_mu, '<?php // placeholder' );
+		$this->healthyTables();
+
+		// Simulate a delete that silently fails: no write permission on the
+		// containing directory means unlink() cannot remove the file even
+		// though the fake filesystem layer reports "direct" access is
+		// available (this test harness cannot simulate a false
+		// get_direct_filesystem() return — see bootstrap.php's
+		// get_filesystem_method()/WP_Filesystem() stubs, which always
+		// succeed — so a real, unremovable file is the next best proof).
+		chmod( WPMU_PLUGIN_DIR, 0555 );
+		try {
+			Activator::init();
+		} finally {
+			chmod( WPMU_PLUGIN_DIR, 0755 ); // restore, or every later test in this file loses the fixture dir
+		}
+
+		$this->assertFileExists( $legacy_mu, 'sanity check: the deletion must have actually failed for this test to prove anything' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'the new file must never be installed alongside a legacy file that failed to delete' );
+		$this->assertFalse( get_option( 'otsw_legacy_mu_cleared' ), 'must not be marked cleared so the next admin request retries the deletion' );
+
+		unlink( $legacy_mu ); // tearDown()-equivalent cleanup for this one test's own fixture
 	}
 
 	// ── Cron bootstrap ───────────────────────────────────────────────────────

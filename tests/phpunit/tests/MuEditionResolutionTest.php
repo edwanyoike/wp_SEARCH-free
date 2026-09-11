@@ -119,11 +119,16 @@ final class MuEditionResolutionTest extends TestCase {
 		$this->assertSame( array(), $GLOBALS['otsw_test_transients']['reads'] ?? array(), 'no transient lookup means the fast path never engaged' );
 	}
 
-	public function test_selected_edition_missing_its_files_skips_fast_path_without_fatal(): void {
-		// Pro is "active" per WordPress's own state, but no
-		// turbo-search-for-woocommerce-pro directory exists in this test
-		// environment (Pro is a separate sibling repo) — the intercept must
-		// return quietly rather than fatal on the missing require target.
+	public function test_pro_active_bails_without_requiring_any_pro_file(): void {
+		// Pro is "active" per WordPress's own state. This (Free's) copy of
+		// the MU file only knows how to correctly serve Free's own request
+		// — see otsw_cache_bypass_intercept()'s own comment on why it bails
+		// immediately whenever Pro is the active edition, rather than trying
+		// to require and serve Pro's files itself. No
+		// turbo-search-for-woocommerce-pro directory even exists in this
+		// test environment (Pro is a separate sibling repo) — proving the
+		// bail-out happens before any Pro file is ever touched, not merely
+		// that a missing-file fatal is caught afterward.
 		$GLOBALS['otsw_test_active_plugins'] = array( self::PRO_BASENAME );
 		$_SERVER['REQUEST_URI']             = '/wp-json/otsw/v1/search';
 		$_GET                                = array( 'q' => 'lamp', '_wpnonce' => 'test-nonce' );

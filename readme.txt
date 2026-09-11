@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.12
+Stable tag:        1.11.13
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -80,6 +80,11 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 2. The same instant-results dropdown on a real store selling in USD, with product images, prices, and descriptions.
 
 == Changelog ==
+
+= 1.11.13 =
+* Fix: a site updating through an old intermediate build could end up with two copies of this plugin's MU companion file installed at once, which made every page on the site fail to load. Removing the old copy no longer depends on a one-time migration step that may have already run; the new copy is never installed unless the old one is confirmed gone first.
+* Housekeeping: removed the remaining Pro-only multi-currency detection code from this edition's MU companion file — it never had any effect here (this edition always prices in your store's own currency), but it shouldn't have shipped in this edition's files at all.
+* Housekeeping: the Settings tab's shortcode example now shows [otsw_search], matching the Documentation tab and the plugin's own primary tag.
 
 = 1.11.12 =
 * Housekeeping: removed the remaining backend plumbing for typo-corrected search queries — a Pro-only feature this edition never actually produced results for. The always-empty property, the cache wrapper it used, and the response header it triggered are gone; 1.11.10's changelog entry described the frontend half of this removal, this finishes the backend half.

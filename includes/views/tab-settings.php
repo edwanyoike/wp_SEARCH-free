@@ -72,7 +72,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 <div style="margin-top: 20px; padding: 12px 16px; background: #f0f6fc; border-left: 4px solid #2563eb; border-radius: 0 4px 4px 0; font-size: 13px; line-height: 1.6;">
 	<strong><?php esc_html_e( 'Search form not showing on your site?', 'ozulabs-turbo-search-for-woocommerce' ); ?></strong>
 	<?php esc_html_e( 'If your theme uses a custom search widget, use the shortcode below to place Turbo Search anywhere — a page, widget, or Elementor/WPBakery block:', 'ozulabs-turbo-search-for-woocommerce' ); ?>
-	<code style="display:inline-block; margin: 6px 0 2px; padding: 4px 10px; background: #fff; border: 1px solid #c3d4e8; border-radius: 4px; font-size: 13px; user-select: all;">[turbo_search]</code>
+	<code style="display:inline-block; margin: 6px 0 2px; padding: 4px 10px; background: #fff; border: 1px solid #c3d4e8; border-radius: 4px; font-size: 13px; user-select: all;">[otsw_search]</code>
 	<span style="color:#555; margin-left: 8px;"><?php esc_html_e( 'Optional:', 'ozulabs-turbo-search-for-woocommerce' ); ?> <code>placeholder="…"</code> &nbsp;<code>button="Go"</code></span>
 	&mdash; <a href="?page=otsw-fast-search&tab=docs#search-form-setup"><?php esc_html_e( 'full instructions', 'ozulabs-turbo-search-for-woocommerce' ); ?></a>
 </div>
