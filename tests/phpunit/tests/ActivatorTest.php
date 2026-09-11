@@ -304,6 +304,74 @@ final class ActivatorTest extends TestCase {
 	}
 
 	/**
+	 * Regression: install_mu_plugin() used to record otsw_mu_version as
+	 * current unconditionally, before ever attempting to write the file —
+	 * so if an outdated destination already existed and the attempt to
+	 * replace it failed (an unwritable file, a locked-down mu-plugins
+	 * directory), the stored version still claimed success. Nothing else
+	 * would then retry: the missing-file check next to this method's own
+	 * call site in init() only fires when the file is entirely absent, not
+	 * when it exists but is stale, and the settings-page notice has the
+	 * same missing-only blind spot. The REST route and this MU fast path
+	 * would then silently run different code indefinitely. The version must
+	 * only be recorded once the destination is actually confirmed to match
+	 * the bundled source.
+	 *
+	 * Directory-only permission tricks (as used elsewhere in this file for
+	 * a delete failure) do NOT reproduce this: PHP's copy() can overwrite
+	 * an existing file's *content* using only the file's own write bit —
+	 * confirmed empirically — so this test makes the destination file
+	 * itself unwritable too, which additionally blocks the pre-emptive
+	 * "delete if unwritable" step, leaving the stale content untouched.
+	 */
+	public function test_failed_replacement_of_an_outdated_mu_file_leaves_version_stale_for_retry(): void {
+		$GLOBALS['otsw_test_is_admin'] = true;
+		update_option( 'otsw_mu_version', 'old-version' );
+		update_option( 'otsw_db_version', '99.0.0' );
+		$this->healthyTables();
+
+		$destination = WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php';
+		file_put_contents( $destination, '<?php // stale placeholder, does not match the bundled source' );
+		chmod( $destination, 0444 );
+		chmod( WPMU_PLUGIN_DIR, 0555 );
+		try {
+			Activator::init();
+		} finally {
+			chmod( WPMU_PLUGIN_DIR, 0755 );
+			chmod( $destination, 0644 );
+		}
+		clearstatcache( true, $destination );
+
+		$this->assertStringContainsString( 'stale placeholder', (string) file_get_contents( $destination ), 'sanity check: the replacement must have actually failed for this test to prove anything' );
+		$this->assertNotSame( OTSW_VERSION, get_option( 'otsw_mu_version' ), 'must not be recorded as current so the next admin request retries the replacement' );
+	}
+
+	public function test_a_later_successful_request_retries_and_replaces_a_previously_stale_mu_file(): void {
+		$GLOBALS['otsw_test_is_admin'] = true;
+		update_option( 'otsw_mu_version', 'old-version' );
+		update_option( 'otsw_db_version', '99.0.0' );
+		$this->healthyTables();
+
+		$destination = WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php';
+		file_put_contents( $destination, '<?php // stale placeholder, does not match the bundled source' );
+		chmod( $destination, 0444 );
+		chmod( WPMU_PLUGIN_DIR, 0555 );
+		try {
+			Activator::init(); // fails to replace it, as proven by the test above
+		} finally {
+			chmod( WPMU_PLUGIN_DIR, 0755 );
+			chmod( $destination, 0644 );
+		}
+		clearstatcache( true, $destination );
+
+		Activator::init(); // permissions are healthy again — this request must succeed
+		clearstatcache( true, $destination );
+
+		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', $destination );
+		$this->assertSame( OTSW_VERSION, get_option( 'otsw_mu_version' ) );
+	}
+
+	/**
 	 * Regression: a version-only check can't tell "the file needs no work"
 	 * apart from "the file is gone but otsw_mu_version happens to still
 	 * match" — remove_mu_plugin() deliberately only checks the CURRENT

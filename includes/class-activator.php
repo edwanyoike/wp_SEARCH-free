@@ -757,7 +757,12 @@ class Activator {
 	 *
 	 * Silently skips if the mu-plugins directory is not writable (managed
 	 * hosts that lock that directory will simply fall back to the normal
-	 * REST route with no errors).
+	 * REST route with no errors) — otsw_mu_version is left stale in that
+	 * case so init()'s own version-mismatch check retries on the next
+	 * admin request, exactly like a missing destination file already does
+	 * via its own independent check; see this method's closing comment for
+	 * why that retry signal has to come from actually verifying the file,
+	 * not from having merely attempted to write it.
 	 *
 	 * Also refuses to run while a pre-rename wcs-cache-bypass.php file
 	 * survives — see delete_legacy_mu_file()'s docblock for the fatal that
@@ -788,13 +793,6 @@ class Activator {
 		$mu_dir      = trailingslashit( WPMU_PLUGIN_DIR );
 		$destination = $mu_dir . 'otsw-cache-bypass.php';
 
-		// Record the attempt for this plugin version so the init() update check
-		// runs at most once per version, not on every admin page load. autoload
-		// = true: init() compares it on every admin request. If the copy below
-		// fails (read-only mu-plugins dir), the settings-page admin notice
-		// already tells the owner how to fix permissions and retry.
-		update_option( 'otsw_mu_version', OTSW_VERSION, true );
-
 		if ( ! file_exists( $source ) ) {
 			return; // Source missing — nothing to install.
 		}
@@ -804,33 +802,54 @@ class Activator {
 			wp_mkdir_p( $mu_dir );
 		}
 
-		if ( file_exists( $destination ) ) {
-			// If the destination and source are the same file (e.g. symlinked in dev), skip copying.
-			if ( realpath( $source ) === realpath( $destination ) ) {
-				return;
+		// True once the destination genuinely matches the bundled source —
+		// checked both before attempting a copy (skips redundant work when
+		// it's already current) and again at the very end (the actual
+		// verdict on whether this attempt succeeded). Same-file/identical-
+		// content is deliberately re-checked from scratch rather than
+		// assumed from "we didn't error", since a partial/interrupted write
+		// could leave a destination that exists but doesn't match either.
+		$destination_matches_source = static function () use ( $source, $destination ): bool {
+			return file_exists( $destination )
+				&& ( realpath( $source ) === realpath( $destination ) || md5_file( $source ) === md5_file( $destination ) );
+		};
+
+		if ( ! $destination_matches_source() ) {
+			$wp_filesystem = self::get_direct_filesystem( $mu_dir );
+			if ( null !== $wp_filesystem ) {
+				if ( $wp_filesystem->exists( $destination ) && ! $wp_filesystem->is_writable( $destination ) ) {
+					$wp_filesystem->delete( $destination );
+				}
+
+				if ( ! $wp_filesystem->exists( $destination ) || $wp_filesystem->is_writable( $destination ) ) {
+					if ( ! $wp_filesystem->copy( $source, $destination, true ) ) {
+						Logger::log( 'Could not copy MU cache-bypass plugin to ' . $destination, 'warning' );
+					}
+				}
 			}
-			// If already identical contents, skip copying.
-			if ( md5_file( $source ) === md5_file( $destination ) ) {
-				return;
-			}
+			// null $wp_filesystem (no direct, credential-free filesystem
+			// access this request) falls straight through to the
+			// verification below with nothing attempted — matches the
+			// existing "silently skip, the settings-page admin notice
+			// already explains it" behavior for a locked-down/FTP-only
+			// host, and leaves otsw_mu_version stale exactly like every
+			// other failure path here.
 		}
 
-		$wp_filesystem = self::get_direct_filesystem( $mu_dir );
-		if ( null === $wp_filesystem ) {
-			// No direct (credential-free) filesystem access — matches the
-			// existing "silently skip, the settings-page admin notice already
-			// explains it" behavior for a locked-down/FTP-only host.
-			return;
-		}
-
-		if ( $wp_filesystem->exists( $destination ) && ! $wp_filesystem->is_writable( $destination ) ) {
-			$wp_filesystem->delete( $destination );
-		}
-
-		if ( ! $wp_filesystem->exists( $destination ) || $wp_filesystem->is_writable( $destination ) ) {
-			if ( ! $wp_filesystem->copy( $source, $destination, true ) ) {
-				Logger::log( 'Could not copy MU cache-bypass plugin to ' . $destination, 'warning' );
-			}
+		// Only record success once the destination is CONFIRMED to match
+		// the bundled source — never merely "an attempt was made". Every
+		// failure above (the bundled source missing entirely aside, handled
+		// by its own early return) — an unwritable destination, a failed
+		// delete, a failed copy, no direct filesystem access — must leave
+		// otsw_mu_version stale, or a site stuck with an outdated file gets
+		// no further retry (the missing-file check next to this method's
+		// own call site in init() only fires when the file is entirely
+		// absent, not when it exists but is wrong) and no admin-visible
+		// signal either (the settings-page notice has the same
+		// missing-only blind spot). The REST route and this MU fast path
+		// then silently run different code indefinitely.
+		if ( $destination_matches_source() ) {
+			update_option( 'otsw_mu_version', OTSW_VERSION, true );
 		}
 	}
 

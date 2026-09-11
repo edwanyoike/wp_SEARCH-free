@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.15
+Stable tag:        1.11.16
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,11 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.16 =
+* Fix: if this plugin's MU companion file already existed but was outdated (an interrupted previous update, a permissions issue), and replacing it failed, that failure was recorded as a success — so nothing ever retried, and the site kept running the outdated copy indefinitely with no visible warning. A replacement is now only recorded as done once the file on disk is actually confirmed to match; otherwise the next admin visit tries again.
+
 = 1.11.15 =
 * Housekeeping: trimmed this section back down to the current and immediately previous release (see changelog.txt for older ones) — it had drifted to six entries over the last several releases. Added an automated check that now fails the build if this section holds more than two releases, so this can't silently drift again.
-
-= 1.11.14 =
-* Fix: 1.11.13's protection against installing this plugin's MU companion file alongside a leftover copy from an old intermediate build only covered normal updates — activating the plugin fresh on a site with that leftover copy still present could install a second, conflicting copy and make every page fail to load. The same protection now applies everywhere this file gets installed, including activation.
-* Housekeeping: reworded a historical changelog entry (1.11.10) that described a specific real-world symptom more definitively than was actually verified at the time.
 
 See changelog.txt for older releases.
