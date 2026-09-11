@@ -3,6 +3,9 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.11.15 =
+* Housekeeping: trimmed this section back down to the current and immediately previous release (see changelog.txt for older ones) — it had drifted to six entries over the last several releases. Added an automated check that now fails the build if this section holds more than two releases, so this can't silently drift again.
+
 = 1.11.14 =
 * Fix: 1.11.13's protection against installing this plugin's MU companion file alongside a leftover copy from an old intermediate build only covered normal updates — activating the plugin fresh on a site with that leftover copy still present could install a second, conflicting copy and make every page fail to load. The same protection now applies everywhere this file gets installed, including activation.
 * Housekeeping: reworded a historical changelog entry (1.11.10) that described a specific real-world symptom more definitively than was actually verified at the time.

@@ -289,33 +289,51 @@ final class ActivatorTest extends TestCase {
 	}
 
 	// ── MU plugin self-update ────────────────────────────────────────────────
+	//
+	// Deliberately no cached "already installed" option anywhere in this
+	// section's setup: install_mu_plugin() re-verifies the real file on
+	// disk directly, every time it's called, rather than trusting a stored
+	// flag — see its own docblock and init()'s call site for why. Every bug
+	// this method has ever had (a duplicate legacy file surviving
+	// activation, a failed replacement recorded as success) came from
+	// exactly that kind of flag drifting out of sync with reality.
 
-	public function test_outdated_mu_version_reinstalls_the_mu_file_on_admin_requests(): void {
+	public function test_missing_mu_file_is_installed_on_admin_requests(): void {
 		$GLOBALS['otsw_test_is_admin'] = true;
-		update_option( 'otsw_mu_version', 'old-version' );
 		update_option( 'otsw_db_version', '99.0.0' ); // no migration noise
 		$this->healthyTables();
 
 		Activator::init();
 
-		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
-		$this->assertSame( OTSW_VERSION, get_option( 'otsw_mu_version' ) );
 		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
 	}
 
+	public function test_already_current_mu_file_is_left_untouched(): void {
+		$GLOBALS['otsw_test_is_admin'] = true;
+		update_option( 'otsw_db_version', '99.0.0' );
+		$this->healthyTables();
+		Activator::init(); // installs the file once
+		$installed_at = filemtime( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+		// Ensure a rewrite (if one wrongly happened) would produce a
+		// detectably different mtime rather than landing in the same second.
+		usleep( 1100000 );
+
+		Activator::init(); // steady state: content already matches
+
+		clearstatcache( true, WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+		$this->assertSame( $installed_at, filemtime( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' ), 'an already-correct file must not be rewritten' );
+	}
+
 	/**
-	 * Regression: install_mu_plugin() used to record otsw_mu_version as
-	 * current unconditionally, before ever attempting to write the file —
-	 * so if an outdated destination already existed and the attempt to
-	 * replace it failed (an unwritable file, a locked-down mu-plugins
-	 * directory), the stored version still claimed success. Nothing else
-	 * would then retry: the missing-file check next to this method's own
-	 * call site in init() only fires when the file is entirely absent, not
-	 * when it exists but is stale, and the settings-page notice has the
-	 * same missing-only blind spot. The REST route and this MU fast path
-	 * would then silently run different code indefinitely. The version must
-	 * only be recorded once the destination is actually confirmed to match
-	 * the bundled source.
+	 * Regression: install_mu_plugin() used to record success unconditionally
+	 * before ever attempting to write the file — so if an outdated
+	 * destination already existed and the attempt to replace it failed (an
+	 * unwritable file, a locked-down mu-plugins directory), a stored
+	 * "current version" flag still claimed success and nothing would ever
+	 * retry. There is no such flag anymore — every admin request just
+	 * re-checks the real file — but this proves a failed replacement at
+	 * least leaves the existing (wrong) content genuinely untouched rather
+	 * than partially overwritten.
 	 *
 	 * Directory-only permission tricks (as used elsewhere in this file for
 	 * a delete failure) do NOT reproduce this: PHP's copy() can overwrite
@@ -324,9 +342,8 @@ final class ActivatorTest extends TestCase {
 	 * itself unwritable too, which additionally blocks the pre-emptive
 	 * "delete if unwritable" step, leaving the stale content untouched.
 	 */
-	public function test_failed_replacement_of_an_outdated_mu_file_leaves_version_stale_for_retry(): void {
+	public function test_failed_replacement_of_an_outdated_mu_file_leaves_it_untouched(): void {
 		$GLOBALS['otsw_test_is_admin'] = true;
-		update_option( 'otsw_mu_version', 'old-version' );
 		update_option( 'otsw_db_version', '99.0.0' );
 		$this->healthyTables();
 
@@ -342,13 +359,11 @@ final class ActivatorTest extends TestCase {
 		}
 		clearstatcache( true, $destination );
 
-		$this->assertStringContainsString( 'stale placeholder', (string) file_get_contents( $destination ), 'sanity check: the replacement must have actually failed for this test to prove anything' );
-		$this->assertNotSame( OTSW_VERSION, get_option( 'otsw_mu_version' ), 'must not be recorded as current so the next admin request retries the replacement' );
+		$this->assertStringContainsString( 'stale placeholder', (string) file_get_contents( $destination ), 'the replacement must fail cleanly, not partially overwrite the existing file' );
 	}
 
 	public function test_a_later_successful_request_retries_and_replaces_a_previously_stale_mu_file(): void {
 		$GLOBALS['otsw_test_is_admin'] = true;
-		update_option( 'otsw_mu_version', 'old-version' );
 		update_option( 'otsw_db_version', '99.0.0' );
 		$this->healthyTables();
 
@@ -368,65 +383,24 @@ final class ActivatorTest extends TestCase {
 		clearstatcache( true, $destination );
 
 		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', $destination );
-		$this->assertSame( OTSW_VERSION, get_option( 'otsw_mu_version' ) );
 	}
 
 	/**
-	 * Regression: a version-only check can't tell "the file needs no work"
-	 * apart from "the file is gone but otsw_mu_version happens to still
-	 * match" — remove_mu_plugin() deliberately only checks the CURRENT
+	 * Regression: remove_mu_plugin() deliberately only checks the CURRENT
 	 * site's own is_pro_edition_active() and admits it does not scan the
 	 * rest of a Multisite network for another site still depending on the
-	 * shared file (see its docblock). So Free's own deactivation on one
-	 * site can delete the file out from under a different site whose own
-	 * otsw_mu_version option never changed, and the old version-only check
-	 * would never notice or repair it. Mirrors $table_missing's identical
-	 * reasoning for the DB table two lines above this check in init().
+	 * shared file (see its docblock) — so Free's own deactivation on one
+	 * site can delete the file out from under a different site that still
+	 * needs it. Confirms a missing file is repaired regardless of why it's
+	 * missing, not just on a fresh install.
 	 */
-	public function test_current_mu_version_still_reinstalls_a_missing_file(): void {
-		$GLOBALS['otsw_test_is_admin'] = true;
-		update_option( 'otsw_mu_version', OTSW_VERSION ); // matches — version alone would wrongly skip
-		update_option( 'otsw_db_version', '99.0.0' );
-		$this->healthyTables();
-
-		Activator::init();
-
-		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'a missing file must be repaired even when the stored version already matches' );
-	}
-
-	public function test_current_mu_version_and_present_file_leaves_it_untouched(): void {
-		$GLOBALS['otsw_test_is_admin'] = true;
-		update_option( 'otsw_mu_version', 'old-version' );
-		update_option( 'otsw_db_version', '99.0.0' );
-		$this->healthyTables();
-		Activator::init(); // installs the file once
-		update_option( 'otsw_mu_version', OTSW_VERSION );
-
-		Activator::init(); // steady state: version current, file already present
-
-		$this->assertFileEquals( OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php', WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
-	}
-
-	public function test_frontend_requests_do_not_repair_a_missing_mu_file(): void {
-		$GLOBALS['otsw_test_is_admin'] = false;
-		update_option( 'otsw_mu_version', OTSW_VERSION );
-		update_option( 'otsw_db_version', '99.0.0' );
-		$this->healthyTables();
-
-		Activator::init();
-
-		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'the file-existence probe is admin-only, same as the version check it augments' );
-	}
-
 	public function test_frontend_requests_never_touch_the_mu_file(): void {
 		$GLOBALS['otsw_test_is_admin'] = false;
-		update_option( 'otsw_mu_version', 'old-version' );
 		update_option( 'otsw_db_version', '99.0.0' );
-		$this->healthyTables();
 
 		Activator::init();
 
-		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'install_mu_plugin() must be admin-only — never touched by a front-end request' );
 	}
 
 	/**

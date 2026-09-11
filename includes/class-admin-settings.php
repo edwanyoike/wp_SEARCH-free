@@ -98,9 +98,18 @@ class Admin_Settings {
 			<?php
 		}
 
-		// ── Notice 1: MU plugin not installed ────────────────────────────────
-		$mu_dest = trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php';
-		if ( ! file_exists( $mu_dest ) && ! get_user_meta( $user_id, 'otsw_notice_mu_bypass_dismissed', true ) ) {
+		// ── Notice 1: MU plugin missing or outdated ──────────────────────────
+		// Checked directly on every admin page load (matching
+		// Activator::install_mu_plugin(), which self-heals this the moment
+		// host permissions allow it — no manual reactivation needed) rather
+		// than only when the file is entirely absent: a file that exists
+		// but is stale (locked-down permissions that allow keeping an old
+		// copy but not replacing it) is otherwise invisible to the admin
+		// indefinitely, silently serving the slower REST route path.
+		$mu_dest       = trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php';
+		$mu_source     = OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
+		$mu_needs_work = ! file_exists( $mu_dest ) || ( file_exists( $mu_source ) && md5_file( $mu_dest ) !== md5_file( $mu_source ) );
+		if ( $mu_needs_work && ! get_user_meta( $user_id, 'otsw_notice_mu_bypass_dismissed', true ) ) {
 			?>
 			<div class="notice notice-warning is-dismissible" data-otsw-notice="otsw_notice_mu_bypass">
 				<p>
@@ -109,12 +118,12 @@ class Admin_Settings {
 				<p>
 					<?php
 					esc_html_e(
-						'The cache-bypass file could not be installed into your wp-content/mu-plugins/ directory — your host may have it set to read-only. The plugin is fully functional and serving search results, but cached responses will use the standard WordPress REST route instead of the faster early-exit path.',
+						'The cache-bypass file could not be installed or updated in your wp-content/mu-plugins/ directory — your host may have it set to read-only. The plugin is fully functional and serving search results, but cached responses will use the standard WordPress REST route instead of the faster early-exit path.',
 						'ozulabs-turbo-search-for-woocommerce'
 					);
 					?>
 				</p>
-				<p><em><?php esc_html_e( 'To unlock maximum speed: ask your host to allow writes to wp-content/mu-plugins/, then deactivate and reactivate Turbo Search for WooCommerce.', 'ozulabs-turbo-search-for-woocommerce' ); ?></em></p>
+				<p><em><?php esc_html_e( 'To unlock maximum speed: ask your host to allow writes to wp-content/mu-plugins/. No further action needed here — the plugin checks again automatically on your next visit to any admin page.', 'ozulabs-turbo-search-for-woocommerce' ); ?></em></p>
 			</div>
 			<?php
 		}

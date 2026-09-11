@@ -287,25 +287,25 @@ class Activator {
 		// never re-runs activation hooks on update (dashboard, zip upload, or
 		// FTP), so without this check customers keep the old MU copy forever —
 		// and an outdated copy can normalize queries differently, silently
-		// missing the cache on every fast-path request. Steady-state cost: one
-		// autoloaded-option comparison; install_mu_plugin() itself md5-skips
-		// when the file is already identical.
+		// missing the cache on every fast-path request.
 		//
-		// Also repair a missing file even when the version already matches —
-		// mirroring $table_missing above for the identical reason: a stored
-		// version can survive the resource it describes being gone.
-		// remove_mu_plugin() deliberately only checks the CURRENT site's own
-		// is_pro_edition_active() and does not scan the rest of a Multisite
-		// network (see its docblock) — so Free's own deactivation on one site
-		// can delete the shared file out from under a different site that
-		// still needs it, while that other site's otsw_mu_version option never
-		// changed. A version-only check would then never notice or repair it.
-		// install_mu_plugin() itself refuses to run while a pre-rename
-		// wcs-cache-bypass.php file survives (see its own docblock) — that
-		// guard lives centrally inside it, not here, so every call site
-		// (this one, and Activator::activate()) inherits it automatically.
-		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php' );
-		if ( is_admin() && ( get_option( 'otsw_mu_version' ) !== OTSW_VERSION || $mu_file_missing ) ) {
+		// Deliberately re-verified directly on every admin request rather
+		// than gated behind a cached "already current" flag: every bug this
+		// method's history has had (a duplicate legacy file surviving
+		// activation, a failed replacement recorded as success) came from a
+		// stored signal drifting out of sync with the real file on disk —
+		// see this method's own earlier revisions in version control for
+		// two rounds of that exact pattern. install_mu_plugin() is already
+		// cheap when nothing needs to change (one file_exists() and one
+		// md5_file() on a single small file, admin-only, never on a
+		// front-end request), so there is no meaningful steady-state cost
+		// to dropping the cache and just checking the truth every time —
+		// which also means a missing file, or one left behind by a
+		// different site's deactivation on a Multisite network (see
+		// remove_mu_plugin()'s own docblock on why that can happen), gets
+		// noticed and repaired on the very next admin request with no
+		// extra logic needed here to detect either case specially.
+		if ( is_admin() ) {
 			self::install_mu_plugin();
 		}
 
@@ -749,44 +749,35 @@ class Activator {
 	}
 
 	/**
-	 * Copy the cache-bypass MU plugin into wp-content/mu-plugins/.
+	 * Copy the cache-bypass MU plugin into wp-content/mu-plugins/ if it
+	 * isn't already there with the bundled content.
 	 *
-	 * Called on plugin activation. The source file ships inside the plugin
-	 * package at mu-plugin/otsw-cache-bypass.php, so the customer never has
-	 * to touch the mu-plugins directory manually.
+	 * Called on plugin activation, and on every admin request via init()
+	 * (see that call site's own comment for why this has no cached
+	 * "already done" flag — every bug this method has ever had came from
+	 * exactly that kind of flag drifting out of sync with reality). The
+	 * source file ships inside the plugin package at
+	 * mu-plugin/otsw-cache-bypass.php, so the customer never has to touch
+	 * the mu-plugins directory manually.
 	 *
 	 * Silently skips if the mu-plugins directory is not writable (managed
 	 * hosts that lock that directory will simply fall back to the normal
-	 * REST route with no errors) — otsw_mu_version is left stale in that
-	 * case so init()'s own version-mismatch check retries on the next
-	 * admin request, exactly like a missing destination file already does
-	 * via its own independent check; see this method's closing comment for
-	 * why that retry signal has to come from actually verifying the file,
-	 * not from having merely attempted to write it.
+	 * REST route with no errors) — nothing needs to be recorded either way;
+	 * the next admin request simply checks again and finds the same thing
+	 * still true, or no longer true if the host's permissions changed.
 	 *
 	 * Also refuses to run while a pre-rename wcs-cache-bypass.php file
 	 * survives — see delete_legacy_mu_file()'s docblock for the fatal that
 	 * prevents. This check lives here, centrally, rather than at each of
-	 * this method's call sites (Activator::activate(), and twice in
-	 * init()): an earlier version guarded only init()'s call sites and
-	 * missed activate()'s own unconditional call entirely, which could
-	 * install the current file straight into a redeclare fatal on a site
-	 * with a surviving legacy copy. Re-verified fresh every time this
-	 * method actually runs — it's already only called when installing or
-	 * updating the file (version-mismatch or missing-file gated by the
-	 * caller), never on every request, so there's no steady-state cost to
-	 * checking again instead of trusting a cached "already confirmed gone"
-	 * flag that a later, manually reintroduced copy could slip past.
+	 * this method's call sites (Activator::activate(), and init()): an
+	 * earlier version guarded only init()'s call site and missed
+	 * activate()'s own unconditional call entirely, which could install
+	 * the current file straight into a redeclare fatal on a site with a
+	 * surviving legacy copy.
 	 */
 	private static function install_mu_plugin(): void {
 		if ( ! self::delete_legacy_mu_file() ) {
-			// Legacy file still present (deletion failed, or no direct
-			// filesystem access this request) — refuse to install the new
-			// file alongside it. otsw_mu_version is deliberately left
-			// unbumped below so init()'s own version-mismatch check keeps
-			// retrying this on every subsequent admin request until the
-			// legacy file is actually gone.
-			return;
+			return; // Legacy file still present — refuse to install the new file alongside it.
 		}
 
 		$source      = OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
@@ -797,59 +788,32 @@ class Activator {
 			return; // Source missing — nothing to install.
 		}
 
+		if ( file_exists( $destination )
+			&& ( realpath( $source ) === realpath( $destination ) || md5_file( $source ) === md5_file( $destination ) ) ) {
+			return; // Already current — nothing to do.
+		}
+
 		// Create mu-plugins dir if it does not exist yet.
 		if ( ! is_dir( $mu_dir ) ) {
 			wp_mkdir_p( $mu_dir );
 		}
 
-		// True once the destination genuinely matches the bundled source —
-		// checked both before attempting a copy (skips redundant work when
-		// it's already current) and again at the very end (the actual
-		// verdict on whether this attempt succeeded). Same-file/identical-
-		// content is deliberately re-checked from scratch rather than
-		// assumed from "we didn't error", since a partial/interrupted write
-		// could leave a destination that exists but doesn't match either.
-		$destination_matches_source = static function () use ( $source, $destination ): bool {
-			return file_exists( $destination )
-				&& ( realpath( $source ) === realpath( $destination ) || md5_file( $source ) === md5_file( $destination ) );
-		};
-
-		if ( ! $destination_matches_source() ) {
-			$wp_filesystem = self::get_direct_filesystem( $mu_dir );
-			if ( null !== $wp_filesystem ) {
-				if ( $wp_filesystem->exists( $destination ) && ! $wp_filesystem->is_writable( $destination ) ) {
-					$wp_filesystem->delete( $destination );
-				}
-
-				if ( ! $wp_filesystem->exists( $destination ) || $wp_filesystem->is_writable( $destination ) ) {
-					if ( ! $wp_filesystem->copy( $source, $destination, true ) ) {
-						Logger::log( 'Could not copy MU cache-bypass plugin to ' . $destination, 'warning' );
-					}
-				}
-			}
-			// null $wp_filesystem (no direct, credential-free filesystem
-			// access this request) falls straight through to the
-			// verification below with nothing attempted — matches the
+		$wp_filesystem = self::get_direct_filesystem( $mu_dir );
+		if ( null === $wp_filesystem ) {
+			// No direct (credential-free) filesystem access — matches the
 			// existing "silently skip, the settings-page admin notice
-			// already explains it" behavior for a locked-down/FTP-only
-			// host, and leaves otsw_mu_version stale exactly like every
-			// other failure path here.
+			// already explains it" behavior for a locked-down/FTP-only host.
+			return;
 		}
 
-		// Only record success once the destination is CONFIRMED to match
-		// the bundled source — never merely "an attempt was made". Every
-		// failure above (the bundled source missing entirely aside, handled
-		// by its own early return) — an unwritable destination, a failed
-		// delete, a failed copy, no direct filesystem access — must leave
-		// otsw_mu_version stale, or a site stuck with an outdated file gets
-		// no further retry (the missing-file check next to this method's
-		// own call site in init() only fires when the file is entirely
-		// absent, not when it exists but is wrong) and no admin-visible
-		// signal either (the settings-page notice has the same
-		// missing-only blind spot). The REST route and this MU fast path
-		// then silently run different code indefinitely.
-		if ( $destination_matches_source() ) {
-			update_option( 'otsw_mu_version', OTSW_VERSION, true );
+		if ( $wp_filesystem->exists( $destination ) && ! $wp_filesystem->is_writable( $destination ) ) {
+			$wp_filesystem->delete( $destination );
+		}
+
+		if ( ! $wp_filesystem->exists( $destination ) || $wp_filesystem->is_writable( $destination ) ) {
+			if ( ! $wp_filesystem->copy( $source, $destination, true ) ) {
+				Logger::log( 'Could not copy MU cache-bypass plugin to ' . $destination, 'warning' );
+			}
 		}
 	}
 
