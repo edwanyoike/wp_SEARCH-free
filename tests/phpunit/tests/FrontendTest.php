@@ -27,9 +27,30 @@ final class FrontendTest extends TestCase {
 		$config = json_decode( substr( $inline, strlen( 'const otsw_config = ' ), -1 ), true );
 		$this->assertSame( 4, $config['min_chars'] );
 		$this->assertSame( 'USD', $config['currency']['code'] );
+		$this->assertSame( '$', $config['currency']['symbol'] );
 		$this->assertArrayHasKey( 'index_building', $config['i18n'] );
 		$this->assertStringContainsString( '/otsw/v1/search', $config['api_url'] );
 		$this->assertNotEmpty( $config['nonce'] );
+	}
+
+	/**
+	 * This edition's prices are always the store's real default-currency
+	 * amount, never converted — so the symbol shown alongside it must name
+	 * that same real default currency, even when a multi-currency switcher
+	 * plugin has changed what the shopper is currently viewing (and
+	 * therefore what get_woocommerce_currency() reports) elsewhere on the
+	 * site. Pairing the real amount with the switcher's symbol would
+	 * mislabel it as a converted price it never actually is.
+	 */
+	public function test_currency_config_uses_the_real_store_default_even_when_a_switcher_has_selected_another_currency(): void {
+		update_option( 'woocommerce_currency', 'USD' );
+		$GLOBALS['otsw_test_switched_currency'] = 'EUR';
+
+		Frontend::enqueue_assets();
+		$config = json_decode( substr( $GLOBALS['otsw_test_inline_js']['otsw-search-js'][0], strlen( 'const otsw_config = ' ), -1 ), true );
+
+		$this->assertSame( 'USD', $config['currency']['code'] );
+		$this->assertSame( '$', $config['currency']['symbol'] );
 	}
 
 	public function test_recent_searches_config_defaults_and_is_configurable(): void {

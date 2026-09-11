@@ -3,6 +3,9 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.11.18 =
+* Housekeeping: updated this edition's internal references to the Pro edition (used to detect whether Pro is active, e.g. to avoid both editions running at once) to match the Pro edition's own upcoming rename to "OzuLabs Turbo Search for WooCommerce Pro". No effect on sites not running Pro.
+
 = 1.11.17 =
 * Housekeeping: simplified how this plugin keeps its MU companion file current. It previously tracked "is the file up to date" with a separate stored flag, checked once per version; three separate bugs across the last two releases came from that flag drifting out of sync with the actual file on disk. The plugin now just checks the real file directly on every admin page load instead — cheap, and impossible to drift. Also extended the existing "MU file needs attention" admin notice to cover a file that exists but is outdated, not just one that's missing entirely.
 

@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.19
+Stable tag:        1.11.20
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,10 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.20 =
+* Fix: on a store using a currency-switcher plugin, this edition's search dropdown could show a price with the shopper's currently-selected currency symbol while the number itself was still in the store's real default currency (this edition never converts prices — that's a Pro feature). Caused by reading the currency symbol through a WooCommerce function that switcher plugins commonly redirect to the shopper's selection; now reads the store's actually-configured default currency directly, so the symbol shown always matches the amount.
+
 = 1.11.19 =
 * Added: an "Upgrade to Pro" link on this plugin's own row on the Installed Plugins screen, next to Settings/Deactivate — links out to the Pro product page. Hidden automatically if Pro is already active on the site.
-
-= 1.11.18 =
-* Housekeeping: updated this edition's internal references to the Pro edition (used to detect whether Pro is active, e.g. to avoid both editions running at once) to match the Pro edition's own upcoming rename to "OzuLabs Turbo Search for WooCommerce Pro". No effect on sites not running Pro.
 
 See changelog.txt for older releases.

@@ -148,6 +148,7 @@ function otsw_tests_reset(): void {
 	$GLOBALS['otsw_test_dbdelta']             = array();
 	$GLOBALS['otsw_test_registered_settings'] = array();
 	$GLOBALS['otsw_test_objects_in_term']     = array();
+	$GLOBALS['otsw_test_switched_currency']   = null;
 	$GLOBALS['otsw_test_usleeps']             = array();
 	$GLOBALS['otsw_test_http_response']       = null;
 	$GLOBALS['otsw_test_cache_flush_calls']   = 0;
@@ -676,6 +677,31 @@ function wc_get_product( int $id ) {
 }
 function wc_get_product_ids_on_sale(): array {
 	return $GLOBALS['otsw_test_on_sale_ids'];
+}
+/**
+ * Mirrors real WooCommerce: filterable, and a multi-currency switcher plugin
+ * commonly overrides this to the shopper's selected currency. Tests set
+ * otsw_test_switched_currency to reproduce that, independently of the real
+ * woocommerce_currency option.
+ */
+function get_woocommerce_currency(): string {
+	return $GLOBALS['otsw_test_switched_currency'] ?? get_option( 'woocommerce_currency', 'USD' );
+}
+/**
+ * Mirrors real WooCommerce: falls back to the (possibly switcher-filtered)
+ * get_woocommerce_currency() only when no currency is given explicitly.
+ */
+function get_woocommerce_currency_symbol( string $currency = '' ): string {
+	if ( '' === $currency ) {
+		$currency = get_woocommerce_currency();
+	}
+	$symbols = array(
+		'USD' => '&#36;',
+		'EUR' => '&euro;',
+		'GBP' => '&#163;',
+		'KES' => 'KSh',
+	);
+	return $symbols[ $currency ] ?? '';
 }
 function get_objects_in_term( int $term_id, string $taxonomy ) {
 	return $GLOBALS['otsw_test_objects_in_term'] ?? array();

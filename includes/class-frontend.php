@@ -83,8 +83,19 @@ class Frontend {
 				'view_all'        => __( 'View all results for "%s"', 'ozulabs-turbo-search-for-woocommerce' ),
 			),
 			'currency'          => array(
-				'code'         => function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : get_option( 'woocommerce_currency', 'USD' ),
-				'symbol'       => function_exists( 'get_woocommerce_currency_symbol' ) ? html_entity_decode( get_woocommerce_currency_symbol(), ENT_QUOTES, 'UTF-8' ) : '',
+				// get_woocommerce_currency()/get_woocommerce_currency_symbol()
+				// with no argument both fall back to get_woocommerce_currency(),
+				// which a multi-currency switcher plugin commonly filters to
+				// the shopper's currently-selected currency for its OWN
+				// (correctly-converted) prices elsewhere on the site. This
+				// edition's prices are never converted, so borrowing that
+				// filtered value here would pair the real default-currency
+				// amount with a different currency's symbol. The raw
+				// woocommerce_currency option — read directly, bypassing that
+				// filter — is passed explicitly into the symbol lookup so it
+				// always names the currency the amount is actually in.
+				'code'         => get_option( 'woocommerce_currency', 'USD' ),
+				'symbol'       => function_exists( 'get_woocommerce_currency_symbol' ) ? html_entity_decode( get_woocommerce_currency_symbol( get_option( 'woocommerce_currency', 'USD' ) ), ENT_QUOTES, 'UTF-8' ) : '',
 				'position'     => get_option( 'woocommerce_currency_pos', 'left' ),
 				'thousand_sep' => get_option( 'woocommerce_price_thousand_sep', ',' ),
 				'decimal_sep'  => get_option( 'woocommerce_price_decimal_sep', '.' ),
