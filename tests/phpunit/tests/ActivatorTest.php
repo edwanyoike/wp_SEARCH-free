@@ -405,7 +405,7 @@ final class ActivatorTest extends TestCase {
 	public function test_mu_install_is_skipped_when_the_legacy_file_cannot_be_deleted(): void {
 		$GLOBALS['otsw_test_is_admin'] = true;
 		update_option( 'otsw_db_version', '99.0.0' );
-		update_option( 'otsw_mu_version', OTSW_VERSION );
+		update_option( 'otsw_mu_version', 'old-version' ); // must stay stale — see assertion below
 		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
 		file_put_contents( $legacy_mu, '<?php // placeholder' );
 		$this->healthyTables();
@@ -426,9 +426,50 @@ final class ActivatorTest extends TestCase {
 
 		$this->assertFileExists( $legacy_mu, 'sanity check: the deletion must have actually failed for this test to prove anything' );
 		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'the new file must never be installed alongside a legacy file that failed to delete' );
-		$this->assertFalse( get_option( 'otsw_legacy_mu_cleared' ), 'must not be marked cleared so the next admin request retries the deletion' );
+		$this->assertNotSame( OTSW_VERSION, get_option( 'otsw_mu_version' ), 'must not be recorded as current so the next admin request retries the deletion' );
 
 		unlink( $legacy_mu ); // tearDown()-equivalent cleanup for this one test's own fixture
+	}
+
+	// ── Activation path (WPR-205: activate() used to bypass this guard) ─────
+
+	/**
+	 * Regression (WPR-205): the legacy-MU-file guard was added only to
+	 * init()'s own calls to install_mu_plugin() — Activator::activate()'s
+	 * own trailing call was left completely unguarded, so activating this
+	 * version on a site with a surviving wcs-cache-bypass.php could install
+	 * otsw-cache-bypass.php right alongside it and fatal the very next
+	 * request. The guard now lives inside install_mu_plugin() itself, so
+	 * every call site — including this one — inherits it automatically.
+	 */
+	public function test_activation_removes_a_surviving_legacy_mu_file_before_installing_the_current_one(): void {
+		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $legacy_mu, '<?php // placeholder' );
+		$this->healthyTables();
+
+		Activator::activate( false );
+
+		$this->assertFileDoesNotExist( $legacy_mu, 'activation must remove a surviving legacy file, not just init()' );
+		$this->assertFileExists( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php' );
+	}
+
+	public function test_activation_skips_mu_install_when_the_legacy_file_cannot_be_deleted(): void {
+		$legacy_mu = WPMU_PLUGIN_DIR . '/wcs-cache-bypass.php';
+		file_put_contents( $legacy_mu, '<?php // placeholder' );
+		$this->healthyTables();
+
+		// Same technique as test_mu_install_is_skipped_when_the_legacy_file_cannot_be_deleted() above.
+		chmod( WPMU_PLUGIN_DIR, 0555 );
+		try {
+			Activator::activate( false );
+		} finally {
+			chmod( WPMU_PLUGIN_DIR, 0755 );
+		}
+
+		$this->assertFileExists( $legacy_mu, 'sanity check: the deletion must have actually failed for this test to prove anything' );
+		$this->assertFileDoesNotExist( WPMU_PLUGIN_DIR . '/otsw-cache-bypass.php', 'activation must never install the new file alongside a legacy file that failed to delete' );
+
+		unlink( $legacy_mu );
 	}
 
 	// ── Cron bootstrap ───────────────────────────────────────────────────────

@@ -40,7 +40,6 @@ class Activator {
 		'otsw_cache_version',
 		'otsw_db_version',
 		'otsw_mu_version',
-		'otsw_legacy_mu_cleared',
 		'otsw_schema_error',
 		'otsw_ft_parser',
 		'otsw_is_indexing',
@@ -177,7 +176,6 @@ class Activator {
 	 * Run on plugin activation.
 	 *
 	 * @param bool $network_wide Whether the plugin is being activated network-wide.
-	 * @codeCoverageIgnore Activation context: multisite loop + requirement gate; exercised only on real activation.
 	 */
 	public static function activate( bool $network_wide = false ): void {
 		self::check_requirements();
@@ -193,7 +191,6 @@ class Activator {
 
 	/**
 	 * Activate a single site's schema, default options, and scheduled jobs.
-	 * @codeCoverageIgnore Activation context.
 	 */
 	private static function activate_single_site(): void {
 		global $wpdb;
@@ -303,29 +300,12 @@ class Activator {
 		// can delete the shared file out from under a different site that
 		// still needs it, while that other site's otsw_mu_version option never
 		// changed. A version-only check would then never notice or repair it.
-		// A pre-rename MU file (wcs-cache-bypass.php) must never coexist with
-		// the current one — see delete_legacy_mu_file()'s docblock for the
-		// fatal this prevents. Checked independently of
-		// migrate_legacy_wcs_prefix()'s wcs_db_version gate above: a site can
-		// reach this state with that option already gone (an earlier partial
-		// migration, a restored backup, or this exact deletion having
-		// silently failed on a locked-down host on a previous request) while
-		// the physical file survives, and install_mu_plugin() below must
-		// never run until this is confirmed true, or it writes the new file
-		// straight into a redeclare fatal. Skipped once confirmed gone
-		// (persisted via otsw_legacy_mu_cleared) so this costs one
-		// autoloaded-option read per admin request in steady state, not a
-		// filesystem stat forever.
-		$legacy_mu_file_gone = (bool) get_option( 'otsw_legacy_mu_cleared', false );
-		if ( is_admin() && ! $legacy_mu_file_gone ) {
-			$legacy_mu_file_gone = self::delete_legacy_mu_file();
-			if ( $legacy_mu_file_gone ) {
-				update_option( 'otsw_legacy_mu_cleared', true, false );
-			}
-		}
-
+		// install_mu_plugin() itself refuses to run while a pre-rename
+		// wcs-cache-bypass.php file survives (see its own docblock) — that
+		// guard lives centrally inside it, not here, so every call site
+		// (this one, and Activator::activate()) inherits it automatically.
 		$mu_file_missing = is_admin() && ! file_exists( trailingslashit( WPMU_PLUGIN_DIR ) . 'otsw-cache-bypass.php' );
-		if ( is_admin() && $legacy_mu_file_gone && ( get_option( 'otsw_mu_version' ) !== OTSW_VERSION || $mu_file_missing ) ) {
+		if ( is_admin() && ( get_option( 'otsw_mu_version' ) !== OTSW_VERSION || $mu_file_missing ) ) {
 			self::install_mu_plugin();
 		}
 
@@ -778,8 +758,32 @@ class Activator {
 	 * Silently skips if the mu-plugins directory is not writable (managed
 	 * hosts that lock that directory will simply fall back to the normal
 	 * REST route with no errors).
+	 *
+	 * Also refuses to run while a pre-rename wcs-cache-bypass.php file
+	 * survives — see delete_legacy_mu_file()'s docblock for the fatal that
+	 * prevents. This check lives here, centrally, rather than at each of
+	 * this method's call sites (Activator::activate(), and twice in
+	 * init()): an earlier version guarded only init()'s call sites and
+	 * missed activate()'s own unconditional call entirely, which could
+	 * install the current file straight into a redeclare fatal on a site
+	 * with a surviving legacy copy. Re-verified fresh every time this
+	 * method actually runs — it's already only called when installing or
+	 * updating the file (version-mismatch or missing-file gated by the
+	 * caller), never on every request, so there's no steady-state cost to
+	 * checking again instead of trusting a cached "already confirmed gone"
+	 * flag that a later, manually reintroduced copy could slip past.
 	 */
 	private static function install_mu_plugin(): void {
+		if ( ! self::delete_legacy_mu_file() ) {
+			// Legacy file still present (deletion failed, or no direct
+			// filesystem access this request) — refuse to install the new
+			// file alongside it. otsw_mu_version is deliberately left
+			// unbumped below so init()'s own version-mismatch check keeps
+			// retrying this on every subsequent admin request until the
+			// legacy file is actually gone.
+			return;
+		}
+
 		$source      = OTSW_PLUGIN_DIR . 'mu-plugin/otsw-cache-bypass.php';
 		$mu_dir      = trailingslashit( WPMU_PLUGIN_DIR );
 		$destination = $mu_dir . 'otsw-cache-bypass.php';

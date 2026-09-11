@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.13
+Stable tag:        1.11.14
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,6 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.14 =
+* Fix: 1.11.13's protection against installing this plugin's MU companion file alongside a leftover copy from an old intermediate build only covered normal updates — activating the plugin fresh on a site with that leftover copy still present could install a second, conflicting copy and make every page fail to load. The same protection now applies everywhere this file gets installed, including activation.
+* Housekeeping: reworded a historical changelog entry (1.11.10) that described a specific real-world symptom more definitively than was actually verified at the time.
+
 = 1.11.13 =
 * Fix: a site updating through an old intermediate build could end up with two copies of this plugin's MU companion file installed at once, which made every page on the site fail to load. Removing the old copy no longer depends on a one-time migration step that may have already run; the new copy is never installed unless the old one is confirmed gone first.
 * Housekeeping: removed the remaining Pro-only multi-currency detection code from this edition's MU companion file — it never had any effect here (this edition always prices in your store's own currency), but it shouldn't have shipped in this edition's files at all.
@@ -96,7 +100,7 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 = 1.11.10 =
 * Renamed: this plugin is now "OzuLabs Turbo Search for WooCommerce" (slug: ozulabs-turbo-search-for-woocommerce). If you're updating from an earlier version, existing settings and your search index carry over automatically.
-* Fix: search results could show a shopper's selected currency's symbol on a price that was never actually converted to it, which could display a badly wrong number. This edition doesn't convert currency, so it now always shows the store's own currency, matching what this readme has always said.
+* Fix: removed code that read a shopper's selected currency and could apply its symbol to search-result prices without converting the underlying amount. This edition doesn't convert currency, so it now always shows the store's own currency and symbol together, matching what this readme has always said.
 * Fix: when a search hit an internal rate limit, the resulting incomplete result could get cached and served to every other shopper searching the same term for up to 24 hours. That kind of result is no longer cached.
 * Fix: a background indexing request could briefly block outbound connections needed by unrelated plugins or payment/webhook calls running in the same batch. That block is now scoped to only this plugin's own indexing work.
 * Housekeeping: removed several inactive, Pro-only code paths that had no effect in this Free edition (ranking by recent sales, synonym matching, corrected-query and category-suggestion UI).

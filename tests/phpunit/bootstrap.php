@@ -487,6 +487,22 @@ function get_user_meta( int $user_id, string $key, bool $single = false ) {
 	return $GLOBALS['otsw_test_user_meta'][ $user_id ][ $key ] ?? '';
 }
 
+// ── Activation seam: wp_die() throws instead of exit — lets
+// Activator::check_requirements() run for real in a test (e.g. a genuine
+// activation-path test) without actually halting the process. WooCommerce
+// is stubbed present by default, matching every real install this plugin
+// supports; a test that wants to simulate WooCommerce missing can
+// temporarily rename/unset the class, though none currently need to.
+class WooCommerce {}
+class OTSW_Test_WPDie extends Exception {
+	public function __construct( public $message_html, public string $title = '', public array $args = array() ) {
+		parent::__construct( 'wp_die' );
+	}
+}
+function wp_die( $message = '', $title = '', $args = array() ): void {
+	throw new OTSW_Test_WPDie( $message, (string) $title, (array) $args );
+}
+
 // ── Assets / frontend ──────────────────────────────────────────────────────
 function wp_enqueue_style( string $handle, string $src = '', array $deps = array(), $ver = false ): void {
 	$GLOBALS['otsw_test_enqueued']['style'][] = $handle;
