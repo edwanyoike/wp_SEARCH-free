@@ -2,14 +2,14 @@
 # This file is distributed under the GPLv2 or later.
 msgid ""
 msgstr ""
-"Project-Id-Version: OzuLabs Turbo Search for WooCommerce 1.11.21\n"
+"Project-Id-Version: OzuLabs Turbo Search for WooCommerce 1.11.22\n"
 "Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/ozulabs-turbo-search-for-woocommerce\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
 "MIME-Version: 1.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
-"POT-Creation-Date: 2026-09-11T09:31:53+00:00\n"
+"POT-Creation-Date: 2026-09-11T09:52:02+00:00\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "X-Generator: WP-CLI 2.12.0\n"
 "X-Domain: ozulabs-turbo-search-for-woocommerce\n"
@@ -208,6 +208,18 @@ msgstr ""
 
 #: includes/class-admin-settings.php:526
 msgid "Action Scheduler is not available. Please ensure WooCommerce is active."
+msgstr ""
+
+#. translators: %s: human-readable time ago string
+#: includes/class-admin-settings.php:766
+#: includes/views/tab-settings.php:50
+#, php-format
+msgid "Last successful index: %s ago"
+msgstr ""
+
+#: includes/class-admin-settings.php:769
+#: includes/views/tab-settings.php:53
+msgid "Last successful index: never"
 msgstr ""
 
 #: includes/class-frontend.php:71
@@ -567,16 +579,6 @@ msgstr ""
 
 #: includes/views/tab-settings.php:21
 msgid "Index Status"
-msgstr ""
-
-#. translators: %s: human-readable time ago string
-#: includes/views/tab-settings.php:50
-#, php-format
-msgid "Last successful index: %s ago"
-msgstr ""
-
-#: includes/views/tab-settings.php:53
-msgid "Last successful index: never"
 msgstr ""
 
 #: includes/views/tab-settings.php:67

@@ -3,6 +3,9 @@
 Older release notes for Turbo Search for WooCommerce (Free). See readme.txt
 for the current and immediately previous release.
 
+= 1.11.20 =
+* Fix: on a store using a currency-switcher plugin, this edition's search dropdown could show a price with the shopper's currently-selected currency symbol while the number itself was still in the store's real default currency (this edition never converts prices — that's a Pro feature). Caused by reading the currency symbol through a WooCommerce function that switcher plugins commonly redirect to the shopper's selection; now reads the store's actually-configured default currency directly, so the symbol shown always matches the amount.
+
 = 1.11.19 =
 * Added: an "Upgrade to Pro" link on this plugin's own row on the Installed Plugins screen, next to Settings/Deactivate — links out to the Pro product page. Hidden automatically if Pro is already active on the site.
 

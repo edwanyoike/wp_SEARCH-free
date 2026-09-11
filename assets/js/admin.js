@@ -66,6 +66,7 @@
 		const spinner         = document.getElementById('otsw-rebuild-spinner');
 		const statusWrapper   = document.getElementById('otsw-status-wrapper');
 		const progressWrapper = document.getElementById('otsw-progress-wrapper');
+		const lastIndexedWrapper = document.getElementById('otsw-last-indexed');
 		const errorWrapper    = document.getElementById('otsw-rebuild-error');
 		if (!statusWrapper) return; // App Data/Docs tab — nothing else to control.
 
@@ -127,6 +128,13 @@
 					const processed = parseInt(data.processed, 10);
 					const total = parseInt(data.total, 10);
 					progressWrapper.textContent = fmtProgress(processed, total);
+					// Server-rendered with the same human_time_diff() call the
+					// page's own initial load uses — polling only runs while
+					// indexing, so this is what moves "X ago" forward the
+					// moment a rebuild finishes without a full page reload.
+					if (lastIndexedWrapper && data.last_indexed_label) {
+						lastIndexedWrapper.textContent = data.last_indexed_label;
+					}
 					if (data.is_indexing) {
 						setStatus(phaseLabel(data), '#d63638');
 						showRebuildError(''); // only relevant once idle

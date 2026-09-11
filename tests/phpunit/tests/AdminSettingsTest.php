@@ -127,6 +127,32 @@ final class AdminSettingsTest extends TestCase {
 		$this->assertSame( 42, $r->payload['total'] );
 	}
 
+	/**
+	 * The "Last successful index: X ago" line is only ever server-rendered
+	 * on full page load — this poll response is what the JS uses to move it
+	 * forward once a rebuild finishes without needing a reload. Must match
+	 * tab-settings.php's own human_time_diff() call/wording exactly, or the
+	 * two would visibly disagree.
+	 */
+	public function test_status_includes_a_last_indexed_label_matching_the_page_render(): void {
+		update_option( 'otsw_last_indexed', time() - 45 );
+
+		$r = $this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame(
+			sprintf( 'Last successful index: %s ago', human_time_diff( time() - 45 ) ),
+			$r->payload['last_indexed_label']
+		);
+	}
+
+	public function test_status_reports_never_indexed_when_no_successful_index_yet(): void {
+		delete_option( 'otsw_last_indexed' );
+
+		$r = $this->ajax( array( Admin_Settings::class, 'ajax_get_index_status' ) );
+
+		$this->assertSame( 'Last successful index: never', $r->payload['last_indexed_label'] );
+	}
+
 	public function test_status_caps_processed_at_total(): void {
 		$GLOBALS['otsw_test_publish_count'] = 10;
 		update_option( 'otsw_reindex_processed', 25 ); // retried batches double-count

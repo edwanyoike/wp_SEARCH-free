@@ -752,15 +752,32 @@ class Admin_Settings {
 		// reflects the current (not some earlier) idle state.
 		$last_error = $is_indexing ? '' : (string) get_option( 'otsw_last_rebuild_error', '' );
 
+		// Pre-rendered exactly like the "Last successful index" line in
+		// tab-settings.php's own initial page render (same human_time_diff()
+		// call and translation string) — the JS side just swaps this text in
+		// rather than reimplementing the relative-time formatting itself.
+		// Polling only runs while indexing, so this is what actually moves
+		// "23 seconds ago" forward the moment a rebuild finishes; without it
+		// the line was frozen at whatever it said on the last full page load.
+		$last_indexed_ts    = (int) get_option( 'otsw_last_indexed', 0 );
+		$last_indexed_label = $last_indexed_ts > 0
+			? sprintf(
+				/* translators: %s: human-readable time ago string */
+				__( 'Last successful index: %s ago', 'ozulabs-turbo-search-for-woocommerce' ),
+				human_time_diff( $last_indexed_ts )
+			)
+			: __( 'Last successful index: never', 'ozulabs-turbo-search-for-woocommerce' );
+
 		wp_send_json_success( array(
-			'is_indexing' => $is_indexing,
-			'processed'   => $processed,
-			'total'       => $total,
-			'phase'       => $phase,
-			'cursor'      => $cursor,
-			'recovering'  => $recovering,
-			'stall_secs'  => $stall_secs,
-			'last_error'  => $last_error,
+			'is_indexing'        => $is_indexing,
+			'processed'          => $processed,
+			'total'              => $total,
+			'last_indexed_label' => $last_indexed_label,
+			'phase'              => $phase,
+			'cursor'             => $cursor,
+			'recovering'         => $recovering,
+			'stall_secs'         => $stall_secs,
+			'last_error'         => $last_error,
 		) );
 	}
 }
