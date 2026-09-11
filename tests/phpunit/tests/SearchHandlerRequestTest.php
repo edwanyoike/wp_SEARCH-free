@@ -193,6 +193,28 @@ final class SearchHandlerRequestTest extends TestCase {
 		$this->assertArrayHasKey( Query_Normalizer::cache_key( 'lamp', 'USD', 1 ), $GLOBALS['otsw_test_transients']['data'] );
 	}
 
+	/**
+	 * WPR-208: a currency-switcher plugin commonly filters
+	 * get_woocommerce_currency() to the shopper's selection (e.g. EUR) while
+	 * the store's actual configured default (the woocommerce_currency
+	 * option) stays unchanged (e.g. USD). The MU cache-bypass companion
+	 * always keys on the raw option, never the filtered function — this
+	 * path must key on exactly the same value, or a switcher session makes
+	 * the two paths permanently disagree: REST caches under the filtered
+	 * currency while the MU fast path only ever looks under the raw one, so
+	 * the fast path silently never finds what REST just cached.
+	 */
+	public function test_cache_key_uses_the_raw_store_option_even_when_a_switcher_filters_get_woocommerce_currency(): void {
+		$GLOBALS['otsw_test_switched_currency'] = 'EUR';
+		$this->scriptRows( array( $this->row( 1, '100.00' ) ) );
+
+		$response = $this->request( array( 'q' => 'lamp' ) );
+
+		$this->assertSame( '100.00', $response->data[0]['price_min'] );
+		$key = Query_Normalizer::cache_key( 'lamp', 'USD', 1 );
+		$this->assertArrayHasKey( $key, $GLOBALS['otsw_test_transients']['data'], 'must cache under the raw store-default (USD) key, matching the MU fast path, not the switcher-filtered (EUR) one' );
+	}
+
 	// ── First-run window ─────────────────────────────────────────────────────
 
 	public function test_first_run_empty_results_signal_indexing_and_are_not_cached(): void {

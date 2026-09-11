@@ -110,8 +110,14 @@ class Search_Handler {
 		}
 
 		// Multi-currency price conversion is a Pro feature — this edition always
-		// serves prices in the store's default currency.
-		$currency = function_exists( 'get_woocommerce_currency' ) ? get_woocommerce_currency() : get_option( 'woocommerce_currency', 'USD' );
+		// serves prices in the store's default currency. get_woocommerce_currency()
+		// is filterable, and a currency-switcher plugin commonly redirects it to
+		// the shopper's selected currency; the MU cache-bypass companion (which
+		// must compute an identical key for a cache hit to ever be found) reads
+		// the raw option directly for that same reason — match it here, or a
+		// switcher session diverges the two paths' keys and the MU fast path
+		// never finds what REST just cached.
+		$currency = get_option( 'woocommerce_currency', 'USD' );
 
 		$cache_version = (int) get_option( 'otsw_cache_version', 1 );
 		$cache_key     = Query_Normalizer::cache_key( $query, $currency, $cache_version );

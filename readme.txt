@@ -5,7 +5,7 @@ Requires at least: 6.5
 Tested up to:      7.1
 Requires PHP:      8.0
 Requires Plugins:  woocommerce
-Stable tag:        1.11.20
+Stable tag:        1.11.21
 License:           GPLv2 or later
 License URI:       https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -81,10 +81,10 @@ Optionally, yes — "Recent Searches" (on by default, adjustable or disable-able
 
 == Changelog ==
 
+= 1.11.21 =
+* Fix: on a store using a currency-switcher plugin, this edition's REST search endpoint and its MU fast-path companion could compute different cache keys for the same, identical (unconverted) result — the REST path derived currency from a WooCommerce function switcher plugins commonly redirect to the shopper's selection, while the MU path already correctly used the store's raw configured default. This didn't affect what shoppers saw (both paths always serve the store default), but it silently defeated the MU fast path for switcher sessions and fragmented the cache into one redundant copy per selected currency. Both paths now derive currency the same way.
+
 = 1.11.20 =
 * Fix: on a store using a currency-switcher plugin, this edition's search dropdown could show a price with the shopper's currently-selected currency symbol while the number itself was still in the store's real default currency (this edition never converts prices — that's a Pro feature). Caused by reading the currency symbol through a WooCommerce function that switcher plugins commonly redirect to the shopper's selection; now reads the store's actually-configured default currency directly, so the symbol shown always matches the amount.
-
-= 1.11.19 =
-* Added: an "Upgrade to Pro" link on this plugin's own row on the Installed Plugins screen, next to Settings/Deactivate — links out to the Pro product page. Hidden automatically if Pro is already active on the site.
 
 See changelog.txt for older releases.
